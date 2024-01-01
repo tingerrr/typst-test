@@ -1,0 +1,13 @@
+[package]
+name = "typst-test"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = { version = "1.0.78", features = ["backtrace"] }
+clap = { version = "4.4.12", features = ["derive"] }
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+tracing-tree = "0.3.0"
