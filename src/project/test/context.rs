@@ -5,6 +5,8 @@ use std::process::Command;
 use std::sync::{Mutex, MutexGuard};
 use std::{fs, io};
 
+use image::{ImageResult, RgbImage};
+
 use super::{
     CleanupFailure, CompareFailure, ComparePageFailure, CompileFailure, PrepareFailure, Stage,
     Test, TestFailure, TestResult,
@@ -179,7 +181,7 @@ impl TestContext<'_> {
         let mut pages = vec![];
 
         for (idx, (out_entry, ref_entry)) in out_entries.into_iter().zip(ref_entries).enumerate() {
-            if let Err(err) = self.compare_page(&out_entry.path(), &ref_entry.path())? {
+            if let Err(err) = self.compare_page(idx + 1, &out_entry.path(), &ref_entry.path())? {
                 pages.push((idx, err));
                 if self.project_context.fail_fast {
                     return Ok(Err(CompareFailure::Page { pages }));
@@ -194,9 +196,10 @@ impl TestContext<'_> {
         Ok(Ok(()))
     }
 
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, fields(page = ?page_number))]
     pub fn compare_page(
         &self,
+        page_number: usize,
         out_file: &Path,
         ref_file: &Path,
     ) -> ContextResult<ComparePageFailure> {
@@ -221,6 +224,8 @@ impl TestContext<'_> {
 
         for (out_px, ref_px) in out_image.pixels().zip(ref_image.pixels()) {
             if out_px != ref_px {
+                self.save_diff_page(page_number, &out_image, &ref_image)
+                    .map_err(|e| Error::image(Stage::Comparison, e))?;
                 return Ok(Err(ComparePageFailure::Content));
             }
         }
@@ -228,6 +233,32 @@ impl TestContext<'_> {
         // TODO: diff image
 
         Ok(Ok(()))
+    }
+
+    #[tracing::instrument(skip_all, fields(page = ?page_number))]
+    pub fn save_diff_page(
+        &self,
+        page_number: usize,
+        out_image: &RgbImage,
+        ref_image: &RgbImage,
+    ) -> ImageResult<()> {
+        let mut diff_image = out_image.clone();
+
+        for (out_px, ref_px) in diff_image.pixels_mut().zip(ref_image.pixels()) {
+            out_px.0[0] = u8::abs_diff(out_px.0[0], ref_px.0[0]);
+            out_px.0[1] = u8::abs_diff(out_px.0[1], ref_px.0[1]);
+            out_px.0[2] = u8::abs_diff(out_px.0[2], ref_px.0[2]);
+        }
+
+        let path = self
+            .diff_dir
+            .join(page_number.to_string())
+            .with_extension("png");
+
+        tracing::debug!(?path, "saving diff image");
+        diff_image.save(path)?;
+
+        Ok(())
     }
 }
 
