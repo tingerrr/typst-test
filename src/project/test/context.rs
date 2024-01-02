@@ -1,22 +1,29 @@
-use std::fs;
+use std::collections::HashMap;
+use std::fmt::{Debug, Display};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Mutex, MutexGuard};
+use std::{fs, io};
 
-use anyhow::Context as _;
-
-use super::Test;
+use super::{
+    CleanupFailure, CompareFailure, ComparePageFailure, CompileFailure, PrepareFailure, Stage,
+    Test, TestFailure, TestResult,
+};
 use crate::project::Project;
 use crate::util;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Context {
     project: Project,
     typst: PathBuf,
+    fail_fast: bool,
+    results: Mutex<HashMap<Test, TestResult>>,
 }
 
-#[derive(Debug, Clone)]
-pub struct TestContext<'a> {
-    project_context: &'a Context,
+#[derive(Debug)]
+pub struct TestContext<'ctx> {
+    project_context: &'ctx Context,
+    test: Test,
     typ_file: PathBuf,
     out_dir: PathBuf,
     ref_dir: PathBuf,
@@ -24,12 +31,16 @@ pub struct TestContext<'a> {
 }
 
 impl Context {
-    pub fn new(project: Project, typst: PathBuf) -> Self {
-        Self { project, typst }
+    pub fn new(project: Project, typst: PathBuf, fail_fast: bool) -> Self {
+        Self {
+            project,
+            typst,
+            fail_fast,
+            results: Mutex::new(HashMap::new()),
+        }
     }
 
-    #[tracing::instrument(skip_all, fields(name = test.name))]
-    pub fn test(&self, test: &Test) -> TestContext<'_> {
+    pub fn test<'ctx>(&'ctx self, test: &Test) -> TestContext<'ctx> {
         let dir = self.project.test_dir();
         let typ_dir = dir.join("typ").join(&test.name);
         let out_dir = dir.join("out").join(&test.name);
@@ -45,78 +56,240 @@ impl Context {
 
         TestContext {
             project_context: self,
+            test: test.clone(),
             typ_file,
             out_dir,
             ref_dir,
             diff_dir,
         }
     }
+
+    pub fn results(&self) -> MutexGuard<'_, HashMap<Test, TestResult>> {
+        self.results.lock().unwrap()
+    }
 }
 
 impl TestContext<'_> {
-    #[tracing::instrument(skip_all)]
-    pub fn prepare(&self) -> anyhow::Result<()> {
-        fs::create_dir_all(&self.out_dir)
-            .with_context(|| format!("creating out dir: {:?}", self.out_dir))?;
-        fs::create_dir_all(&self.ref_dir)
-            .with_context(|| format!("creating ref dir: {:?}", &self.ref_dir))?;
-        fs::create_dir_all(&self.diff_dir)
-            .with_context(|| format!("creating diff dir: {:?}", self.diff_dir))?;
-        Ok(())
+    #[tracing::instrument(skip(self))]
+    pub fn register_result(&self, result: TestResult) {
+        let mut results = self.project_context.results.lock().unwrap();
+        results.insert(self.test.clone(), result);
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn cleanup(&self) -> anyhow::Result<()> {
-        Ok(())
+    pub fn run(&self) -> ContextResult<TestFailure> {
+        macro_rules! bail_if_fail_fast {
+            ($err:expr) => {
+                let err: TestFailure = $err.into();
+                self.register_result(Err(err.clone()));
+                if self.project_context.fail_fast {
+                    return Ok(Err(err));
+                } else {
+                    return Ok(Ok(()));
+                }
+            };
+        }
+
+        if let Err(err) = self.prepare()? {
+            bail_if_fail_fast!(err);
+        }
+
+        if let Err(err) = self.compile()? {
+            bail_if_fail_fast!(err);
+        }
+
+        if let Err(err) = self.compare()? {
+            bail_if_fail_fast!(err);
+        }
+
+        if let Err(err) = self.cleanup()? {
+            bail_if_fail_fast!(err);
+        }
+
+        self.register_result(Ok(()));
+        Ok(Ok(()))
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn compile(&self) -> anyhow::Result<()> {
+    pub fn prepare(&self) -> ContextResult<PrepareFailure> {
+        let err_fn = |t, d| format!("creating {}, dir: {:?}", t, d);
+        let dirs = [
+            ("out", &self.out_dir),
+            ("ref", &self.ref_dir),
+            ("diff", &self.diff_dir),
+        ];
+
+        for (t, p) in dirs {
+            fs::create_dir_all(p)
+                .map_err(|e| Error::io(Stage::Preparation, e).context(err_fn(t, p)))?;
+        }
+
+        Ok(Ok(()))
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub fn cleanup(&self) -> ContextResult<CleanupFailure> {
+        Ok(Ok(()))
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub fn compile(&self) -> ContextResult<CompileFailure> {
         let mut typst = Command::new(&self.project_context.typst);
         typst.args(["compile", "--root"]);
         typst.arg(self.project_context.project.root());
         typst.arg(&self.typ_file);
         typst.arg(self.out_dir.join("{n}").with_extension("png"));
 
-        let res = typst.output()?;
-        if !res.status.success() {
-            todo!("compile");
+        let output = typst
+            .output()
+            .map_err(|e| Error::io(Stage::Compilation, e).context("executing typst"))?;
+
+        if !output.status.success() {
+            return Ok(Err(CompileFailure {
+                args: typst.get_args().map(ToOwned::to_owned).collect(),
+                output,
+            }));
         }
 
-        Ok(())
+        Ok(Ok(()))
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn compare(&self) -> anyhow::Result<()> {
-        let mut out_entries = util::fs::collect_dir_entries(&self.out_dir)
-            .with_context(|| format!("reading out directory: {:?}", &self.out_dir))?;
+    pub fn compare(&self) -> ContextResult<CompareFailure> {
+        let mut out_entries = util::fs::collect_dir_entries(&self.out_dir).map_err(|e| {
+            Error::io(Stage::Comparison, e)
+                .context(format!("reading out directory: {:?}", &self.out_dir))
+        })?;
 
-        let mut ref_entries = util::fs::collect_dir_entries(&self.ref_dir)
-            .with_context(|| format!("reading ref directory: {:?}", &self.ref_dir))?;
+        let mut ref_entries = util::fs::collect_dir_entries(&self.ref_dir).map_err(|e| {
+            Error::io(Stage::Comparison, e)
+                .context(format!("reading ref directory: {:?}", &self.ref_dir))
+        })?;
 
         out_entries.sort_by_key(|t| t.file_name());
         ref_entries.sort_by_key(|t| t.file_name());
 
         if out_entries.len() != ref_entries.len() {
-            todo!("lengths");
+            return Ok(Err(CompareFailure::PageCount {
+                output: out_entries.len(),
+                reference: ref_entries.len(),
+            }));
         }
 
-        for (out_entry, ref_entry) in out_entries.into_iter().zip(ref_entries) {
-            self.compare_page(&out_entry.path(), &ref_entry.path())?;
+        let mut pages = vec![];
+
+        for (idx, (out_entry, ref_entry)) in out_entries.into_iter().zip(ref_entries).enumerate() {
+            if let Err(err) = self.compare_page(&out_entry.path(), &ref_entry.path())? {
+                pages.push((idx, err));
+                if self.project_context.fail_fast {
+                    return Ok(Err(CompareFailure::Page { pages }));
+                }
+            }
+        }
+
+        if !pages.is_empty() {
+            return Ok(Err(CompareFailure::Page { pages }));
+        }
+
+        Ok(Ok(()))
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub fn compare_page(
+        &self,
+        out_file: &Path,
+        ref_file: &Path,
+    ) -> ContextResult<ComparePageFailure> {
+        let out_image = image::open(out_file)
+            .map_err(|e| {
+                Error::image(Stage::Comparison, e).context(format!("reading image: {:?}", out_file))
+            })?
+            .into_rgb8();
+
+        let ref_image = image::open(ref_file)
+            .map_err(|e| {
+                Error::image(Stage::Comparison, e).context(format!("reading image: {:?}", ref_file))
+            })?
+            .into_rgb8();
+
+        if out_image.dimensions() != ref_image.dimensions() {
+            return Ok(Err(ComparePageFailure::Dimensions {
+                output: out_image.dimensions(),
+                reference: ref_image.dimensions(),
+            }));
+        }
+
+        for (out_px, ref_px) in out_image.pixels().zip(ref_image.pixels()) {
+            if out_px != ref_px {
+                return Ok(Err(ComparePageFailure::Content));
+            }
+        }
+
+        // TODO: diff image
+
+        Ok(Ok(()))
+    }
+}
+
+pub type ContextResult<E = TestFailure> = Result<TestResult<E>, Error>;
+
+#[derive(Debug)]
+enum ErrorImpl {
+    Io(io::Error),
+    Image(image::ImageError),
+}
+
+pub struct Error {
+    inner: ErrorImpl,
+    context: Option<String>,
+    stage: Stage,
+}
+
+impl Error {
+    fn io(stage: Stage, error: io::Error) -> Self {
+        Self {
+            inner: ErrorImpl::Io(error),
+            context: None,
+            stage,
+        }
+    }
+
+    fn image(stage: Stage, error: image::ImageError) -> Self {
+        Self {
+            inner: ErrorImpl::Image(error),
+            context: None,
+            stage,
+        }
+    }
+
+    fn context<S: Into<String>>(mut self, context: S) -> Self {
+        self.context = Some(context.into());
+        self
+    }
+}
+
+impl Debug for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(&self.inner, f)
+    }
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} stage failed", self.stage)?;
+        if let Some(ctx) = &self.context {
+            write!(f, " while {ctx}")?;
         }
 
         Ok(())
     }
+}
 
-    #[tracing::instrument(skip_all)]
-    pub fn compare_page(&self, out_file: &Path, ref_file: &Path) -> anyhow::Result<()> {
-        let out_data = fs::read(out_file)?;
-        let ref_data = fs::read(ref_file)?;
-
-        if out_data != ref_data {
-            todo!("data");
-        }
-
-        Ok(())
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(match &self.inner {
+            ErrorImpl::Io(e) => e,
+            ErrorImpl::Image(e) => e,
+        })
     }
 }

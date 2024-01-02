@@ -1,13 +1,15 @@
 use std::{fs, thread};
 
 use clap::Parser;
-use tracing::level_filters::LevelFilter;
+use project::test::context::ContextResult;
+use tracing::Level;
 use tracing_subscriber::filter::Targets;
 use tracing_subscriber::prelude::*;
 use tracing_tree::HierarchicalLayer;
 
 use self::project::test::context::Context;
 use self::project::Project;
+use crate::project::test::{CompareFailure, TestFailure};
 
 mod cli;
 mod project;
@@ -18,7 +20,7 @@ fn main() -> anyhow::Result<()> {
 
     tracing_subscriber::registry()
         .with(HierarchicalLayer::new(4).with_targets(true))
-        .with(Targets::new().with_target(std::env!("CARGO_CRATE_NAME"), LevelFilter::DEBUG))
+        .with(Targets::new().with_target(std::env!("CARGO_CRATE_NAME"), Level::INFO))
         .init();
 
     let root = if let Some(root) = args.root {
@@ -33,26 +35,61 @@ fn main() -> anyhow::Result<()> {
         if let Some(root) = project::try_find_project_root(&pwd)? {
             root
         } else {
-            anyhow::bail!("must but inside a typst project or pass the project root using --root");
+            anyhow::bail!("must be inside a typst project or pass the project root using --root");
         }
     };
 
     let mut project = Project::new(root, Some("tests".into()));
     project.load_tests()?;
 
-    let ctx = Context::new(project.clone(), args.typst);
+    // TODO: fail_fast currently doesn't really do anything other than returning early, other tests
+    //       still run, this makes sense as we're not stopping the other threads just yet
+    let ctx = Context::new(project.clone(), args.typst, args.fail_fast);
 
     // wow rust makes this so easy
-    thread::scope(|scope| -> anyhow::Result<()> {
-        for test in project.tests() {
-            scope.spawn(|| -> anyhow::Result<()> {
-                test.run(&ctx)?;
-                Ok(())
-            });
-        }
+    let _ = thread::scope(|scope| {
+        let handles: Vec<_> = project
+            .tests()
+            .into_iter()
+            .map(|test| scope.spawn(|| test.run(&ctx)))
+            .collect();
 
-        Ok(())
+        handles
+            .into_iter()
+            .map(|h| h.join().unwrap())
+            .collect::<ContextResult>()
     })?;
+
+    let present_ok = |n: &str| {
+        println!("{}: success", n);
+    };
+
+    // removing the type hint makes causes the first usage to infer a longer lifetime than the
+    // latter usage can satisfy
+    let present_err = |n: &str, e| {
+        println!("{}: failed", n);
+
+        match e {
+            TestFailure::Preparation(e) => println!("  {}", e),
+            TestFailure::Cleanup(e) => println!("  {}", e),
+            TestFailure::Compilation(e) => println!("  {}", e),
+            TestFailure::Comparison(CompareFailure::Page { pages }) => {
+                for p in pages {
+                    println!("  page {}: {}", p.0, p.1);
+                }
+            }
+            TestFailure::Comparison(e) => println!("  {}", e),
+        }
+    };
+
+    for (test, res) in ctx.results().clone() {
+        match res {
+            Ok(_) => present_ok(test.name()),
+            Err(e) => {
+                present_err(test.name(), e);
+            }
+        }
+    }
 
     Ok(())
 }
