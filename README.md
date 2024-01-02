@@ -24,9 +24,5 @@ the tests `test1` and `test2/test.typ` are run respectively and in parallel, onc
 a `out/<test>`, `ref/<test>` and `diff/<test>` are created if they don't already exist. Then the
 test is compiled using typst and the outputs in `out/<test>` and `ref/<test>` are compared.
 
-If any test fails, the program currently crashes with a `todo!` panic. Once the initial feature
-set is finished it, will gracefully list all failed tests, in which stage they failed and related
-information, as well as creating a visual diff inside `diff/<test>`.
-
 The name is currently a placeholder and the delegation of compilation to `typst` as a binary keeps
 the project simple for now. This may change in the future.
