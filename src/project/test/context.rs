@@ -116,12 +116,19 @@ impl TestContext<'_> {
     pub fn prepare(&self) -> ContextResult<PrepareFailure> {
         let err_fn = |t, d| format!("creating {}, dir: {:?}", t, d);
         let dirs = [
-            ("out", &self.out_dir),
-            ("ref", &self.ref_dir),
-            ("diff", &self.diff_dir),
+            ("out", &self.out_dir, true),
+            ("ref", &self.ref_dir, false),
+            ("diff", &self.diff_dir, true),
         ];
 
-        for (t, p) in dirs {
+        for (t, p, clear) in dirs {
+            if clear
+                && p.try_exists()
+                    .map_err(|e| Error::io(Stage::Preparation, e))?
+            {
+                fs::remove_dir_all(p).map_err(|e| Error::io(Stage::Preparation, e))?;
+            }
+
             fs::create_dir_all(p)
                 .map_err(|e| Error::io(Stage::Preparation, e).context(err_fn(t, p)))?;
         }
