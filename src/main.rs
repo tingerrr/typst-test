@@ -47,6 +47,7 @@ fn main() -> anyhow::Result<()> {
     let ctx = Context::new(project.clone(), args.typst, args.fail_fast);
 
     // wow rust makes this so easy
+    // TODO: inner result ignored as it is registered anyway, see above
     let _ = thread::scope(|scope| {
         let handles: Vec<_> = project
             .tests()
@@ -72,17 +73,46 @@ fn main() -> anyhow::Result<()> {
         match e {
             TestFailure::Preparation(e) => println!("  {}", e),
             TestFailure::Cleanup(e) => println!("  {}", e),
-            TestFailure::Compilation(e) => println!("  {}", e),
+            TestFailure::Compilation(e) => {
+                let present_buffer = |buffer: Vec<u8>| {
+                    if buffer.is_empty() {
+                        return;
+                    }
+
+                    if let Ok(s) = std::str::from_utf8(&buffer) {
+                        for line in s.lines() {
+                            println!("    {line}");
+                        }
+                    } else {
+                        println!("    buffer was not valid utf8:");
+                        println!("    {buffer:?}");
+                    }
+                };
+
+                println!("  compilation failed");
+                present_buffer(e.output.stdout);
+                present_buffer(e.output.stderr);
+            }
+            TestFailure::Comparison(CompareFailure::PageCount { output, reference }) => {
+                println!(
+                    "  expected {} page{}, got {} page{}",
+                    reference,
+                    if reference == 1 { "" } else { "s" },
+                    output,
+                    if output == 1 { "" } else { "s" },
+                );
+            }
             TestFailure::Comparison(CompareFailure::Page { pages }) => {
                 for p in pages {
                     println!("  page {}: {}", p.0, p.1);
                 }
             }
-            TestFailure::Comparison(e) => println!("  {}", e),
         }
     };
 
     for (test, res) in ctx.results().clone() {
+        println!();
+
         match res {
             Ok(_) => present_ok(test.name()),
             Err(e) => {
