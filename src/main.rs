@@ -114,8 +114,6 @@ fn run(
 fn main() -> anyhow::Result<()> {
     let args = cli::Args::parse();
 
-    anyhow::ensure!(!args.interactive, "interactive mode is not yet implemented");
-
     tracing_subscriber::registry()
         .with(HierarchicalLayer::new(4).with_targets(true))
         .with(Targets::new().with_target(std::env!("CARGO_CRATE_NAME"), Level::TRACE))

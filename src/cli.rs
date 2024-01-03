@@ -15,10 +15,6 @@ pub struct Args {
     #[arg(long, global = true)]
     pub fail_fast: bool,
 
-    /// Whether to interactively ask for updates when tests change
-    #[arg(long, short, global = true)]
-    pub interactive: bool,
-
     /// The sub command to execute
     #[command(subcommand)]
     pub cmd: Command,
