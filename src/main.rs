@@ -98,8 +98,6 @@ fn run(
     };
 
     for (test, res) in ctx.results().clone() {
-        println!();
-
         match res {
             Ok(_) => present_ok(test.name()),
             Err(e) => {
