@@ -14,7 +14,7 @@ pub mod fs {
         }
     }
 
-    pub fn collect_dir_entries(path: &Path) -> io::Result<Vec<DirEntry>> {
+    pub fn collect_dir_entries<P: AsRef<Path>>(path: P) -> io::Result<Vec<DirEntry>> {
         fs::read_dir(path)?.collect::<io::Result<Vec<DirEntry>>>()
     }
 
@@ -38,7 +38,7 @@ pub mod fs {
                 return fs::remove_dir_all(path);
             }
 
-            fs::create_dir(path)
+            fs::remove_dir(path)
         }
 
         ignore_subset(inner(path.as_ref(), all), |e| {

@@ -45,7 +45,7 @@ pub enum Command {
     Compile(TestArgs),
 
     /// Update tests
-    Update,
+    Update(TestArgs),
 }
 
 #[derive(clap::Parser, Debug, Clone)]

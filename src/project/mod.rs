@@ -206,4 +206,30 @@ impl Project {
 
         Ok(())
     }
+
+    #[tracing::instrument(skip_all)]
+    pub fn update_tests(&self, filter: Option<String>) -> io::Result<()> {
+        let filter = filter.as_deref().unwrap_or_default();
+        self.tests
+            .iter()
+            .map(Test::name)
+            .filter(|test| test.contains(filter))
+            .map(|test| {
+                tracing::debug!(?test, "updating references");
+                let out_dir = test_out_dir(&self.root).join(test);
+                let ref_dir = test_ref_dir(&self.root).join(test);
+
+                util::fs::ensure_dir(&out_dir, false)?;
+                util::fs::ensure_remove_dir(&ref_dir, true)?;
+                util::fs::ensure_dir(&ref_dir, false)?;
+
+                for entry in util::fs::collect_dir_entries(&out_dir)? {
+                    let name = entry.file_name();
+                    fs::copy(entry.path(), ref_dir.join(name))?;
+                }
+
+                Ok(())
+            })
+            .collect()
+    }
 }

@@ -167,9 +167,13 @@ fn main() -> anyhow::Result<()> {
 
             return Ok(());
         }
-        cli::Command::Update => todo!(),
-        cli::Command::Compile(test_args) => (test_args.test, false),
-        cli::Command::Run(test_args) => (test_args.test, true),
+        cli::Command::Update(args) => {
+            project.load_tests()?;
+            project.update_tests(args.test)?;
+            return Ok(());
+        }
+        cli::Command::Compile(args) => (args.test, false),
+        cli::Command::Run(args) => (args.test, true),
     };
 
     run(project, args.typst, args.fail_fast, compare, test)
