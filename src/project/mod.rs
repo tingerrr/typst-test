@@ -80,71 +80,6 @@ pub fn try_find_project_root(pwd: &Path) -> io::Result<Option<PathBuf>> {
     Ok(None)
 }
 
-pub fn try_create_tests_scaffold(root: &Path, mode: ScaffoldMode) -> io::Result<()> {
-    let test_dir = test_dir(root);
-    let typ_dir = test_script_dir(root);
-
-    // NOTE: we want to fail if `root` doesn't exist, so we create the test folder individually
-    //       if this passed anything we create after this must have an existing root
-    util::fs::ensure_dir(&test_dir, false)?;
-    util::fs::ensure_dir(&typ_dir, true)?;
-
-    let mut file = File::options()
-        .read(true)
-        .append(true)
-        .create(true)
-        .open(test_dir.join(".gitignore"))?;
-
-    let mut buffer = String::new();
-    file.read_to_string(&mut buffer)?;
-
-    let exisitng: HashSet<&str> = buffer.lines().collect();
-    if !exisitng.is_empty() {
-        if !buffer.is_empty() {
-            file.write_all(b"\n")?;
-        }
-
-        file.write_all(b"# added by typst-test\n")?;
-        for pattern in DEFAULT_GIT_IGNORE_LINES {
-            if !exisitng.contains(pattern) {
-                file.write_all(pattern.as_bytes())?;
-            }
-        }
-    }
-
-    if mode == ScaffoldMode::WithExample {
-        if fs::read_dir(&typ_dir)?.next().is_some_and(|r| r.is_ok()) {
-            return Ok(());
-        }
-
-        let example_input = typ_dir.join("test").with_extension("typ");
-        let mut file = File::options()
-            .write(true)
-            .create_new(true)
-            .open(example_input)?;
-        file.write_all(DEFAULT_TEST_INPUT.as_bytes())?;
-
-        let example_ref_dir = test_dir.join("ref").join("test");
-        util::fs::ensure_dir(&example_ref_dir, true)?;
-
-        let example_output = example_ref_dir.join("1").with_extension("png");
-        let mut file = File::options()
-            .write(true)
-            .create_new(true)
-            .open(example_output)?;
-        file.write_all(DEFAULT_TEST_OUTPUT)?;
-    }
-
-    Ok(())
-}
-
-pub fn try_remove_tests_scaffold(root: &Path) -> io::Result<()> {
-    let test_dir = test_dir(root);
-    util::fs::ensure_remove_dir(&test_dir, true)?;
-
-    Ok(())
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ScaffoldMode {
     WithExample,
@@ -175,6 +110,73 @@ impl Project {
 
     pub fn tests(&self) -> &HashSet<Test> {
         &self.tests
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub fn create_tests_scaffold(&self, mode: ScaffoldMode) -> io::Result<()> {
+        let test_dir = test_dir(&self.root);
+        let typ_dir = test_script_dir(&self.root);
+
+        // NOTE: we want to fail if `root` doesn't exist, so we create the test folder individually
+        //       if this passed anything we create after this must have an existing root
+        util::fs::ensure_dir(&test_dir, false)?;
+        util::fs::ensure_dir(&typ_dir, true)?;
+
+        let mut file = File::options()
+            .read(true)
+            .append(true)
+            .create(true)
+            .open(test_dir.join(".gitignore"))?;
+
+        let mut buffer = String::new();
+        file.read_to_string(&mut buffer)?;
+
+        let exisitng: HashSet<&str> = buffer.lines().collect();
+        if !exisitng.is_empty() {
+            if !buffer.is_empty() {
+                file.write_all(b"\n")?;
+            }
+
+            file.write_all(b"# added by typst-test\n")?;
+            for pattern in DEFAULT_GIT_IGNORE_LINES {
+                if !exisitng.contains(pattern) {
+                    file.write_all(pattern.as_bytes())?;
+                }
+            }
+        }
+
+        if mode == ScaffoldMode::WithExample {
+            if fs::read_dir(&typ_dir)?.next().is_some_and(|r| r.is_ok()) {
+                return Ok(());
+            }
+
+            let example_input = typ_dir.join("test").with_extension("typ");
+            let mut file = File::options()
+                .write(true)
+                .create_new(true)
+                .open(example_input)?;
+            file.write_all(DEFAULT_TEST_INPUT.as_bytes())?;
+
+            let example_ref_dir = test_dir.join("ref").join("test");
+            util::fs::ensure_dir(&example_ref_dir, true)?;
+
+            let example_output = example_ref_dir.join("1").with_extension("png");
+            let mut file = File::options()
+                .write(true)
+                .create_new(true)
+                .open(example_output)?;
+            file.write_all(DEFAULT_TEST_OUTPUT)?;
+        }
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub fn remove_tests_scaffold(&self) -> io::Result<()> {
+        let test_dir = test_dir(&self.root);
+        util::fs::ensure_remove_dir(&test_dir, true)?;
+
+        Ok(())
     }
 
     #[tracing::instrument(skip_all)]

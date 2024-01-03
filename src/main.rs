@@ -141,11 +141,11 @@ fn main() -> anyhow::Result<()> {
 
     let (test, compare) = match args.cmd {
         cli::Command::Init => {
-            project::try_create_tests_scaffold(project.root(), ScaffoldMode::WithExample)?;
+            project.create_tests_scaffold(ScaffoldMode::WithExample)?;
             return Ok(());
         }
         cli::Command::Uninit => {
-            project::try_remove_tests_scaffold(project.root())?;
+            project.remove_tests_scaffold()?;
             return Ok(());
         }
         cli::Command::Clean => {
