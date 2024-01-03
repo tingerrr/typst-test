@@ -1,12 +1,61 @@
 use std::collections::HashSet;
+use std::fs::File;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
 use self::test::Test;
+use crate::util;
 
 pub mod test;
 
-pub fn is_dir_project_root(dir: &Path) -> io::Result<bool> {
+pub const DEFAULT_TEST_INPUT: &str = include_str!("../../assets/default-test/test.typ");
+pub const DEFAULT_TEST_OUTPUT: &[u8] = include_bytes!("../../assets/default-test/test.png");
+
+const TEST_DIR: &str = "tests";
+const TEST_SCRIPT_DIR: &str = "typ";
+const REF_SCRIPT_DIR: &str = "ref";
+const OUT_SCRIPT_DIR: &str = "out";
+const DIFF_SCRIPT_DIR: &str = "diff";
+
+pub fn dir_in_root<P, I, T>(root: P, parts: I) -> PathBuf
+where
+    P: AsRef<Path>,
+    I: IntoIterator<Item = T>,
+    T: AsRef<Path>,
+{
+    let root: &Path = root.as_ref();
+    let mut result = root.to_path_buf();
+    result.extend(parts);
+
+    debug_assert!(
+        util::fs::is_ancestor_of(root, &result),
+        "unintended escape from root"
+    );
+    result
+}
+
+pub fn test_dir<P: AsRef<Path>>(root: P) -> PathBuf {
+    dir_in_root(root, [TEST_DIR])
+}
+
+pub fn test_script_dir<P: AsRef<Path>>(root: P) -> PathBuf {
+    dir_in_root(root, [TEST_DIR, TEST_SCRIPT_DIR])
+}
+
+pub fn test_ref_dir<P: AsRef<Path>>(root: P) -> PathBuf {
+    dir_in_root(root, [TEST_DIR, REF_SCRIPT_DIR])
+}
+
+pub fn test_out_dir<P: AsRef<Path>>(root: P) -> PathBuf {
+    dir_in_root(root, [TEST_DIR, OUT_SCRIPT_DIR])
+}
+
+pub fn test_diff_dir<P: AsRef<Path>>(root: P) -> PathBuf {
+    dir_in_root(root, [TEST_DIR, DIFF_SCRIPT_DIR])
+}
+
+pub fn is_project_root(dir: &Path) -> io::Result<bool> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let typ = entry.file_type()?;
@@ -22,7 +71,7 @@ pub fn is_dir_project_root(dir: &Path) -> io::Result<bool> {
 
 pub fn try_find_project_root(pwd: &Path) -> io::Result<Option<PathBuf>> {
     for ancestor in pwd.ancestors() {
-        if is_dir_project_root(ancestor)? {
+        if is_project_root(ancestor)? {
             return Ok(Some(ancestor.to_path_buf()));
         }
     }
@@ -30,18 +79,64 @@ pub fn try_find_project_root(pwd: &Path) -> io::Result<Option<PathBuf>> {
     Ok(None)
 }
 
+pub fn try_create_tests_scaffold(root: &Path, mode: ScaffoldMode) -> io::Result<()> {
+    let test_dir = test_dir(root);
+    let typ_dir = test_script_dir(root);
+
+    // NOTE: we want to fail if `root` doesn't exist, so we create the test folder individually
+    //       if this passed anything we create after this must have an existing root
+    util::fs::ensure_dir(&test_dir, false)?;
+    util::fs::ensure_dir(&typ_dir, true)?;
+
+    if mode == ScaffoldMode::WithExample {
+        if fs::read_dir(&typ_dir)?.next().is_some_and(|r| r.is_ok()) {
+            return Ok(());
+        }
+
+        let example_input = typ_dir.join("test").with_extension("typ");
+        let mut file = File::options()
+            .write(true)
+            .create_new(true)
+            .open(example_input)?;
+        file.write_all(DEFAULT_TEST_INPUT.as_bytes())?;
+
+        let example_ref_dir = test_dir.join("ref").join("test");
+        util::fs::ensure_dir(&example_ref_dir, true)?;
+
+        let example_output = example_ref_dir.join("1").with_extension("png");
+        let mut file = File::options()
+            .write(true)
+            .create_new(true)
+            .open(example_output)?;
+        file.write_all(DEFAULT_TEST_OUTPUT)?;
+    }
+
+    Ok(())
+}
+
+pub fn try_remove_tests_scaffold(root: &Path) -> io::Result<()> {
+    let test_dir = test_dir(root);
+    util::fs::ensure_remove_dir(&test_dir, true)?;
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ScaffoldMode {
+    WithExample,
+    NoExample,
+}
+
 #[derive(Debug, Clone)]
 pub struct Project {
     root: PathBuf,
-    test_dir: PathBuf,
     tests: HashSet<Test>,
 }
 
 impl Project {
-    pub fn new(root: PathBuf, test_dir: Option<PathBuf>) -> Self {
+    pub fn new(root: PathBuf) -> Self {
         Self {
             root,
-            test_dir: test_dir.unwrap_or_else(|| "tests".into()),
             tests: HashSet::new(),
         }
     }
@@ -51,7 +146,7 @@ impl Project {
     }
 
     pub fn test_dir(&self) -> PathBuf {
-        self.root.join(&self.test_dir)
+        test_dir(&self.root)
     }
 
     pub fn tests(&self) -> &HashSet<Test> {
@@ -59,14 +154,15 @@ impl Project {
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn load_tests(&mut self) -> anyhow::Result<()> {
+    pub fn load_tests(&mut self) -> io::Result<()> {
         for entry in fs::read_dir(self.test_dir().join("typ"))? {
             let entry = entry?;
             let typ = entry.file_type()?;
             let name = entry.file_name();
 
-            let Some(name) = name.to_str().map(ToOwned::to_owned) else {
-                anyhow::bail!("Couldn't convert {name:?} into UTF-8 test name");
+            let Some(name) = name.to_str() else {
+                tracing::warn!(?name, "couldn't convert path into UTF-8, skipping");
+                continue;
             };
 
             if typ.is_dir() {
@@ -79,7 +175,7 @@ impl Project {
                 continue;
             }
 
-            let test = Test::new(name, typ.is_dir());
+            let test = Test::new(name.trim_end_matches(".typ").into(), typ.is_dir());
             tracing::debug!(name = ?test.name(), folder = ?test.folder(), "loaded test");
             self.tests.insert(test);
         }

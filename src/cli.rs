@@ -26,8 +26,14 @@ pub struct Args {
 
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum Command {
-    /// Initialize the current project with a tests directory
+    /// Initialize a tests directory for the current project
     Init,
+
+    /// Remove the tests directory from the current project
+    Uninit,
+
+    /// Remove test output and temporary artifacts
+    Clean,
 
     /// Show informaiton about the current project's tests
     Status,

@@ -1,7 +1,9 @@
+use std::path::PathBuf;
 use std::{fs, thread};
 
 use clap::Parser;
 use project::test::context::ContextResult;
+use project::ScaffoldMode;
 use tracing::Level;
 use tracing_subscriber::filter::Targets;
 use tracing_subscriber::prelude::*;
@@ -15,36 +17,18 @@ mod cli;
 mod project;
 mod util;
 
-fn main() -> anyhow::Result<()> {
-    let args = cli::Args::parse();
-
-    tracing_subscriber::registry()
-        .with(HierarchicalLayer::new(4).with_targets(true))
-        .with(Targets::new().with_target(std::env!("CARGO_CRATE_NAME"), Level::INFO))
-        .init();
-
-    let root = if let Some(root) = args.root {
-        let root = fs::canonicalize(root)?;
-        anyhow::ensure!(
-            project::is_dir_project_root(&root)?,
-            "--root must contain a typst.toml manifest file",
-        );
-        root
-    } else {
-        let pwd = std::env::current_dir()?;
-        if let Some(root) = project::try_find_project_root(&pwd)? {
-            root
-        } else {
-            anyhow::bail!("must be inside a typst project or pass the project root using --root");
-        }
-    };
-
-    let mut project = Project::new(root, Some("tests".into()));
+fn run(
+    mut project: Project,
+    typst: PathBuf,
+    fail_fast: bool,
+    do_compile: bool,
+    do_compare: bool,
+) -> anyhow::Result<()> {
     project.load_tests()?;
 
     // TODO: fail_fast currently doesn't really do anything other than returning early, other tests
     //       still run, this makes sense as we're not stopping the other threads just yet
-    let ctx = Context::new(project.clone(), args.typst, args.fail_fast);
+    let ctx = Context::new(project.clone(), typst, fail_fast);
 
     // wow rust makes this so easy
     // TODO: inner result ignored as it is registered anyway, see above
@@ -122,4 +106,52 @@ fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn main() -> anyhow::Result<()> {
+    let args = cli::Args::parse();
+
+    tracing_subscriber::registry()
+        .with(HierarchicalLayer::new(4).with_targets(true))
+        .with(Targets::new().with_target(std::env!("CARGO_CRATE_NAME"), Level::INFO))
+        .init();
+
+    let root = if let Some(root) = args.root {
+        let root = fs::canonicalize(root)?;
+        anyhow::ensure!(
+            project::is_project_root(&root)?,
+            "--root must contain a typst.toml manifest file",
+        );
+        root
+    } else {
+        let pwd = std::env::current_dir()?;
+        if let Some(root) = project::try_find_project_root(&pwd)? {
+            root
+        } else {
+            anyhow::bail!("must be inside a typst project or pass the project root using --root");
+        }
+    };
+
+    let project = Project::new(root);
+
+    match args.cmd {
+        Some(cli::Command::Init) => {
+            project::try_create_tests_scaffold(project.root(), ScaffoldMode::WithExample)?;
+            Ok(())
+        }
+        Some(cli::Command::Uninit) => {
+            project::try_remove_tests_scaffold(project.root())?;
+            Ok(())
+        }
+        Some(cli::Command::Clean) => {
+            util::fs::ensure_remove_dir(project::test_out_dir(project.root()), true)?;
+            util::fs::ensure_remove_dir(project::test_diff_dir(project.root()), true)?;
+            Ok(())
+        }
+        Some(cli::Command::Status) => todo!(),
+        Some(cli::Command::Update) => todo!(),
+        Some(cli::Command::Compile) => run(project, args.typst, args.fail_fast, true, false),
+        Some(cli::Command::Compare) => run(project, args.typst, args.fail_fast, false, true),
+        None | Some(cli::Command::Run) => run(project, args.typst, args.fail_fast, true, true),
+    }
 }
