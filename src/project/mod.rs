@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
@@ -11,6 +11,7 @@ pub mod test;
 
 pub const DEFAULT_TEST_INPUT: &str = include_str!("../../assets/default-test/test.typ");
 pub const DEFAULT_TEST_OUTPUT: &[u8] = include_bytes!("../../assets/default-test/test.png");
+pub const DEFAULT_GIT_IGNORE_LINES: &[&str] = &["out/**\n", "diff/**\n"];
 
 const TEST_DIR: &str = "tests";
 const TEST_SCRIPT_DIR: &str = "typ";
@@ -87,6 +88,29 @@ pub fn try_create_tests_scaffold(root: &Path, mode: ScaffoldMode) -> io::Result<
     //       if this passed anything we create after this must have an existing root
     util::fs::ensure_dir(&test_dir, false)?;
     util::fs::ensure_dir(&typ_dir, true)?;
+
+    let mut file = File::options()
+        .read(true)
+        .append(true)
+        .create(true)
+        .open(test_dir.join(".gitignore"))?;
+
+    let mut buffer = String::new();
+    file.read_to_string(&mut buffer)?;
+
+    let exisitng: HashSet<&str> = buffer.lines().collect();
+    if !exisitng.is_empty() {
+        if !buffer.is_empty() {
+            file.write_all(b"\n")?;
+        }
+
+        file.write_all(b"# added by typst-test\n")?;
+        for pattern in DEFAULT_GIT_IGNORE_LINES {
+            if !exisitng.contains(pattern) {
+                file.write_all(pattern.as_bytes())?;
+            }
+        }
+    }
 
     if mode == ScaffoldMode::WithExample {
         if fs::read_dir(&typ_dir)?.next().is_some_and(|r| r.is_ok()) {
