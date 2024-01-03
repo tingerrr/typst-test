@@ -21,8 +21,8 @@ fn run(
     mut project: Project,
     typst: PathBuf,
     fail_fast: bool,
-    do_compile: bool,
-    do_compare: bool,
+    compare: bool,
+    filter: Option<String>,
 ) -> anyhow::Result<()> {
     project.load_tests()?;
 
@@ -33,10 +33,13 @@ fn run(
     // wow rust makes this so easy
     // TODO: inner result ignored as it is registered anyway, see above
     let _ = thread::scope(|scope| {
+        let filter = filter.as_deref().unwrap_or_default();
+
         let handles: Vec<_> = project
             .tests()
             .into_iter()
-            .map(|test| scope.spawn(|| test.run(&ctx)))
+            .filter(|test| test.name().contains(filter))
+            .map(|test| scope.spawn(|| test.run(&ctx, compare)))
             .collect();
 
         handles
@@ -111,6 +114,8 @@ fn run(
 fn main() -> anyhow::Result<()> {
     let args = cli::Args::parse();
 
+    anyhow::ensure!(!args.interactive, "interactive mode is not yet implemented");
+
     tracing_subscriber::registry()
         .with(HierarchicalLayer::new(4).with_targets(true))
         .with(Targets::new().with_target(std::env!("CARGO_CRATE_NAME"), Level::TRACE))
@@ -134,21 +139,21 @@ fn main() -> anyhow::Result<()> {
 
     let mut project = Project::new(root);
 
-    match args.cmd {
-        Some(cli::Command::Init) => {
+    let (test, compare) = match args.cmd {
+        cli::Command::Init => {
             project::try_create_tests_scaffold(project.root(), ScaffoldMode::WithExample)?;
-            Ok(())
+            return Ok(());
         }
-        Some(cli::Command::Uninit) => {
+        cli::Command::Uninit => {
             project::try_remove_tests_scaffold(project.root())?;
-            Ok(())
+            return Ok(());
         }
-        Some(cli::Command::Clean) => {
+        cli::Command::Clean => {
             util::fs::ensure_remove_dir(project::test_out_dir(project.root()), true)?;
             util::fs::ensure_remove_dir(project::test_diff_dir(project.root()), true)?;
-            Ok(())
+            return Ok(());
         }
-        Some(cli::Command::Status) => {
+        cli::Command::Status => {
             project.load_tests()?;
             let tests = project.tests();
             if tests.is_empty() {
@@ -160,11 +165,12 @@ fn main() -> anyhow::Result<()> {
                 }
             }
 
-            Ok(())
+            return Ok(());
         }
-        Some(cli::Command::Update) => todo!(),
-        Some(cli::Command::Compile) => run(project, args.typst, args.fail_fast, true, false),
-        Some(cli::Command::Compare) => run(project, args.typst, args.fail_fast, false, true),
-        None | Some(cli::Command::Run) => run(project, args.typst, args.fail_fast, true, true),
-    }
+        cli::Command::Update => todo!(),
+        cli::Command::Compile(test_args) => (test_args.test, false),
+        cli::Command::Run(test_args) => (test_args.test, true),
+    };
+
+    run(project, args.typst, args.fail_fast, compare, test)
 }

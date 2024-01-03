@@ -30,9 +30,9 @@ impl Test {
     }
 
     #[tracing::instrument(skip_all, fields(test = ?self.name))]
-    pub fn run(&self, context: &Context) -> ContextResult {
+    pub fn run(&self, context: &Context, compare: bool) -> ContextResult {
         let context = context.test(self);
-        context.run()
+        context.run(compare)
     }
 }
 

@@ -21,7 +21,7 @@ pub struct Args {
 
     /// The sub command to execute
     #[command(subcommand)]
-    pub cmd: Option<Command>,
+    pub cmd: Command,
 }
 
 #[derive(clap::Subcommand, Debug, Clone)]
@@ -39,14 +39,18 @@ pub enum Command {
     Status,
 
     /// Compile and compare tests
-    Run,
+    Run(TestArgs),
 
     /// Compile tests
-    Compile,
-
-    /// Compare tests
-    Compare,
+    Compile(TestArgs),
 
     /// Update tests
     Update,
+}
+
+#[derive(clap::Parser, Debug, Clone)]
+pub struct TestArgs {
+    /// The a filter for which tests to run
+    /// Tests containing this substring are run
+    pub test: Option<String>,
 }

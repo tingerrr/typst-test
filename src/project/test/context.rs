@@ -79,7 +79,7 @@ impl TestContext<'_> {
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn run(&self) -> ContextResult<TestFailure> {
+    pub fn run(&self, compare: bool) -> ContextResult<TestFailure> {
         macro_rules! bail_if_fail_fast {
             ($err:expr) => {
                 let err: TestFailure = $err.into();
@@ -100,8 +100,10 @@ impl TestContext<'_> {
             bail_if_fail_fast!(err);
         }
 
-        if let Err(err) = self.compare()? {
-            bail_if_fail_fast!(err);
+        if compare {
+            if let Err(err) = self.compare()? {
+                bail_if_fail_fast!(err);
+            }
         }
 
         if let Err(err) = self.cleanup()? {
