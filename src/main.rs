@@ -113,7 +113,7 @@ fn main() -> anyhow::Result<()> {
 
     tracing_subscriber::registry()
         .with(HierarchicalLayer::new(4).with_targets(true))
-        .with(Targets::new().with_target(std::env!("CARGO_CRATE_NAME"), Level::INFO))
+        .with(Targets::new().with_target(std::env!("CARGO_CRATE_NAME"), Level::TRACE))
         .init();
 
     let root = if let Some(root) = args.root {
@@ -132,7 +132,7 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
-    let project = Project::new(root);
+    let mut project = Project::new(root);
 
     match args.cmd {
         Some(cli::Command::Init) => {
@@ -148,7 +148,20 @@ fn main() -> anyhow::Result<()> {
             util::fs::ensure_remove_dir(project::test_diff_dir(project.root()), true)?;
             Ok(())
         }
-        Some(cli::Command::Status) => todo!(),
+        Some(cli::Command::Status) => {
+            project.load_tests()?;
+            let tests = project.tests();
+            if tests.is_empty() {
+                println!("No tests detected");
+            } else {
+                println!("Tests detected:");
+                for test in tests {
+                    println!("  {}", test.name());
+                }
+            }
+
+            Ok(())
+        }
         Some(cli::Command::Update) => todo!(),
         Some(cli::Command::Compile) => run(project, args.typst, args.fail_fast, true, false),
         Some(cli::Command::Compare) => run(project, args.typst, args.fail_fast, false, true),
