@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::path::PathBuf;
 use std::{fs, thread};
 
@@ -37,7 +38,7 @@ fn run(
 
         let handles: Vec<_> = project
             .tests()
-            .into_iter()
+            .iter()
             .filter(|test| test.name().contains(filter))
             .map(|test| scope.spawn(|| test.run(&ctx, compare)))
             .collect();
@@ -97,13 +98,18 @@ fn run(
         }
     };
 
-    for (test, res) in ctx.results().clone() {
-        match res {
-            Ok(_) => present_ok(test.name()),
-            Err(e) => {
-                present_err(test.name(), e);
+    let results = ctx.results().clone();
+    if !results.is_empty() {
+        for (test, res) in results {
+            match res {
+                Ok(_) => present_ok(test.name()),
+                Err(e) => {
+                    present_err(test.name(), e);
+                }
             }
         }
+    } else {
+        println!("No tests detected for {}", project.name());
     }
 
     Ok(())
@@ -128,23 +134,31 @@ fn main() -> anyhow::Result<()> {
             .init();
     }
 
-    let root = if let Some(root) = args.root {
-        let root = fs::canonicalize(root)?;
-        anyhow::ensure!(
-            project::is_project_root(&root)?,
-            "--root must contain a typst.toml manifest file",
-        );
-        root
+    // TODO: read manifest to get project name
+    let (root, canonical_root) = if let Some(root) = args.root {
+        let canonical_root = fs::canonicalize(&root)?;
+        if !project::is_project_root(&canonical_root)? {
+            println!("--root must contain a typst.toml manifest file");
+            return Ok(());
+        }
+        (root.to_path_buf(), canonical_root)
     } else {
         let pwd = std::env::current_dir()?;
         if let Some(root) = project::try_find_project_root(&pwd)? {
-            root
+            let canonical_root = fs::canonicalize(&root)?;
+            (root, canonical_root)
         } else {
             anyhow::bail!("must be inside a typst project or pass the project root using --root");
         }
     };
 
-    let mut project = Project::new(root);
+    let name = canonical_root
+        .file_name()
+        .and_then(OsStr::to_str)
+        .unwrap_or("<unknown project name>")
+        .to_owned();
+
+    let mut project = Project::new(root, name);
 
     let (test, compare) = match args.cmd {
         cli::Command::Init { no_example } => {
@@ -153,24 +167,27 @@ fn main() -> anyhow::Result<()> {
             } else {
                 ScaffoldMode::WithExample
             })?;
+            println!("initialized tests for {}", project.name());
             return Ok(());
         }
         cli::Command::Uninit => {
             project.remove_tests_scaffold()?;
+            println!("removed tests for {}", project.name());
             return Ok(());
         }
         cli::Command::Clean => {
             util::fs::ensure_remove_dir(project::test_out_dir(project.root()), true)?;
             util::fs::ensure_remove_dir(project::test_diff_dir(project.root()), true)?;
+            println!("removed test artifacts for {}", project.name());
             return Ok(());
         }
         cli::Command::Status => {
             project.load_tests()?;
             let tests = project.tests();
             if tests.is_empty() {
-                println!("No tests detected");
+                println!("No tests detected for {}", project.name());
             } else {
-                println!("Tests detected:");
+                println!("Tests detected for {}:", project.name());
                 for test in tests {
                     println!("  {}", test.name());
                 }
@@ -181,6 +198,7 @@ fn main() -> anyhow::Result<()> {
         cli::Command::Update(args) => {
             project.load_tests()?;
             project.update_tests(args.test)?;
+            println!("updated tests for {}", project.name());
             return Ok(());
         }
         cli::Command::Compile(args) => (args.test, false),

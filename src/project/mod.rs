@@ -58,6 +58,7 @@ pub fn test_diff_dir<P: AsRef<Path>>(root: P) -> PathBuf {
     dir_in_root(root, [TEST_DIR, DIFF_SCRIPT_DIR])
 }
 
+#[tracing::instrument]
 pub fn is_project_root(dir: &Path) -> io::Result<bool> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
@@ -72,6 +73,7 @@ pub fn is_project_root(dir: &Path) -> io::Result<bool> {
     Ok(false)
 }
 
+#[tracing::instrument]
 pub fn try_find_project_root(pwd: &Path) -> io::Result<Option<PathBuf>> {
     for ancestor in pwd.ancestors() {
         if is_project_root(ancestor)? {
@@ -90,16 +92,22 @@ pub enum ScaffoldMode {
 
 #[derive(Debug, Clone)]
 pub struct Project {
+    name: String,
     root: PathBuf,
     tests: HashSet<Test>,
 }
 
 impl Project {
-    pub fn new(root: PathBuf) -> Self {
+    pub fn new(root: PathBuf, name: String) -> Self {
         Self {
+            name,
             root,
             tests: HashSet::new(),
         }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     pub fn root(&self) -> &Path {
@@ -190,7 +198,7 @@ impl Project {
     #[tracing::instrument(skip_all)]
     pub fn remove_tests_scaffold(&self) -> io::Result<()> {
         let test_dir = test_dir(&self.root);
-        util::fs::ensure_remove_dir(&test_dir, true)?;
+        util::fs::ensure_remove_dir(test_dir, true)?;
 
         Ok(())
     }
@@ -241,7 +249,7 @@ impl Project {
             .iter()
             .map(Test::name)
             .filter(|test| test.contains(filter))
-            .map(|test| {
+            .try_for_each(|test| {
                 tracing::debug!(?test, "updating references");
                 let out_dir = test_out_dir(&self.root).join(test);
                 let ref_dir = test_ref_dir(&self.root).join(test);
@@ -266,6 +274,5 @@ impl Project {
 
                 Ok(())
             })
-            .collect()
     }
 }

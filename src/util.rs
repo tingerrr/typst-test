@@ -66,13 +66,9 @@ pub mod fs {
         paths.sort_by_key(|p| p.as_os_str().len());
         let [short, long] = paths;
 
-        for ancestor in short.ancestors() {
-            if long.starts_with(ancestor) {
-                return Some(ancestor);
-            }
-        }
-
-        None
+        short
+            .ancestors()
+            .find(|ancestor| long.starts_with(ancestor))
     }
 
     pub fn is_ancestor_of<'a>(base: &'a Path, path: &'a Path) -> bool {
