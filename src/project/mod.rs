@@ -133,17 +133,18 @@ impl Project {
         let mut buffer = String::new();
         file.read_to_string(&mut buffer)?;
 
-        let exisitng: HashSet<&str> = buffer.lines().collect();
-        if !exisitng.is_empty() {
+        const INDICATOR: &str = "# added by typst-test, do not edit this line";
+        let lines: HashSet<&str> = buffer.lines().collect();
+
+        if lines.is_empty() || !lines.contains(INDICATOR) {
             if !buffer.is_empty() {
                 file.write_all(b"\n")?;
             }
 
-            file.write_all(b"# added by typst-test\n")?;
+            file.write_all(INDICATOR.as_bytes())?;
+            file.write_all(b"\n")?;
             for pattern in DEFAULT_GIT_IGNORE_LINES {
-                if !exisitng.contains(pattern) {
-                    file.write_all(pattern.as_bytes())?;
-                }
+                file.write_all(pattern.as_bytes())?;
             }
         }
 
