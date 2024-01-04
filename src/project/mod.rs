@@ -4,6 +4,8 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
+use oxipng::{InFile, Options, OutFile};
+
 use self::test::Test;
 use crate::util;
 
@@ -212,6 +214,8 @@ impl Project {
     #[tracing::instrument(skip_all)]
     pub fn update_tests(&self, filter: Option<String>) -> io::Result<()> {
         let filter = filter.as_deref().unwrap_or_default();
+        let options = Options::max_compression();
+
         self.tests
             .iter()
             .map(Test::name)
@@ -227,7 +231,12 @@ impl Project {
 
                 for entry in util::fs::collect_dir_entries(&out_dir)? {
                     let name = entry.file_name();
-                    fs::copy(entry.path(), ref_dir.join(name))?;
+                    oxipng::optimize(
+                        &InFile::Path(entry.path()),
+                        &OutFile::from_path(ref_dir.join(name)),
+                        &options,
+                    )
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
                 }
 
                 Ok(())

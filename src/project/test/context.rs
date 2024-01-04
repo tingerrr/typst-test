@@ -230,8 +230,6 @@ impl TestContext<'_> {
             }
         }
 
-        // TODO: diff image
-
         Ok(Ok(()))
     }
 
