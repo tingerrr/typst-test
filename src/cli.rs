@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
-/// Execute, compare and update test scripts for typst
+/// Execute, compare and update visual regression tests for typst
 #[derive(clap::Parser, Debug)]
 pub struct Args {
-    /// The project root directory containing the typst.toml manifest file
+    /// The project root directory
     #[arg(long, global = true)]
     pub root: Option<PathBuf>,
 
@@ -11,7 +11,7 @@ pub struct Args {
     #[arg(long, global = true, default_value = "typst")]
     pub typst: PathBuf,
 
-    /// Whether to typst-test should abort after the first test failure
+    /// Whether to abort after the first test failure
     #[arg(long, global = true)]
     pub fail_fast: bool,
 
@@ -19,27 +19,26 @@ pub struct Args {
     #[arg(long, short, global = true, action = clap::ArgAction::Count)]
     pub verbose: u8,
 
-    /// The sub command to execute
     #[command(subcommand)]
     pub cmd: Command,
 }
 
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum Command {
-    /// Initialize a tests directory for the current project
+    /// Initialize the current project with a test directory
     Init {
         /// Do not create a default example
         #[arg(long)]
         no_example: bool,
     },
 
-    /// Remove the tests directory from the current project
+    /// Remove the test directory from the current project
     Uninit,
 
-    /// Remove test output and temporary artifacts
+    /// Remove test output artifacts
     Clean,
 
-    /// Show informaiton about the current project's tests
+    /// Show information about the current project
     Status,
 
     /// Compile and compare tests
@@ -54,7 +53,6 @@ pub enum Command {
 
 #[derive(clap::Parser, Debug, Clone)]
 pub struct TestArgs {
-    /// The a filter for which tests to run
-    /// Tests containing this substring are run
+    /// A filter for which tests to run, any test containing this string is run
     pub test: Option<String>,
 }
