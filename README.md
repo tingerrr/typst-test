@@ -1,8 +1,7 @@
 # typst test
 `typst-test` is a program to compile, compare and update references of tests scripts for typst. It is
 currently work in progress and is aimed at providing automated visual regression testing for typst
-packages. The name is currently a placeholder and the delegation of compilation to `typst` as a
-binary keeps the project simple for now. This may change in the future.
+packages.
 
 ## Features
 - auto discovery of current project using `typst.toml`
@@ -54,7 +53,7 @@ The following global options are available:
 After releasing a very broken version of [hydra], I started writing tests and, as such, also a small
 script to run them automatically. I got a bit carried away and overengineered the test script, but
 it had a fundamental flaw; It could not run tests in parallel. This and the additional burden of
-maintaining the messy script was enough to prompt me to write this program. As this is direct port
+maintaining the messy script was enough to prompt me to write this program. This is direct port
 of my [hydra test script][hydra-test].
 
 [hydra]: https://github.com/tingerrr/hydra
