@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::{fs, io};
 
 use oxipng::{InFile, Options, OutFile};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 
 use self::test::Test;
 use crate::util;
@@ -246,7 +247,7 @@ impl Project {
         let options = Options::max_compression();
 
         self.tests
-            .iter()
+            .par_iter()
             .map(Test::name)
             .filter(|test| test.contains(filter))
             .try_for_each(|test| {

@@ -813,6 +813,7 @@ dependencies = [
  "clap",
  "image",
  "oxipng",
+ "rayon",
  "tracing",
  "tracing-subscriber",
  "tracing-tree",

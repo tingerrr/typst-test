@@ -1,10 +1,11 @@
 use std::ffi::OsStr;
+use std::fs;
 use std::path::PathBuf;
-use std::{fs, thread};
 
 use clap::Parser;
 use project::test::context::ContextResult;
 use project::ScaffoldMode;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use tracing::Level;
 use tracing_subscriber::filter::Targets;
 use tracing_subscriber::prelude::*;
@@ -31,23 +32,16 @@ fn run(
     //       still run, this makes sense as we're not stopping the other threads just yet
     let ctx = Context::new(project.clone(), typst, fail_fast);
 
-    // wow rust makes this so easy
+    let filter = filter.as_deref().unwrap_or_default();
+    let handles: Vec<_> = project
+        .tests()
+        .par_iter()
+        .filter(|test| test.name().contains(filter))
+        .map(|test| test.run(&ctx, compare))
+        .collect();
+
     // TODO: inner result ignored as it is registered anyway, see above
-    let _ = thread::scope(|scope| {
-        let filter = filter.as_deref().unwrap_or_default();
-
-        let handles: Vec<_> = project
-            .tests()
-            .iter()
-            .filter(|test| test.name().contains(filter))
-            .map(|test| scope.spawn(|| test.run(&ctx, compare)))
-            .collect();
-
-        handles
-            .into_iter()
-            .map(|h| h.join().unwrap())
-            .collect::<ContextResult>()
-    })?;
+    let _ = handles.into_iter().collect::<ContextResult>()?;
 
     let present_ok = |n: &str| {
         println!("{}: success", n);
