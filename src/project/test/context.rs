@@ -52,9 +52,18 @@ impl Context {
         let typ_file = if test.folder {
             typ_dir.join("test")
         } else {
-            typ_dir
+            typ_dir.clone()
         }
         .with_extension("typ");
+
+        tracing::trace!(
+            test = ?test.name(),
+            ?typ_dir,
+            ?out_dir,
+            ?ref_dir,
+            ?diff_dir,
+            "establishing test context"
+        );
 
         TestContext {
             project_context: self,
@@ -78,7 +87,7 @@ impl TestContext<'_> {
         results.insert(self.test.clone(), result);
     }
 
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip(self))]
     pub fn run(&self, compare: bool) -> ContextResult<TestFailure> {
         macro_rules! bail_if_fail_fast {
             ($err:expr) => {
@@ -116,14 +125,16 @@ impl TestContext<'_> {
 
     #[tracing::instrument(skip_all)]
     pub fn prepare(&self) -> ContextResult<PrepareFailure> {
-        let err_fn = |t, d| format!("creating {}, dir: {:?}", t, d);
+        let err_fn = |n, p| format!("creating {} dir: {:?}", n, p);
         let dirs = [("out", &self.out_dir), ("diff", &self.diff_dir)];
 
         for (name, path) in dirs {
+            tracing::trace!(?path, "ensuring empty {name} dir");
             util::fs::ensure_empty_dir(path, false)
                 .map_err(|e| Error::io(Stage::Preparation, e).context(err_fn(name, path)))?;
         }
 
+        tracing::trace!(path = ?self.ref_dir, "ensuring ref dir");
         util::fs::ensure_dir(&self.ref_dir, false).map_err(|e| Error::io(Stage::Preparation, e))?;
 
         Ok(Ok(()))
@@ -142,6 +153,7 @@ impl TestContext<'_> {
         typst.arg(&self.typ_file);
         typst.arg(self.out_dir.join("{n}").with_extension("png"));
 
+        tracing::trace!(args = ?typst.get_args(), "running typst");
         let output = typst
             .output()
             .map_err(|e| Error::io(Stage::Compilation, e).context("executing typst"))?;
@@ -158,15 +170,17 @@ impl TestContext<'_> {
 
     #[tracing::instrument(skip_all)]
     pub fn compare(&self) -> ContextResult<CompareFailure> {
-        let mut out_entries = util::fs::collect_dir_entries(&self.out_dir).map_err(|e| {
-            Error::io(Stage::Comparison, e)
-                .context(format!("reading out directory: {:?}", &self.out_dir))
-        })?;
+        let err_fn = |n, e, p| {
+            Error::io(Stage::Comparison, e).context(format!("reading {} dir: {:?}", n, p))
+        };
 
-        let mut ref_entries = util::fs::collect_dir_entries(&self.ref_dir).map_err(|e| {
-            Error::io(Stage::Comparison, e)
-                .context(format!("reading ref directory: {:?}", &self.ref_dir))
-        })?;
+        tracing::trace!(path = ?self.out_dir, "reading out dir");
+        let mut out_entries = util::fs::collect_dir_entries(&self.out_dir)
+            .map_err(|e| err_fn("out", e, &self.out_dir))?;
+
+        tracing::trace!(path = ?self.ref_dir, "reading ref dir");
+        let mut ref_entries = util::fs::collect_dir_entries(&self.ref_dir)
+            .map_err(|e| err_fn("ref", e, &self.ref_dir))?;
 
         out_entries.sort_by_key(|t| t.file_name());
         ref_entries.sort_by_key(|t| t.file_name());
@@ -203,16 +217,18 @@ impl TestContext<'_> {
         out_file: &Path,
         ref_file: &Path,
     ) -> ContextResult<ComparePageFailure> {
+        let err_fn = |n, e, f| {
+            Error::image(Stage::Comparison, e).context(format!("reading {n} image: {f:?}"))
+        };
+
+        tracing::trace!(path = ?out_file, "reading out file");
         let out_image = image::open(out_file)
-            .map_err(|e| {
-                Error::image(Stage::Comparison, e).context(format!("reading image: {:?}", out_file))
-            })?
+            .map_err(|e| err_fn("out", e, out_file))?
             .into_rgb8();
 
+        tracing::trace!(path = ?ref_file, "reading ref file");
         let ref_image = image::open(ref_file)
-            .map_err(|e| {
-                Error::image(Stage::Comparison, e).context(format!("reading image: {:?}", ref_file))
-            })?
+            .map_err(|e| err_fn("ref", e, ref_file))?
             .into_rgb8();
 
         if out_image.dimensions() != ref_image.dimensions() {

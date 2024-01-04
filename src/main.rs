@@ -112,10 +112,21 @@ fn run(
 fn main() -> anyhow::Result<()> {
     let args = cli::Args::parse();
 
-    tracing_subscriber::registry()
-        .with(HierarchicalLayer::new(4).with_targets(true))
-        .with(Targets::new().with_target(std::env!("CARGO_CRATE_NAME"), Level::TRACE))
-        .init();
+    if args.verbose >= 1 {
+        tracing_subscriber::registry()
+            .with(HierarchicalLayer::new(4).with_targets(true))
+            .with(Targets::new().with_target(
+                std::env!("CARGO_CRATE_NAME"),
+                match args.verbose {
+                    1 => Level::ERROR,
+                    2 => Level::WARN,
+                    3 => Level::INFO,
+                    4 => Level::DEBUG,
+                    _ => Level::TRACE,
+                },
+            ))
+            .init();
+    }
 
     let root = if let Some(root) = args.root {
         let root = fs::canonicalize(root)?;

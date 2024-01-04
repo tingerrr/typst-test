@@ -15,6 +15,10 @@ pub struct Args {
     #[arg(long, global = true)]
     pub fail_fast: bool,
 
+    /// Produce more logging output [-v .. -vvvvv], logs are written to stderr
+    #[arg(long, short, global = true, action = clap::ArgAction::Count)]
+    pub verbose: u8,
+
     /// The sub command to execute
     #[command(subcommand)]
     pub cmd: Command,

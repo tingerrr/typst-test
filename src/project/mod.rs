@@ -114,14 +114,17 @@ impl Project {
         &self.tests
     }
 
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip(self))]
     pub fn create_tests_scaffold(&self, mode: ScaffoldMode) -> io::Result<()> {
         let test_dir = test_dir(&self.root);
         let typ_dir = test_script_dir(&self.root);
 
         // NOTE: we want to fail if `root` doesn't exist, so we create the test folder individually
         //       if this passed anything we create after this must have an existing root
+        tracing::trace!(dir = ?test_dir, "ensuring tests dir");
         util::fs::ensure_dir(&test_dir, false)?;
+
+        tracing::trace!(dir = ?test_dir, "ensuring test script dir");
         util::fs::ensure_dir(&typ_dir, true)?;
 
         let mut file = File::options()
@@ -133,10 +136,18 @@ impl Project {
         let mut buffer = String::new();
         file.read_to_string(&mut buffer)?;
 
+        if buffer.is_empty() {
+            tracing::debug!("opened/created empty .gitignore");
+        } else {
+            tracing::debug!("opened .gitignore");
+        }
+
         const INDICATOR: &str = "# added by typst-test, do not edit this line";
         let lines: HashSet<&str> = buffer.lines().collect();
 
         if lines.is_empty() || !lines.contains(INDICATOR) {
+            tracing::debug!("writing .gitignore");
+
             if !buffer.is_empty() {
                 file.write_all(b"\n")?;
             }
@@ -152,6 +163,8 @@ impl Project {
             if fs::read_dir(&typ_dir)?.next().is_some_and(|r| r.is_ok()) {
                 return Ok(());
             }
+
+            tracing::debug!("adding example test");
 
             let example_input = typ_dir.join("test").with_extension("typ");
             let mut file = File::options()
@@ -203,16 +216,16 @@ impl Project {
 
             if typ.is_dir() {
                 if !entry.path().join("test.typ").try_exists()? {
-                    tracing::debug!(?name, "loaded folder");
+                    tracing::debug!(?name, "skipping folder, no test.typ detected");
                     continue;
                 }
             } else if !name.ends_with(".typ") {
-                tracing::debug!(?name, "skipping file");
+                tracing::debug!(?name, "skipping file, not a typ file");
                 continue;
             }
 
             let test = Test::new(name.trim_end_matches(".typ").into(), typ.is_dir());
-            tracing::debug!(name = ?test.name(), folder = ?test.folder(), "loaded test");
+            tracing::debug!(name = ?test.name(), "loaded test");
             self.tests.insert(test);
         }
 
@@ -233,12 +246,16 @@ impl Project {
                 let out_dir = test_out_dir(&self.root).join(test);
                 let ref_dir = test_ref_dir(&self.root).join(test);
 
+                tracing::debug!(path = ?out_dir, "ensuring out dir");
                 util::fs::ensure_dir(&out_dir, false)?;
-                util::fs::ensure_remove_dir(&ref_dir, true)?;
-                util::fs::ensure_dir(&ref_dir, false)?;
+
+                tracing::debug!(path = ?ref_dir, "ensuring empty ref dir");
+                util::fs::ensure_empty_dir(&ref_dir, false)?;
 
                 for entry in util::fs::collect_dir_entries(&out_dir)? {
                     let name = entry.file_name();
+
+                    // TODO: better error handling
                     oxipng::optimize(
                         &InFile::Path(entry.path()),
                         &OutFile::from_path(ref_dir.join(name)),
