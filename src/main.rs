@@ -132,8 +132,7 @@ fn main() -> anyhow::Result<()> {
     let (root, canonical_root) = if let Some(root) = args.root {
         let canonical_root = fs::canonicalize(&root)?;
         if !project::is_project_root(&canonical_root)? {
-            println!("--root must contain a typst.toml manifest file");
-            return Ok(());
+            tracing::warn!("project root doesn't contain typst.toml");
         }
         (root.to_path_buf(), canonical_root)
     } else {

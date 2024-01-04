@@ -47,7 +47,6 @@ The following global options are available:
 - `--root`, the project root directory
   - the root directory for typst when compiling
   - where `tests` is placed on `init`
-  - can be used if there is no `typst.toml` for discovery
 - `--verbose`, increase the logging verbosity
   - please run typst-test with this when reporting issues
 
