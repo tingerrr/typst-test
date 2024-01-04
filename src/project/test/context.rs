@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Mutex, MutexGuard};
-use std::{fs, io};
 
 use image::{ImageResult, RgbImage};
 
@@ -117,23 +117,14 @@ impl TestContext<'_> {
     #[tracing::instrument(skip_all)]
     pub fn prepare(&self) -> ContextResult<PrepareFailure> {
         let err_fn = |t, d| format!("creating {}, dir: {:?}", t, d);
-        let dirs = [
-            ("out", &self.out_dir, true),
-            ("ref", &self.ref_dir, false),
-            ("diff", &self.diff_dir, true),
-        ];
+        let dirs = [("out", &self.out_dir), ("diff", &self.diff_dir)];
 
-        for (t, p, clear) in dirs {
-            if clear
-                && p.try_exists()
-                    .map_err(|e| Error::io(Stage::Preparation, e))?
-            {
-                fs::remove_dir_all(p).map_err(|e| Error::io(Stage::Preparation, e))?;
-            }
-
-            fs::create_dir_all(p)
-                .map_err(|e| Error::io(Stage::Preparation, e).context(err_fn(t, p)))?;
+        for (name, path) in dirs {
+            util::fs::ensure_empty_dir(path, false)
+                .map_err(|e| Error::io(Stage::Preparation, e).context(err_fn(name, path)))?;
         }
+
+        util::fs::ensure_dir(&self.ref_dir, false).map_err(|e| Error::io(Stage::Preparation, e))?;
 
         Ok(Ok(()))
     }

@@ -52,6 +52,15 @@ pub mod fs {
         })
     }
 
+    pub fn ensure_empty_dir<P: AsRef<Path>>(path: P, all: bool) -> io::Result<()> {
+        fn inner(path: &Path, all: bool) -> io::Result<()> {
+            ensure_remove_dir(path, true)?;
+            ensure_dir(path, all)
+        }
+
+        inner(path.as_ref(), all)
+    }
+
     pub fn common_ancestor<'a>(p: &'a Path, q: &'a Path) -> Option<&'a Path> {
         let mut paths = [p, q];
         paths.sort_by_key(|p| p.as_os_str().len());
