@@ -153,7 +153,7 @@ impl TestContext<'_> {
         typst.arg(&self.typ_file);
         typst.arg(self.out_dir.join("{n}").with_extension("png"));
 
-        tracing::trace!(args = ?typst.get_args(), "running typst");
+        tracing::trace!(args = ?[&typst], "running typst");
         let output = typst
             .output()
             .map_err(|e| Error::io(Stage::Compilation, e).context("executing typst"))?;
