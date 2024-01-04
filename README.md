@@ -1,62 +1,62 @@
 # typst test
-Typst test is a program to compile, compare and update tests scripts for typst. It is currently
-work in progress and is aimed at providing automated visual regression testing for typst packages.
+`typst-test` is a program to compile, compare and update references of tests scripts for typst. It is
+currently work in progress and is aimed at providing automated visual regression testing for typst
+packages. The name is currently a placeholder and the delegation of compilation to `typst` as a
+binary keeps the project simple for now. This may change in the future.
 
-You can test it now by running `cargo run -- --root <project>`, or by running it within `<project>`,
-where `<project>` is a directory with the following properties:
-- contains a `typst.toml` manifest
-- contains a `tests/typ` folder
+## Features
+- auto discovery of current project using `typst.toml`
+- overriding of typst binary to test typst PRs
+- automatic compilation and optional visual comparison of test output for all tests
+- diff image generation for visual aid
+- project setup with git support
+- updating and optimizing of reference images
 
-For a test directory is like so:
+## Planned features
+- prettier output reporting, especially for slower operations such as updating
+- cli and lib separation to allow others to reuse the primary test running implementation
+- using the typst crate directly
+  - detecting mutliple tests in one file with common setup, running tests fro a single file in
+    isolation
+  - in memory comparison with references
+- custom user actions
+- better diff images
+- better test filtering
+
+## Tutorial
+Assuming typst-test is in your path and you're in a package project, this is how you use it on a
+new project:
+```bash
+typst-test init
+typst-test run
 ```
-<project>/tests
-  typ/
-    test1.typ
-    test2/test.typ
-  ref/
-    test1/
-      1.png
-      2.png
-    test2/
-      1.png
-```
-the tests `test1` and `test2/test.typ` are run respectively and in parallel, once a test is started
-a `out/<test>`, `ref/<test>` and `diff/<test>` are created if they don't already exist. Then the
-test is compiled using typst and the outputs in `out/<test>` and `ref/<test>` are compared. A diff
-image is placed in `diff/<test>` for each mismatched page.
 
-The name is currently a placeholder and the delegation of compilation to `typst` as a binary keeps
-the project simple for now. This may change in the future.
+### Notable commands and options
+The following commands are available:
+- `init`, initialize a project with a test directory
+- `uinit`, remove a project's test directory
+- `clean`, clean test output artifacts
+- `run [test-filter]`, compile and run tests matching `test-filter`
+- `compile [test-filter]`, compile but don't run tests matching `test-filter`
+- `update [test-filter]`, update the reference images for tests matching `test-filter`
+
+`test-filter` is a substring filter. If no filter is given it will match all tests.
+
+The following global options are available:
+- `--typst`, the path to the typst binary to compile the tests with
+- `--root`, the project root directory
+  - the root directory for typst when compiling
+  - where `tests` is placed on `init`
+  - can be used if there is no `typst.toml` for discovery
+- `--verbose`, increase the logging verbosity
+  - please run typst-test with this when reporting issues
 
 ## Motivation
-After releasing a very broken version of [hydra], I started writing tests and as such also a small
+After releasing a very broken version of [hydra], I started writing tests and, as such, also a small
 script to run them automatically. I got a bit carried away and overengineered the test script, but
-it had a fundamental flaw: It could not run tests in parallel. This and the additional burden of
+it had a fundamental flaw; It could not run tests in parallel. This and the additional burden of
 maintaining the messy script was enough to prompt me to write this program. As this is direct port
-of my [hydra test script][hydra-test], it already improves on various aspects, mainly speed.
-
-## Goals
-- primarily running visual regression tests
-- easy test framework setup
-- automatic test discovery
-- simple user interface
-- fast and clear feedback
-
-Once the basic commands are implemented `typst-test` will switch to compiling the document itself if
-this can further speed up the process and improve the error reporting.
-
-I also plan to extract the inner logic into a library crate to allow running the same tests from
-other programs like `typst-lsp`, as using the typst crate directly allows us to skip writing the
-files to disk.
-
-## Performance
-Below is an illustration of the performance increase, most of this is from the fact that we skip
-the nushell script and by extension being able to run tests in parallel. 
-![
-  An image showing shell session after running hyperfine with the script and binary, showing a
-  ~8times speedup over the nushell + python script.
-][benchmark]
+of my [hydra test script][hydra-test].
 
 [hydra]: https://github.com/tingerrr/hydra
 [hydra-test]: https://github.com/tingerrr/hydra/blob/10127b1a5835a40a127b437b082c395a61d082d1/tests/run.nu
-[benchmark]: assets/benchmark.png
