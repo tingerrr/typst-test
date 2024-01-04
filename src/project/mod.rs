@@ -250,17 +250,21 @@ impl Project {
             .map(Test::name)
             .filter(|test| test.contains(filter))
             .try_for_each(|test| {
-                tracing::debug!(?test, "updating references");
+                tracing::debug!(?test, "updating refs");
                 let out_dir = test_out_dir(&self.root).join(test);
                 let ref_dir = test_ref_dir(&self.root).join(test);
 
-                tracing::debug!(path = ?out_dir, "ensuring out dir");
+                tracing::trace!(path = ?out_dir, "ensuring out dir");
                 util::fs::ensure_dir(&out_dir, false)?;
 
-                tracing::debug!(path = ?ref_dir, "ensuring empty ref dir");
+                tracing::trace!(path = ?ref_dir, "ensuring empty ref dir");
                 util::fs::ensure_empty_dir(&ref_dir, false)?;
 
-                for entry in util::fs::collect_dir_entries(&out_dir)? {
+                tracing::trace!(path = ?out_dir, "collecting new refs from out dir");
+                let entries = util::fs::collect_dir_entries(&out_dir)?;
+
+                for (idx, entry) in entries.into_iter().enumerate() {
+                    tracing::debug!(?test, "ref" = ?idx + 1, "writing optimized ref");
                     let name = entry.file_name();
 
                     // TODO: better error handling
