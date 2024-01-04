@@ -184,7 +184,14 @@ impl Project {
 
     #[tracing::instrument(skip_all)]
     pub fn load_tests(&mut self) -> io::Result<()> {
-        for entry in fs::read_dir(self.test_dir().join("typ"))? {
+        let typ_dir = self.test_dir().join("typ");
+
+        // TODO: return an error
+        if !typ_dir.try_exists()? {
+            return Ok(());
+        }
+
+        for entry in fs::read_dir(typ_dir)? {
             let entry = entry?;
             let typ = entry.file_type()?;
             let name = entry.file_name();
