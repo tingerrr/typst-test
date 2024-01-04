@@ -23,7 +23,11 @@ pub struct Args {
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum Command {
     /// Initialize a tests directory for the current project
-    Init,
+    Init {
+        /// Do not create a default example
+        #[arg(long)]
+        no_example: bool,
+    },
 
     /// Remove the tests directory from the current project
     Uninit,

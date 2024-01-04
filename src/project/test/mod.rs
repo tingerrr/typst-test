@@ -41,7 +41,8 @@ pub enum Stage {
     Preparation,
     Compilation,
     Comparison,
-    _Cleanup,
+    #[allow(dead_code)]
+    Cleanup,
 }
 
 impl Display for Stage {
@@ -53,7 +54,7 @@ impl Display for Stage {
                 Stage::Preparation => "preparation",
                 Stage::Compilation => "compilation",
                 Stage::Comparison => "comparison",
-                Stage::_Cleanup => "cleanup",
+                Stage::Cleanup => "cleanup",
             }
         )
     }

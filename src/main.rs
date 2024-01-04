@@ -136,8 +136,12 @@ fn main() -> anyhow::Result<()> {
     let mut project = Project::new(root);
 
     let (test, compare) = match args.cmd {
-        cli::Command::Init => {
-            project.create_tests_scaffold(ScaffoldMode::WithExample)?;
+        cli::Command::Init { no_example } => {
+            project.create_tests_scaffold(if no_example {
+                ScaffoldMode::NoExample
+            } else {
+                ScaffoldMode::WithExample
+            })?;
             return Ok(());
         }
         cli::Command::Uninit => {
