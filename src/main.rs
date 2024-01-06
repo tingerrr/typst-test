@@ -210,8 +210,8 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         cli::Command::Clean => {
-            util::fs::ensure_remove_dir(project::test_out_dir(project.root()), true)?;
-            util::fs::ensure_remove_dir(project::test_diff_dir(project.root()), true)?;
+            util::fs::ensure_remove_dir(project.test_out_dir(), true)?;
+            util::fs::ensure_remove_dir(project.test_diff_dir(), true)?;
             println!("removed test artifacts for {}", project.name());
             return Ok(());
         }

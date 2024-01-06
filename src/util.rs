@@ -1,7 +1,7 @@
 pub mod fs {
     use std::fs::DirEntry;
     use std::io::ErrorKind;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::{fs, io};
 
     fn ignore_subset<T: Default>(
@@ -12,6 +12,23 @@ pub mod fs {
             Err(err) if check(&err)? => Ok(Default::default()),
             x => x,
         }
+    }
+
+    pub fn dir_in_root<P, I, T>(root: P, parts: I) -> PathBuf
+    where
+        P: AsRef<Path>,
+        I: IntoIterator<Item = T>,
+        T: AsRef<Path>,
+    {
+        let root: &Path = root.as_ref();
+        let mut result = root.to_path_buf();
+        result.extend(parts);
+
+        debug_assert!(
+            is_ancestor_of(root, &result),
+            "unintended escape from root, {result:?} is not inside {root:?}"
+        );
+        result
     }
 
     pub fn collect_dir_entries<P: AsRef<Path>>(path: P) -> io::Result<Vec<DirEntry>> {

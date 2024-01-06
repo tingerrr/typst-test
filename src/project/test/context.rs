@@ -43,11 +43,10 @@ impl Context {
     }
 
     pub fn test<'ctx>(&'ctx self, test: &Test) -> TestContext<'ctx> {
-        let dir = self.project.test_dir();
-        let typ_dir = dir.join("typ").join(&test.name);
-        let out_dir = dir.join("out").join(&test.name);
-        let ref_dir = dir.join("ref").join(&test.name);
-        let diff_dir = dir.join("diff").join(&test.name);
+        let typ_dir = self.project.test_script_dir().join(&test.name);
+        let out_dir = self.project.test_out_dir().join(&test.name);
+        let ref_dir = self.project.test_ref_dir().join(&test.name);
+        let diff_dir = self.project.test_diff_dir().join(&test.name);
 
         let typ_file = if test.folder {
             typ_dir.join("test")
