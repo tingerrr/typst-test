@@ -107,10 +107,8 @@ impl Project {
         let test_dir = self.test_dir();
         let typ_dir = self.test_script_dir();
 
-        // NOTE: we want to fail if `root` doesn't exist, so we create the test folder individually
-        //       if this passed anything we create after this must have an existing root
         tracing::trace!(dir = ?test_dir, "ensuring tests dir");
-        util::fs::ensure_dir(&test_dir, false)?;
+        util::fs::ensure_dir(&test_dir, true)?;
 
         tracing::trace!(dir = ?test_dir, "ensuring test script dir");
         util::fs::ensure_dir(&typ_dir, true)?;
@@ -225,20 +223,29 @@ impl Project {
         let filter = filter.as_deref().unwrap_or_default();
         let options = Options::max_compression();
 
+        let out_dir = self.test_out_dir();
+        let ref_dir = self.test_ref_dir();
+
+        tracing::trace!(path = ?out_dir, "ensuring out dir");
+        util::fs::ensure_dir(&out_dir, true)?;
+
+        tracing::trace!(path = ?ref_dir, "ensuring empty ref dir");
+        util::fs::ensure_empty_dir(&ref_dir, true)?;
+
         self.tests
             .par_iter()
             .map(Test::name)
             .filter(|test| test.contains(filter))
             .try_for_each(|test| {
                 tracing::debug!(?test, "updating refs");
-                let out_dir = self.test_out_dir().join(test);
-                let ref_dir = self.test_ref_dir().join(test);
+                let out_dir = out_dir.join(test);
+                let ref_dir = ref_dir.join(test);
 
-                tracing::trace!(path = ?out_dir, "ensuring out dir");
-                util::fs::ensure_dir(&out_dir, false)?;
+                tracing::trace!(path = ?out_dir, "ensuring test out dir");
+                util::fs::ensure_dir(&out_dir, true)?;
 
-                tracing::trace!(path = ?ref_dir, "ensuring empty ref dir");
-                util::fs::ensure_empty_dir(&ref_dir, false)?;
+                tracing::trace!(path = ?ref_dir, "ensuring empty test ref dir");
+                util::fs::ensure_empty_dir(&ref_dir, true)?;
 
                 tracing::trace!(path = ?out_dir, "collecting new refs from out dir");
                 let entries = util::fs::collect_dir_entries(&out_dir)?;
