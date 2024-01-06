@@ -59,13 +59,25 @@ pub mod fs {
         }
 
         ignore_subset(inner(path.as_ref(), all), |e| {
-            Ok(e.kind() == ErrorKind::NotFound
-                && path
+            Ok(if e.kind() == ErrorKind::NotFound {
+                let parent_exists = path
                     .as_ref()
                     .parent()
                     .map(|p| p.try_exists())
                     .transpose()?
-                    .is_some_and(|b| b))
+                    .is_some_and(|b| b);
+
+                if !parent_exists {
+                    tracing::error!(
+                        path = ?path.as_ref(),
+                        "tried removing dir, but parent did not exist",
+                    );
+                }
+
+                parent_exists
+            } else {
+                false
+            })
         })
     }
 

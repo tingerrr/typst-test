@@ -74,6 +74,34 @@ impl Context {
         }
     }
 
+    #[tracing::instrument(skip_all)]
+    pub fn prepare(&self) -> Result<(), Error> {
+        let err_fn = |n, p| format!("creating {} dir: {:?}", n, p);
+        let dirs = [
+            ("out", &self.project.test_out_dir(), true),
+            ("diff", &self.project.test_diff_dir(), true),
+            ("ref", &self.project.test_ref_dir(), false),
+        ];
+
+        for (name, path, clear) in dirs {
+            if clear {
+                tracing::trace!(?path, "ensuring empty {name} dir");
+                util::fs::ensure_empty_dir(path, true)
+                    .map_err(|e| Error::io(Stage::Preparation, e).context(err_fn(name, path)))?;
+            } else {
+                tracing::trace!(?path, "ensuring ref dir");
+                util::fs::ensure_dir(path, true).map_err(|e| Error::io(Stage::Preparation, e))?;
+            }
+        }
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub fn cleanup(&self) -> Result<(), Error> {
+        Ok(())
+    }
+
     pub fn results(&self) -> MutexGuard<'_, HashMap<Test, TestResult>> {
         self.results.lock().unwrap()
     }
@@ -129,12 +157,12 @@ impl TestContext<'_> {
 
         for (name, path) in dirs {
             tracing::trace!(?path, "ensuring empty {name} dir");
-            util::fs::ensure_empty_dir(path, false)
+            util::fs::ensure_empty_dir(path, true)
                 .map_err(|e| Error::io(Stage::Preparation, e).context(err_fn(name, path)))?;
         }
 
         tracing::trace!(path = ?self.ref_dir, "ensuring ref dir");
-        util::fs::ensure_dir(&self.ref_dir, false).map_err(|e| Error::io(Stage::Preparation, e))?;
+        util::fs::ensure_dir(&self.ref_dir, true).map_err(|e| Error::io(Stage::Preparation, e))?;
 
         Ok(Ok(()))
     }
@@ -194,8 +222,9 @@ impl TestContext<'_> {
         let mut pages = vec![];
 
         for (idx, (out_entry, ref_entry)) in out_entries.into_iter().zip(ref_entries).enumerate() {
-            if let Err(err) = self.compare_page(idx + 1, &out_entry.path(), &ref_entry.path())? {
-                pages.push((idx, err));
+            let p = idx + 1;
+            if let Err(err) = self.compare_page(p, &out_entry.path(), &ref_entry.path())? {
+                pages.push((p, err));
                 if self.project_context.fail_fast {
                     return Ok(Err(CompareFailure::Page { pages }));
                 }

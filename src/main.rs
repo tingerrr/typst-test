@@ -36,6 +36,7 @@ fn run<W: termcolor::WriteColor>(
     let ctx = Context::new(project.clone(), typst, fail_fast);
 
     let filter = filter.as_deref().unwrap_or_default();
+    ctx.prepare()?;
     let handles: Vec<_> = project
         .tests()
         .par_iter()
@@ -45,6 +46,7 @@ fn run<W: termcolor::WriteColor>(
 
     // NOTE: inner result ignored as it is registered anyway, see above
     let _ = handles.into_iter().collect::<ContextResult>()?;
+    ctx.cleanup()?;
 
     let results = ctx.results().clone();
     let pad = results
