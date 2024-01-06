@@ -76,9 +76,8 @@ fn run<W: termcolor::WriteColor>(
         util::term::with_color(
             w,
             |c| c.set_bold(true).set_fg(Some(Color::Red)),
-            format_args!("failed"),
+            format_args!("failed\n"),
         )?;
-        writeln!(w)?;
 
         let pad = " ".repeat(pad + 1);
         match e {
@@ -94,11 +93,26 @@ fn run<W: termcolor::WriteColor>(
                     }
 
                     if let Ok(s) = std::str::from_utf8(buffer) {
+                        util::term::with_color(
+                            w,
+                            |c| c.set_bold(true),
+                            format_args!("{pad}┏━ {name}\n"),
+                        )?;
                         for line in s.lines() {
-                            writeln!(w, "{pad}{name}:  {line}")?;
+                            util::term::with_color(
+                                w,
+                                |c| c.set_bold(true),
+                                format_args!("{pad}┃"),
+                            )?;
+                            writeln!(w, "{line}")?;
                         }
+                        util::term::with_color(
+                            w,
+                            |c| c.set_bold(true),
+                            format_args!("{pad}┗━ {name}\n"),
+                        )?;
                     } else {
-                        writeln!(w, "{pad}std{name} was not valid utf8:")?;
+                        writeln!(w, "{pad}{name} was not valid utf8:")?;
                         writeln!(w, "{pad}{buffer:?}")?;
                     }
 
@@ -106,8 +120,8 @@ fn run<W: termcolor::WriteColor>(
                 };
 
                 writeln!(w, "{pad}compilation failed")?;
-                present_buffer(w, &e.output.stdout, "out")?;
-                present_buffer(w, &e.output.stderr, "err")?;
+                present_buffer(w, &e.output.stdout, "stdout")?;
+                present_buffer(w, &e.output.stderr, "stderr")?;
             }
             TestFailure::Comparison(CompareFailure::PageCount { output, reference }) => {
                 writeln!(
