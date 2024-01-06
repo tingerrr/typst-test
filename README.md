@@ -41,6 +41,10 @@ typst-test init
 typst-test run
 ```
 
+[
+  ![An asciicast showing typs-test running with one test failing.
+](https://asciinema.org/a/630172.svg)](https://asciinema.org/a/630172)
+
 ### Notable commands and options
 The following commands are available:
 - `init`, initialize a project with a test directory
