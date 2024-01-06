@@ -814,6 +814,7 @@ dependencies = [
  "image",
  "oxipng",
  "rayon",
+ "termcolor",
  "tracing",
  "tracing-subscriber",
  "tracing-tree",

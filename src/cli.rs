@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use clap::ColorChoice;
+
 /// Execute, compare and update visual regression tests for typst
 #[derive(clap::Parser, Debug)]
 pub struct Args {
@@ -14,6 +16,19 @@ pub struct Args {
     /// Whether to abort after the first test failure
     #[arg(long, global = true)]
     pub fail_fast: bool,
+
+    /// When to use colorful output
+    /// auto = use color if a capable terminal is detected
+    #[clap(
+        long,
+        global = true,
+        value_name = "WHEN",
+        require_equals = true,
+        num_args = 0..=1,
+        default_value = "auto",
+        default_missing_value = "always",
+    )]
+    pub color: ColorChoice,
 
     /// Produce more logging output [-v .. -vvvvv], logs are written to stderr
     #[arg(long, short, global = true, action = clap::ArgAction::Count)]

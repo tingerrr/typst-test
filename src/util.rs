@@ -75,3 +75,43 @@ pub mod fs {
         common_ancestor(base, path).is_some_and(|a| a == base)
     }
 }
+
+pub mod term {
+    use std::fmt::Arguments;
+    use std::io;
+    use std::io::IsTerminal;
+
+    use termcolor::{ColorChoice, ColorSpec, WriteColor};
+
+    pub fn color_stream(color: clap::ColorChoice, stderr: bool) -> termcolor::StandardStream {
+        let choice = match color {
+            clap::ColorChoice::Auto => {
+                if std::io::stderr().is_terminal() {
+                    ColorChoice::Auto
+                } else {
+                    ColorChoice::Never
+                }
+            }
+            clap::ColorChoice::Always => ColorChoice::Always,
+            clap::ColorChoice::Never => ColorChoice::Never,
+        };
+
+        if stderr {
+            termcolor::StandardStream::stderr(choice)
+        } else {
+            termcolor::StandardStream::stdout(choice)
+        }
+    }
+
+    pub fn with_color<W: WriteColor + ?Sized>(
+        w: &mut W,
+        color: impl FnOnce(&mut ColorSpec) -> &mut ColorSpec,
+        fmt: Arguments<'_>,
+    ) -> io::Result<()> {
+        w.set_color(color(&mut ColorSpec::new()))?;
+        w.write_fmt(fmt)?;
+        w.set_color(&ColorSpec::new().set_reset(true))?;
+
+        Ok(())
+    }
+}

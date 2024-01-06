@@ -1,11 +1,13 @@
 use std::ffi::OsStr;
-use std::fs;
+use std::io::IsTerminal;
 use std::path::PathBuf;
+use std::{fs, io};
 
-use clap::Parser;
+use clap::{ColorChoice, Parser};
 use project::test::context::ContextResult;
 use project::ScaffoldMode;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use termcolor::Color;
 use tracing::Level;
 use tracing_subscriber::filter::Targets;
 use tracing_subscriber::prelude::*;
@@ -19,7 +21,8 @@ mod cli;
 mod project;
 mod util;
 
-fn run(
+fn run<W: termcolor::WriteColor>(
+    w: &mut W,
     mut project: Project,
     typst: PathBuf,
     fail_fast: bool,
@@ -40,70 +43,99 @@ fn run(
         .map(|test| test.run(&ctx, compare))
         .collect();
 
-    // TODO: inner result ignored as it is registered anyway, see above
+    // NOTE: inner result ignored as it is registered anyway, see above
     let _ = handles.into_iter().collect::<ContextResult>()?;
 
-    let present_ok = |n: &str| {
-        println!("{}: success", n);
+    let results = ctx.results().clone();
+    let pad = results
+        .iter()
+        .map(|(t, _)| t.name().len())
+        .max()
+        .unwrap_or_default();
+
+    let present_ok = |w: &mut dyn termcolor::WriteColor, n: &str| -> io::Result<()> {
+        write!(w, "{n:<pad$} ")?;
+        util::term::with_color(
+            w,
+            |c| c.set_bold(true).set_fg(Some(Color::Green)),
+            format_args!("success"),
+        )?;
+        writeln!(w)
     };
 
-    // removing the type hint makes causes the first usage to infer a longer lifetime than the
-    // latter usage can satisfy
-    let present_err = |n: &str, e| {
-        println!("{}: failed", n);
+    // NOTE: removing the type hint makes causes the first usage to infer a longer lifetime than the
+    //       latter usage can satisfy
 
+    // TODO: long test names will cause compile errors to become harde to read, perhaps they should
+    //       be shown above, i.e by bounding the maxiumum allowd padding
+
+    let present_err = |w: &mut dyn termcolor::WriteColor, n: &str, e| -> io::Result<()> {
+        write!(w, "{n:<pad$} ")?;
+        util::term::with_color(
+            w,
+            |c| c.set_bold(true).set_fg(Some(Color::Red)),
+            format_args!("failed"),
+        )?;
+        writeln!(w)?;
+
+        let pad = " ".repeat(pad + 1);
         match e {
-            TestFailure::Preparation(e) => println!("  {}", e),
-            TestFailure::Cleanup(e) => println!("  {}", e),
+            TestFailure::Preparation(e) => writeln!(w, "{pad}{e}")?,
+            TestFailure::Cleanup(e) => writeln!(w, "{pad}{e}")?,
             TestFailure::Compilation(e) => {
-                let present_buffer = |buffer: Vec<u8>| {
+                let present_buffer = |w: &mut dyn termcolor::WriteColor,
+                                      buffer: &[u8],
+                                      name: &str|
+                 -> io::Result<()> {
                     if buffer.is_empty() {
-                        return;
+                        return Ok(());
                     }
 
-                    if let Ok(s) = std::str::from_utf8(&buffer) {
+                    if let Ok(s) = std::str::from_utf8(buffer) {
                         for line in s.lines() {
-                            println!("    {line}");
+                            writeln!(w, "{pad}{name}:  {line}")?;
                         }
                     } else {
-                        println!("    buffer was not valid utf8:");
-                        println!("    {buffer:?}");
+                        writeln!(w, "{pad}std{name} was not valid utf8:")?;
+                        writeln!(w, "{pad}{buffer:?}")?;
                     }
+
+                    Ok(())
                 };
 
-                println!("  compilation failed");
-                present_buffer(e.output.stdout);
-                present_buffer(e.output.stderr);
+                writeln!(w, "{pad}compilation failed")?;
+                present_buffer(w, &e.output.stdout, "out")?;
+                present_buffer(w, &e.output.stderr, "err")?;
             }
             TestFailure::Comparison(CompareFailure::PageCount { output, reference }) => {
-                println!(
-                    "  expected {} page{}, got {} page{}",
-                    reference,
+                writeln!(
+                    w,
+                    "{pad}expected {reference} page{}, got {output} page{}",
                     if reference == 1 { "" } else { "s" },
-                    output,
                     if output == 1 { "" } else { "s" },
-                );
+                )?;
             }
             TestFailure::Comparison(CompareFailure::Page { pages }) => {
-                for p in pages {
-                    println!("  page {}: {}", p.0, p.1);
+                for (p, f) in pages {
+                    writeln!(w, "{pad}page {p}: {f}")?;
                 }
             }
         }
+
+        Ok(())
     };
 
-    let results = ctx.results().clone();
     if !results.is_empty() {
         for (test, res) in results {
             match res {
-                Ok(_) => present_ok(test.name()),
+                Ok(_) => present_ok(w, test.name())?,
                 Err(e) => {
-                    present_err(test.name(), e);
+                    present_err(w, test.name(), e)?;
                 }
             }
         }
     } else {
-        println!("No tests detected for {}", project.name());
+        writeln!(w, "No tests detected for {}", project.name())?;
     }
 
     Ok(())
@@ -114,7 +146,15 @@ fn main() -> anyhow::Result<()> {
 
     if args.verbose >= 1 {
         tracing_subscriber::registry()
-            .with(HierarchicalLayer::new(4).with_targets(true))
+            .with(
+                HierarchicalLayer::new(4)
+                    .with_targets(true)
+                    .with_ansi(match args.color {
+                        ColorChoice::Auto => io::stderr().is_terminal(),
+                        ColorChoice::Always => true,
+                        ColorChoice::Never => false,
+                    }),
+            )
             .with(Targets::new().with_target(
                 std::env!("CARGO_CRATE_NAME"),
                 match args.verbose {
@@ -152,6 +192,7 @@ fn main() -> anyhow::Result<()> {
         .to_owned();
 
     let mut project = Project::new(root, name);
+    let mut stream = util::term::color_stream(args.color, false);
 
     let (test, compare) = match args.cmd {
         cli::Command::Init { no_example } => {
@@ -198,5 +239,12 @@ fn main() -> anyhow::Result<()> {
         cli::Command::Run(args) => (args.test, true),
     };
 
-    run(project, args.typst, args.fail_fast, compare, test)
+    run(
+        &mut stream,
+        project,
+        args.typst,
+        args.fail_fast,
+        compare,
+        test,
+    )
 }
