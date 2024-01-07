@@ -249,9 +249,18 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         cli::Command::Clean => {
-            project.add_tests(fs.load_tests()?);
             fs.clean_artifacts()?;
             println!("removed test artifacts for {}", project.name());
+            return Ok(());
+        }
+        cli::Command::Add { folder, test } => {
+            fs.add_test(test.clone(), folder)?;
+            println!("added {test}");
+            return Ok(());
+        }
+        cli::Command::Remove { test } => {
+            fs.remove_test(test.clone())?;
+            println!("removed {test}");
             return Ok(());
         }
         cli::Command::Status => {

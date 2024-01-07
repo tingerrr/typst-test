@@ -81,13 +81,41 @@ pub mod fs {
         })
     }
 
-    pub fn clear_dir<P: AsRef<Path>>(path: P) -> io::Result<()> {
+    pub fn create_empty_dir<P: AsRef<Path>>(path: P) -> io::Result<()> {
         fn inner(path: &Path) -> io::Result<()> {
             remove_dir(path, true)?;
             create_dir(path, false)
         }
 
         inner(path.as_ref())
+    }
+
+    pub fn remove_file<P: AsRef<Path>>(path: P) -> io::Result<()> {
+        fn inner(path: &Path) -> io::Result<()> {
+            std::fs::remove_file(path)
+        }
+
+        ignore_subset(inner(path.as_ref()), |e| {
+            Ok(if e.kind() == ErrorKind::NotFound {
+                let parent_exists = path
+                    .as_ref()
+                    .parent()
+                    .map(|p| p.try_exists())
+                    .transpose()?
+                    .is_some_and(|b| b);
+
+                if !parent_exists {
+                    tracing::error!(
+                        path = ?path.as_ref(),
+                        "tried removing file, but parent did not exist",
+                    );
+                }
+
+                parent_exists
+            } else {
+                false
+            })
+        })
     }
 
     pub fn common_ancestor<'a>(p: &'a Path, q: &'a Path) -> Option<&'a Path> {

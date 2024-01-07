@@ -17,7 +17,7 @@ use crate::util;
 
 #[derive(Debug)]
 pub struct Context<'p, 'fs> {
-    project: &'p Project,
+    _project: &'p Project,
     fs: &'fs Fs,
     typst: PathBuf,
     fail_fast: bool,
@@ -37,7 +37,7 @@ pub struct TestContext<'c, 'p, 't, 'f> {
 impl<'p, 'f> Context<'p, 'f> {
     pub fn new(project: &'p Project, fs: &'f Fs, typst: PathBuf, fail_fast: bool) -> Self {
         Self {
-            project,
+            _project: project,
             fs,
             typst,
             fail_fast,
@@ -148,7 +148,7 @@ impl TestContext<'_, '_, '_, '_> {
         for (name, clear, path) in dirs {
             if clear {
                 tracing::trace!(?path, "clearing {name} dir");
-                util::fs::clear_dir(path)
+                util::fs::create_empty_dir(path)
                     .map_err(|e| Error::io(Stage::Preparation, e).context(err_fn(name, path)))?;
             } else {
                 tracing::trace!(?path, "creating {name} dir");

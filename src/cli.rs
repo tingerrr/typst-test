@@ -68,6 +68,24 @@ pub enum Command {
         /// A filter for which tests to update, any test containing this string is updated
         test_filter: Option<String>,
     },
+
+    /// Add a new test
+    #[command(alias = "a")]
+    Add {
+        /// Whether to create a folde for this test
+        #[arg(long)]
+        folder: bool,
+
+        /// The name of the test to add
+        test: String,
+    },
+
+    /// Remove a test
+    #[command(alias = "rm")]
+    Remove {
+        /// The name of the test to remove
+        test: String,
+    },
 }
 
 #[derive(clap::Parser, Debug, Clone)]

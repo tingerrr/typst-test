@@ -121,7 +121,7 @@ impl Fs {
         ];
 
         for (name, path) in folders {
-            tracing::trace!(path = ?path, "ensuring {} dir", name);
+            tracing::trace!(path = ?path, "ensuring {name} dir");
             util::fs::create_dir(path, false)?;
         }
 
@@ -142,7 +142,7 @@ impl Fs {
         let script_dir = self.script_dir();
 
         for (name, path) in [("test", &test_dir), ("script", &script_dir)] {
-            tracing::trace!(?path, "creating {} dir", name);
+            tracing::trace!(?path, "creating {name} dir");
             util::fs::create_dir(path, false)?;
         }
 
@@ -159,25 +159,10 @@ impl Fs {
         }
 
         if mode == ScaffoldMode::WithExample {
-            tracing::span!(tracing::Level::DEBUG, "add_example");
-
-            let test_script = script_dir.join("test").with_extension("typ");
-            let mut test_script = File::options()
-                .write(true)
-                .create_new(true)
-                .open(test_script)?;
-            test_script.write_all(DEFAULT_TEST_INPUT.as_bytes())?;
-
-            let ref_dir = self.ref_dir().join("test");
-            tracing::trace!(path = ?ref_dir, "creating ref dir");
-            util::fs::create_dir(&ref_dir, true)?;
-
-            let test_ref = ref_dir.join("1").with_extension("png");
-            let mut test_ref = File::options()
-                .write(true)
-                .create_new(true)
-                .open(test_ref)?;
-            test_ref.write_all(DEFAULT_TEST_OUTPUT)?;
+            tracing::debug!("adding default test");
+            self.add_test("test".into(), false)?;
+        } else {
+            tracing::debug!("skipping default test");
         }
 
         Ok(true)
@@ -195,8 +180,90 @@ impl Fs {
     pub fn clean_artifacts(&self) -> Result<(), Error> {
         self.ensure_init()?;
 
+        // TODO: remove unused refs
+
         util::fs::remove_dir(self.out_dir(), true)?;
         util::fs::remove_dir(self.diff_dir(), true)?;
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn add_test(&self, test: String, folder: bool) -> Result<Test, Error> {
+        self.ensure_init()?;
+        self.create_required()?;
+
+        if self
+            .load_tests()?
+            .iter()
+            .find(|t| t.name() == test)
+            .is_some()
+        {
+            return Err(Error::TestsAlreadyExists(test));
+        }
+
+        let script_dir = self.script_dir().join(&test);
+        let test_script = if folder {
+            tracing::trace!(path = ?script_dir, "creating test dir");
+            util::fs::create_empty_dir(&script_dir)?;
+            script_dir.join("test")
+        } else {
+            script_dir
+        };
+
+        let test_script = test_script.with_extension("typ");
+        tracing::trace!(path = ?test_script , "creating test script");
+        let mut test_script = File::options()
+            .write(true)
+            .create_new(true)
+            .open(test_script)?;
+        test_script.write_all(DEFAULT_TEST_INPUT.as_bytes())?;
+
+        let ref_dir = self.ref_dir().join(&test);
+        tracing::trace!(path = ?ref_dir, "creating ref dir");
+        util::fs::create_empty_dir(&ref_dir)?;
+
+        let test_ref = ref_dir.join("1").with_extension("png");
+        tracing::trace!(path = ?test_ref, "creating ref image");
+        let mut test_ref = File::options()
+            .write(true)
+            .create_new(true)
+            .open(test_ref)?;
+        test_ref.write_all(DEFAULT_TEST_OUTPUT)?;
+
+        Ok(Test::new(test, folder))
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn remove_test(&self, test: String) -> Result<(), Error> {
+        self.ensure_init()?;
+        if self
+            .load_tests()?
+            .iter()
+            .find(|t| t.name() == test)
+            .is_none()
+        {
+            return Err(Error::TestUnknown(test));
+        }
+
+        for (name, dir) in [
+            ("out", self.out_dir()),
+            ("ref", self.ref_dir()),
+            ("diff", self.diff_dir()),
+            ("script", self.script_dir()),
+        ] {
+            let path = dir.join(&test);
+            tracing::trace!(?path, "deleting {name} dir");
+            util::fs::remove_dir(path, true)?
+        }
+
+        let script_dir = self.script_dir().join(test);
+        if script_dir.is_dir() {
+            tracing::trace!(path = ?script_dir, "deleting script dir");
+            util::fs::remove_dir(script_dir, true)?
+        } else {
+            util::fs::remove_file(script_dir.with_extension("typ"))?
+        }
+
         Ok(())
     }
 
@@ -258,7 +325,7 @@ impl Fs {
             util::fs::create_dir(&out_dir, true)?;
 
             tracing::trace!(path = ?ref_dir, "clearing ref dir");
-            util::fs::clear_dir(&ref_dir)?;
+            util::fs::create_empty_dir(&ref_dir)?;
 
             tracing::trace!(path = ?out_dir, "collecting new refs from out dir");
             let entries = util::fs::collect_dir_entries(&out_dir)?;
@@ -288,6 +355,12 @@ pub enum Error {
 
     #[error("project is not initalized")]
     InitNeeded,
+
+    #[error("unknown test: {0:?}")]
+    TestUnknown(String),
+
+    #[error("test already exsits: {0:?}")]
+    TestsAlreadyExists(String),
 
     #[error("an io error occurred")]
     Io(#[from] io::Error),
