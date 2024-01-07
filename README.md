@@ -50,6 +50,9 @@ The following commands are available:
 - `clean`, clean test output artifacts
 - `run [test-filter]`, compile and run tests matching `test-filter`
 - `compile [test-filter]`, compile but don't run tests matching `test-filter`
+- `add <test>`, add a new test named `test`
+- `edit <test>`, edit the test named `test`
+- `remove <test>`, remove the test named `test`
 - `update [test-filter]`, update the reference images for tests matching `test-filter`
 
 `test-filter` is a substring filter. If no filter is given it will match all tests.
