@@ -25,7 +25,6 @@ impl Test {
         &self.name
     }
 
-    #[allow(dead_code)]
     pub fn folder(&self) -> bool {
         self.folder
     }

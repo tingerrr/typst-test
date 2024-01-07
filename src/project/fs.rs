@@ -129,6 +129,18 @@ impl Fs {
     }
 
     #[tracing::instrument(skip(self))]
+    pub fn resolve_script_path(&self, test: &Test) -> PathBuf {
+        let script_dir = self.script_dir().join(test.name());
+        let script = if test.folder() {
+            script_dir.join("test")
+        } else {
+            script_dir
+        };
+
+        script.with_extension("typ")
+    }
+
+    #[tracing::instrument(skip(self))]
     pub fn init(&self, mode: ScaffoldMode) -> Result<bool, Error> {
         self.ensure_root()?;
 
@@ -160,7 +172,7 @@ impl Fs {
 
         if mode == ScaffoldMode::WithExample {
             tracing::debug!("adding default test");
-            self.add_test("test".into(), false)?;
+            self.add_test(&Test::new("test".to_owned(), false))?;
         } else {
             tracing::debug!("skipping default test");
         }
@@ -188,21 +200,29 @@ impl Fs {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn add_test(&self, test: String, folder: bool) -> Result<Test, Error> {
+    pub fn get_test(&self, test: &str) -> Result<Option<Test>, Error> {
+        // TODO: don't load all tests?
+        Ok(self.load_tests()?.into_iter().find(|t| t.name() == test))
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn find_test(&self, test: &str) -> Result<Test, Error> {
+        self.get_test(test)?
+            .ok_or_else(|| Error::TestUnknown(test.to_owned()))
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn add_test(&self, test: &Test) -> Result<(), Error> {
         self.ensure_init()?;
         self.create_required()?;
 
-        if self
-            .load_tests()?
-            .iter()
-            .find(|t| t.name() == test)
-            .is_some()
-        {
-            return Err(Error::TestsAlreadyExists(test));
+        if self.get_test(test.name())?.is_some() {
+            return Err(Error::TestsAlreadyExists(test.name().to_owned()));
         }
 
-        let script_dir = self.script_dir().join(&test);
-        let test_script = if folder {
+        // TODO: return more than jsut script path from resolve_script_path and use it here
+        let script_dir = self.script_dir().join(test.name());
+        let test_script = if test.folder() {
             tracing::trace!(path = ?script_dir, "creating test dir");
             util::fs::create_empty_dir(&script_dir)?;
             script_dir.join("test")
@@ -218,7 +238,7 @@ impl Fs {
             .open(test_script)?;
         test_script.write_all(DEFAULT_TEST_INPUT.as_bytes())?;
 
-        let ref_dir = self.ref_dir().join(&test);
+        let ref_dir = self.ref_dir().join(test.name());
         tracing::trace!(path = ?ref_dir, "creating ref dir");
         util::fs::create_empty_dir(&ref_dir)?;
 
@@ -230,20 +250,16 @@ impl Fs {
             .open(test_ref)?;
         test_ref.write_all(DEFAULT_TEST_OUTPUT)?;
 
-        Ok(Test::new(test, folder))
+        Ok(())
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn remove_test(&self, test: String) -> Result<(), Error> {
+    pub fn remove_test(&self, test: &str) -> Result<(), Error> {
         self.ensure_init()?;
-        if self
-            .load_tests()?
-            .iter()
-            .find(|t| t.name() == test)
-            .is_none()
-        {
-            return Err(Error::TestUnknown(test));
-        }
+
+        let Some(test) = self.get_test(test)? else {
+            return Err(Error::TestUnknown(test.to_owned()));
+        };
 
         for (name, dir) in [
             ("out", self.out_dir()),
@@ -251,14 +267,14 @@ impl Fs {
             ("diff", self.diff_dir()),
             ("script", self.script_dir()),
         ] {
-            let path = dir.join(&test);
-            tracing::trace!(?path, "deleting {name} dir");
+            let path = dir.join(test.name());
+            tracing::trace!(?path, "removing {name} dir");
             util::fs::remove_dir(path, true)?
         }
 
-        let script_dir = self.script_dir().join(test);
-        if script_dir.is_dir() {
-            tracing::trace!(path = ?script_dir, "deleting script dir");
+        let script_dir = self.script_dir().join(test.name());
+        if test.folder() {
+            tracing::trace!(path = ?script_dir, "removing script dir");
             util::fs::remove_dir(script_dir, true)?
         } else {
             util::fs::remove_file(script_dir.with_extension("typ"))?

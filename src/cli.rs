@@ -76,11 +76,22 @@ pub enum Command {
     /// Add a new test
     #[command(alias = "a")]
     Add {
-        /// Whether to create a folde for this test
+        /// Whether to create a folder for this test
         #[arg(long)]
         folder: bool,
 
+        /// Whether to open the test script
+        #[arg(long, short)]
+        open: bool,
+
         /// The name of the test to add
+        test: String,
+    },
+
+    /// Edit an existing new test
+    #[command(alias = "e")]
+    Edit {
+        /// The name of the test to edit
         test: String,
     },
 

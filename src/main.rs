@@ -163,14 +163,27 @@ fn main() -> anyhow::Result<()> {
             println!("removed test artifacts for {}", project.name());
             return Ok(());
         }
-        cli::Command::Add { folder, test } => {
-            fs.add_test(test.clone(), folder)?;
-            report::test_added(&mut stream, &test)?;
+        cli::Command::Add { folder, open, test } => {
+            let test = Test::new(test, folder);
+            fs.add_test(&test)?;
+            report::test_added(&mut stream, test.name())?;
+
+            if open {
+                // BUG: this may fail silently if path doesn exist
+                open::that_detached(fs.resolve_script_path(&test))?;
+            }
+
+            return Ok(());
+        }
+        cli::Command::Edit { test } => {
+            let test = fs.find_test(&test)?;
+            open::that_detached(fs.resolve_script_path(&test))?;
             return Ok(());
         }
         cli::Command::Remove { test } => {
-            fs.remove_test(test.clone())?;
-            report::test_removed(&mut stream, &test)?;
+            let test = fs.find_test(&test)?;
+            fs.remove_test(test.name())?;
+            report::test_removed(&mut stream, test.name())?;
             return Ok(());
         }
         cli::Command::Status => {

@@ -9,6 +9,7 @@ edition = "2021"
 anyhow = { version = "1.0.78", features = ["backtrace"] }
 clap = { version = "4.4.12", features = ["derive"] }
 image = { version = "0.24.7", default-features = false, features = ["png"] }
+open = "5.0.1"
 oxipng = { version = "9.0.0", features = ["image"] }
 rayon = "1.8.0"
 termcolor = "1.4.0"
