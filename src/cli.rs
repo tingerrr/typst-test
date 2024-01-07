@@ -13,11 +13,8 @@ pub struct Args {
     #[arg(long, global = true, default_value = "typst")]
     pub typst: PathBuf,
 
-    /// Whether to abort after the first test failure
-    #[arg(long, global = true)]
-    pub fail_fast: bool,
-
     /// When to use colorful output
+    ///
     /// auto = use color if a capable terminal is detected
     #[clap(
         long,
@@ -54,20 +51,31 @@ pub enum Command {
     Clean,
 
     /// Show information about the current project
+    #[command(alias = "s")]
     Status,
 
     /// Compile and compare tests
+    #[command(alias = "r")]
     Run(TestArgs),
 
     /// Compile tests
+    #[command(alias = "c")]
     Compile(TestArgs),
 
     /// Update tests
-    Update(TestArgs),
+    #[command(alias = "u")]
+    Update {
+        /// A filter for which tests to update, any test containing this string is updated
+        test_filter: Option<String>,
+    },
 }
 
 #[derive(clap::Parser, Debug, Clone)]
 pub struct TestArgs {
+    /// Whether to abort after the first test failure
+    #[arg(long)]
+    pub fail_fast: bool,
+
     /// A filter for which tests to run, any test containing this string is run
-    pub test: Option<String>,
+    pub test_filter: Option<String>,
 }

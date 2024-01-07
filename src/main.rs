@@ -210,7 +210,7 @@ fn main() -> anyhow::Result<()> {
     let mut project = Project::new(root, name);
     let mut stream = util::term::color_stream(args.color, false);
 
-    let (test, compare) = match args.cmd {
+    let (test_args, compare) = match args.cmd {
         cli::Command::Init { no_example } => {
             project.create_tests_scaffold(if no_example {
                 ScaffoldMode::NoExample
@@ -245,22 +245,22 @@ fn main() -> anyhow::Result<()> {
 
             return Ok(());
         }
-        cli::Command::Update(args) => {
+        cli::Command::Update { test_filter } => {
             project.load_tests()?;
-            project.update_tests(args.test)?;
+            project.update_tests(test_filter)?;
             println!("updated tests for {}", project.name());
             return Ok(());
         }
-        cli::Command::Compile(args) => (args.test, false),
-        cli::Command::Run(args) => (args.test, true),
+        cli::Command::Compile(args) => (args, false),
+        cli::Command::Run(args) => (args, true),
     };
 
     run(
         &mut stream,
         project,
         args.typst,
-        args.fail_fast,
+        test_args.fail_fast,
         compare,
-        test,
+        test_args.test_filter,
     )
 }
