@@ -129,9 +129,10 @@ fn main() -> anyhow::Result<()> {
         (Some(f), false) => {
             tests.retain(|t| t.name().contains(&f));
         }
-        (None, _) => {
+        (None, true) => {
             tracing::warn!("no filter given, --exact is meaning less");
         }
+        (None, false) => {}
     };
 
     let (test_args, compare) = match args.cmd {
