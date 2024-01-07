@@ -35,13 +35,13 @@ pub mod fs {
         fs::read_dir(path)?.collect::<io::Result<Vec<DirEntry>>>()
     }
 
-    pub fn ensure_dir<P: AsRef<Path>>(path: P, all: bool) -> io::Result<()> {
+    pub fn create_dir<P: AsRef<Path>>(path: P, all: bool) -> io::Result<()> {
         fn inner(path: &Path, all: bool) -> io::Result<()> {
             if all {
-                return fs::create_dir_all(path);
+                fs::create_dir_all(path)
+            } else {
+                fs::create_dir(path)
             }
-
-            fs::create_dir(path)
         }
 
         ignore_subset(inner(path.as_ref(), all), |e| {
@@ -49,13 +49,13 @@ pub mod fs {
         })
     }
 
-    pub fn ensure_remove_dir<P: AsRef<Path>>(path: P, all: bool) -> io::Result<()> {
+    pub fn remove_dir<P: AsRef<Path>>(path: P, all: bool) -> io::Result<()> {
         fn inner(path: &Path, all: bool) -> io::Result<()> {
             if all {
-                return fs::remove_dir_all(path);
+                fs::remove_dir_all(path)
+            } else {
+                fs::remove_dir(path)
             }
-
-            fs::remove_dir(path)
         }
 
         ignore_subset(inner(path.as_ref(), all), |e| {
@@ -81,13 +81,13 @@ pub mod fs {
         })
     }
 
-    pub fn ensure_empty_dir<P: AsRef<Path>>(path: P, all: bool) -> io::Result<()> {
-        fn inner(path: &Path, all: bool) -> io::Result<()> {
-            ensure_remove_dir(path, true)?;
-            ensure_dir(path, all)
+    pub fn clear_dir<P: AsRef<Path>>(path: P) -> io::Result<()> {
+        fn inner(path: &Path) -> io::Result<()> {
+            remove_dir(path, true)?;
+            create_dir(path, false)
         }
 
-        inner(path.as_ref(), all)
+        inner(path.as_ref())
     }
 
     pub fn common_ancestor<'a>(p: &'a Path, q: &'a Path) -> Option<&'a Path> {

@@ -11,44 +11,47 @@ use super::{
     CleanupFailure, CompareFailure, ComparePageFailure, CompileFailure, PrepareFailure, Stage,
     Test, TestFailure, TestResult,
 };
+use crate::project::fs::Fs;
 use crate::project::Project;
 use crate::util;
 
 #[derive(Debug)]
-pub struct Context {
-    project: Project,
+pub struct Context<'p, 'fs> {
+    project: &'p Project,
+    fs: &'fs Fs,
     typst: PathBuf,
     fail_fast: bool,
     results: Mutex<HashMap<Test, TestResult>>,
 }
 
 #[derive(Debug)]
-pub struct TestContext<'ctx> {
-    project_context: &'ctx Context,
-    test: Test,
-    typ_file: PathBuf,
+pub struct TestContext<'c, 'p, 't, 'f> {
+    project_context: &'c Context<'p, 'f>,
+    test: &'t Test,
+    script_file: PathBuf,
     out_dir: PathBuf,
     ref_dir: PathBuf,
     diff_dir: PathBuf,
 }
 
-impl Context {
-    pub fn new(project: Project, typst: PathBuf, fail_fast: bool) -> Self {
+impl<'p, 'f> Context<'p, 'f> {
+    pub fn new(project: &'p Project, fs: &'f Fs, typst: PathBuf, fail_fast: bool) -> Self {
         Self {
             project,
+            fs,
             typst,
             fail_fast,
             results: Mutex::new(HashMap::new()),
         }
     }
 
-    pub fn test<'ctx>(&'ctx self, test: &Test) -> TestContext<'ctx> {
-        let typ_dir = self.project.test_script_dir().join(&test.name);
-        let out_dir = self.project.test_out_dir().join(&test.name);
-        let ref_dir = self.project.test_ref_dir().join(&test.name);
-        let diff_dir = self.project.test_diff_dir().join(&test.name);
+    pub fn test<'c, 't>(&'c self, test: &'t Test) -> TestContext<'c, 'p, 't, 'f> {
+        let typ_dir = self.fs.script_dir().join(&test.name);
+        let out_dir = self.fs.out_dir().join(&test.name);
+        let ref_dir = self.fs.ref_dir().join(&test.name);
+        let diff_dir = self.fs.diff_dir().join(&test.name);
 
-        let typ_file = if test.folder {
+        let script_file = if test.folder {
             typ_dir.join("test")
         } else {
             typ_dir.clone()
@@ -61,43 +64,26 @@ impl Context {
             ?out_dir,
             ?ref_dir,
             ?diff_dir,
+            ?script_file,
             "establishing test context"
         );
 
         TestContext {
             project_context: self,
-            test: test.clone(),
-            typ_file,
+            test,
+            script_file,
             out_dir,
             ref_dir,
             diff_dir,
         }
     }
 
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip(self))]
     pub fn prepare(&self) -> Result<(), Error> {
-        let err_fn = |n, p| format!("creating {} dir: {:?}", n, p);
-        let dirs = [
-            ("out", &self.project.test_out_dir(), true),
-            ("diff", &self.project.test_diff_dir(), true),
-            ("ref", &self.project.test_ref_dir(), false),
-        ];
-
-        for (name, path, clear) in dirs {
-            if clear {
-                tracing::trace!(?path, "ensuring empty {name} dir");
-                util::fs::ensure_empty_dir(path, true)
-                    .map_err(|e| Error::io(Stage::Preparation, e).context(err_fn(name, path)))?;
-            } else {
-                tracing::trace!(?path, "ensuring ref dir");
-                util::fs::ensure_dir(path, true).map_err(|e| Error::io(Stage::Preparation, e))?;
-            }
-        }
-
         Ok(())
     }
 
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip(self))]
     pub fn cleanup(&self) -> Result<(), Error> {
         Ok(())
     }
@@ -107,7 +93,7 @@ impl Context {
     }
 }
 
-impl TestContext<'_> {
+impl TestContext<'_, '_, '_, '_> {
     #[tracing::instrument(skip(self))]
     pub fn register_result(&self, result: TestResult) {
         let mut results = self.project_context.results.lock().unwrap();
@@ -152,17 +138,24 @@ impl TestContext<'_> {
 
     #[tracing::instrument(skip_all)]
     pub fn prepare(&self) -> ContextResult<PrepareFailure> {
-        let err_fn = |n, p| format!("creating {} dir: {:?}", n, p);
-        let dirs = [("out", &self.out_dir), ("diff", &self.diff_dir)];
+        let err_fn = |n, p| format!("clearing {} dir: {:?}", n, p);
+        let dirs = [
+            ("out", true, &self.out_dir),
+            ("ref", false, &self.ref_dir),
+            ("diff", true, &self.diff_dir),
+        ];
 
-        for (name, path) in dirs {
-            tracing::trace!(?path, "ensuring empty {name} dir");
-            util::fs::ensure_empty_dir(path, true)
-                .map_err(|e| Error::io(Stage::Preparation, e).context(err_fn(name, path)))?;
+        for (name, clear, path) in dirs {
+            if clear {
+                tracing::trace!(?path, "clearing {name} dir");
+                util::fs::clear_dir(path)
+                    .map_err(|e| Error::io(Stage::Preparation, e).context(err_fn(name, path)))?;
+            } else {
+                tracing::trace!(?path, "creating {name} dir");
+                util::fs::create_dir(path, false)
+                    .map_err(|e| Error::io(Stage::Preparation, e).context(err_fn(name, path)))?;
+            }
         }
-
-        tracing::trace!(path = ?self.ref_dir, "ensuring ref dir");
-        util::fs::ensure_dir(&self.ref_dir, true).map_err(|e| Error::io(Stage::Preparation, e))?;
 
         Ok(Ok(()))
     }
@@ -176,8 +169,8 @@ impl TestContext<'_> {
     pub fn compile(&self) -> ContextResult<CompileFailure> {
         let mut typst = Command::new(&self.project_context.typst);
         typst.args(["compile", "--root"]);
-        typst.arg(self.project_context.project.root());
-        typst.arg(&self.typ_file);
+        typst.arg(self.project_context.fs.root());
+        typst.arg(&self.script_file);
         typst.arg(self.out_dir.join("{n}").with_extension("png"));
 
         tracing::trace!(args = ?[&typst], "running typst");
@@ -208,6 +201,14 @@ impl TestContext<'_> {
         tracing::trace!(path = ?self.ref_dir, "reading ref dir");
         let mut ref_entries = util::fs::collect_dir_entries(&self.ref_dir)
             .map_err(|e| err_fn("ref", e, &self.ref_dir))?;
+
+        if out_entries.is_empty() {
+            return Ok(Err(CompareFailure::MissingOutput));
+        }
+
+        if ref_entries.is_empty() {
+            return Ok(Err(CompareFailure::MissingReferences));
+        }
 
         out_entries.sort_by_key(|t| t.file_name());
         ref_entries.sort_by_key(|t| t.file_name());

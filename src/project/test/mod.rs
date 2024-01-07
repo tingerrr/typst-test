@@ -113,7 +113,7 @@ impl std::error::Error for TestFailure {
 }
 
 #[derive(Debug, Clone)]
-pub struct PrepareFailure {}
+pub enum PrepareFailure {}
 
 impl Display for PrepareFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -157,6 +157,8 @@ pub enum CompareFailure {
     Page {
         pages: Vec<(usize, ComparePageFailure)>,
     },
+    MissingOutput,
+    MissingReferences,
 }
 
 impl Display for CompareFailure {
@@ -174,6 +176,8 @@ impl Display for CompareFailure {
                 if pages.len() == 1 { "" } else { "s" },
                 pages.iter().map(|(n, _)| n).collect::<Vec<_>>()
             ),
+            CompareFailure::MissingOutput => write!(f, "missing output"),
+            CompareFailure::MissingReferences => write!(f, "missing references"),
         }
     }
 }

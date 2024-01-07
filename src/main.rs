@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::{fs, io};
 
 use clap::{ColorChoice, Parser};
+use project::fs::Fs;
 use project::test::context::ContextResult;
 use project::ScaffoldMode;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
@@ -23,17 +24,16 @@ mod util;
 
 fn run<W: termcolor::WriteColor>(
     w: &mut W,
-    mut project: Project,
+    project: &Project,
+    fs: &Fs,
     typst: PathBuf,
     fail_fast: bool,
     compare: bool,
     filter: Option<String>,
 ) -> anyhow::Result<()> {
-    project.load_tests()?;
-
     // TODO: fail_fast currently doesn't really do anything other than returning early, other tests
     //       still run, this makes sense as we're not stopping the other threads just yet
-    let ctx = Context::new(project.clone(), typst, fail_fast);
+    let ctx = Context::new(&project, &fs, typst, fail_fast);
 
     let filter = filter.as_deref().unwrap_or_default();
     ctx.prepare()?;
@@ -136,6 +136,18 @@ fn run<W: termcolor::WriteColor>(
                     writeln!(w, "{pad}page {p}: {f}")?;
                 }
             }
+            TestFailure::Comparison(CompareFailure::MissingOutput) => {
+                writeln!(w, "{pad}no output generated")?;
+            }
+            TestFailure::Comparison(CompareFailure::MissingReferences) => {
+                writeln!(w, "{pad}no references given")?;
+                util::term::with_color(
+                    w,
+                    |c| c.set_bold(true).set_fg(Some(Color::Cyan)),
+                    format_args!("{pad}hint: "),
+                )?;
+                writeln!(w, "use `typst-test update {n}` to accept the output test")?;
+            }
         }
 
         Ok(())
@@ -187,13 +199,13 @@ fn main() -> anyhow::Result<()> {
     // TODO: read manifest to get project name
     let (root, canonical_root) = if let Some(root) = args.root {
         let canonical_root = fs::canonicalize(&root)?;
-        if !project::is_project_root(&canonical_root)? {
+        if !project::fs::is_project_root(&canonical_root)? {
             tracing::warn!("project root doesn't contain typst.toml");
         }
         (root.to_path_buf(), canonical_root)
     } else {
         let pwd = std::env::current_dir()?;
-        if let Some(root) = project::try_find_project_root(&pwd)? {
+        if let Some(root) = project::fs::try_find_project_root(&pwd)? {
             let canonical_root = fs::canonicalize(&root)?;
             (root, canonical_root)
         } else {
@@ -207,32 +219,43 @@ fn main() -> anyhow::Result<()> {
         .unwrap_or("<unknown project name>")
         .to_owned();
 
-    let mut project = Project::new(root, name);
+    let mut project = Project::new(name);
+    let fs = Fs::new(root);
+
     let mut stream = util::term::color_stream(args.color, false);
 
     let (test_args, compare) = match args.cmd {
         cli::Command::Init { no_example } => {
-            project.create_tests_scaffold(if no_example {
+            let mode = if no_example {
                 ScaffoldMode::NoExample
             } else {
                 ScaffoldMode::WithExample
-            })?;
-            println!("initialized tests for {}", project.name());
+            };
+
+            if fs.init(mode)? {
+                println!("initialized tests for {}", project.name());
+            } else {
+                println!(
+                    "could not initialize tests for {}, {:?} already exists",
+                    project.name(),
+                    fs.test_dir()
+                );
+            }
             return Ok(());
         }
         cli::Command::Uninit => {
-            project.remove_tests_scaffold()?;
+            fs.uninit()?;
             println!("removed tests for {}", project.name());
             return Ok(());
         }
         cli::Command::Clean => {
-            util::fs::ensure_remove_dir(project.test_out_dir(), true)?;
-            util::fs::ensure_remove_dir(project.test_diff_dir(), true)?;
+            project.add_tests(fs.load_tests()?);
+            fs.clean_artifacts()?;
             println!("removed test artifacts for {}", project.name());
             return Ok(());
         }
         cli::Command::Status => {
-            project.load_tests()?;
+            project.add_tests(fs.load_tests()?);
             let tests = project.tests();
             if tests.is_empty() {
                 println!("No tests detected for {}", project.name());
@@ -246,18 +269,36 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         cli::Command::Update { test_filter } => {
-            project.load_tests()?;
-            project.update_tests(test_filter)?;
-            println!("updated tests for {}", project.name());
+            project.add_tests(fs.load_tests()?);
+            let tests = test_filter
+                .as_deref()
+                .map(|f| project.filter_tests(f))
+                .unwrap_or_else(|| project.tests().iter().collect());
+
+            run(
+                &mut stream,
+                &project,
+                &fs,
+                args.typst,
+                true,
+                false,
+                test_filter.clone(),
+            )?;
+            fs.update_tests(tests.par_iter().map(|t| *t))?;
+            for test in tests {
+                println!("updated {}", test.name());
+            }
             return Ok(());
         }
         cli::Command::Compile(args) => (args, false),
         cli::Command::Run(args) => (args, true),
     };
 
+    project.add_tests(fs.load_tests()?);
     run(
         &mut stream,
-        project,
+        &project,
+        &fs,
         args.typst,
         test_args.fail_fast,
         compare,
