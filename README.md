@@ -41,9 +41,7 @@ typst-test init
 typst-test run
 ```
 
-[
-  ![An asciicast showing typs-test running with one test failing.
-](https://asciinema.org/a/630172.svg)](https://asciinema.org/a/630172)
+[![An asciicast showing typs-test running with one test failing.][demo-thumb]][demo]
 
 ### Notable commands and options
 The following commands are available:
@@ -91,3 +89,5 @@ an email at `<me@tinger.dev>`. This way we can avoid working on similar features
 [hydra]: https://github.com/tingerrr/hydra
 [hydra-test]: https://github.com/tingerrr/hydra/blob/10127b1a5835a40a127b437b082c395a61d082d1/tests/run.nu
 [typst-discord]: https://discord.com/invite/2uDybryKPe
+[demo-thumb]: https://asciinema.org/a/tbjXoYpZ0UPSiFxtO2vOaAW8v.svg
+[demo]: https://asciinema.org/a/tbjXoYpZ0UPSiFxtO2vOaAW8v
