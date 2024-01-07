@@ -82,6 +82,16 @@ pub fn test_removed<W: WriteColor + ?Sized>(w: &mut W, name: &str) -> io::Result
     test(w, 0, name, ("removed", Color::Green), |_, _| Ok(()))
 }
 
+pub fn test_updated<W: WriteColor + ?Sized>(
+    w: &mut W,
+    max_name_len: usize,
+    name: &str,
+) -> io::Result<()> {
+    test(w, max_name_len, name, ("updated", Color::Green), |_, _| {
+        Ok(())
+    })
+}
+
 pub fn test_success<W: WriteColor + ?Sized>(
     w: &mut W,
     max_name_len: usize,
@@ -126,7 +136,7 @@ pub fn test_failure<W: WriteColor + ?Sized>(
                 write_hint(
                     w,
                     pad,
-                    &format!("use `typst-test update {name}` to accept the test output"),
+                    &format!("use `typst-test update --exact {name}` to accept the test output"),
                 )?;
             }
         }

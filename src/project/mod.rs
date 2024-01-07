@@ -36,11 +36,4 @@ impl Project {
     pub fn add_tests<I: IntoIterator<Item = Test>>(&mut self, tests: I) {
         self.loaded_tests.extend(tests)
     }
-
-    pub fn filter_tests(&self, filter: &str) -> HashSet<&Test> {
-        self.loaded_tests
-            .iter()
-            .filter(|t| t.name().contains(filter))
-            .collect()
-    }
 }

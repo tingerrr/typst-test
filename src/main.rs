@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::io::IsTerminal;
 use std::path::PathBuf;
@@ -6,8 +7,9 @@ use std::{fs, io};
 use clap::{ColorChoice, Parser};
 use project::fs::Fs;
 use project::test::context::ContextResult;
+use project::test::Test;
 use project::ScaffoldMode;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use rayon::prelude::*;
 use tracing::Level;
 use tracing_subscriber::filter::Targets;
 use tracing_subscriber::prelude::*;
@@ -28,18 +30,15 @@ fn run<W: termcolor::WriteColor>(
     typst: PathBuf,
     fail_fast: bool,
     compare: bool,
-    filter: Option<String>,
 ) -> anyhow::Result<()> {
     // TODO: fail_fast currently doesn't really do anything other than returning early, other tests
     //       still run, this makes sense as we're not stopping the other threads just yet
     let ctx = Context::new(&project, &fs, typst, fail_fast);
 
-    let filter = filter.as_deref().unwrap_or_default();
     ctx.prepare()?;
     let handles: Vec<_> = project
         .tests()
         .par_iter()
-        .filter(|test| test.name().contains(filter))
         .map(|test| test.run(&ctx, compare))
         .collect();
 
@@ -123,6 +122,18 @@ fn main() -> anyhow::Result<()> {
 
     let mut stream = util::term::color_stream(args.color, false);
 
+    let filter_tests = |tests: &mut HashSet<Test>, filter, exact| match (filter, exact) {
+        (Some(f), true) => {
+            tests.retain(|t| t.name() == f);
+        }
+        (Some(f), false) => {
+            tests.retain(|t| t.name().contains(&f));
+        }
+        (None, _) => {
+            tracing::warn!("no filter given, --exact is meaning less");
+        }
+    };
+
     let (test_args, compare) = match args.cmd {
         cli::Command::Init { no_example } => {
             let mode = if no_example {
@@ -176,25 +187,24 @@ fn main() -> anyhow::Result<()> {
 
             return Ok(());
         }
-        cli::Command::Update { test_filter } => {
-            project.add_tests(fs.load_tests()?);
-            let tests = test_filter
-                .as_deref()
-                .map(|f| project.filter_tests(f))
-                .unwrap_or_else(|| project.tests().iter().collect());
+        cli::Command::Update { test_filter, exact } => {
+            let mut tests = fs.load_tests()?;
+            filter_tests(&mut tests, test_filter, exact);
+            project.add_tests(tests);
 
-            run(
-                &mut stream,
-                &project,
-                &fs,
-                args.typst,
-                true,
-                false,
-                test_filter.clone(),
-            )?;
-            fs.update_tests(tests.par_iter().map(|t| *t))?;
+            run(&mut stream, &project, &fs, args.typst, true, false)?;
+            let tests = project.tests();
+
+            fs.update_tests(tests.par_iter())?;
+
+            let max_name_len = tests
+                .iter()
+                .map(|t| t.name().len())
+                .max()
+                .unwrap_or_default();
+
             for test in tests {
-                println!("updated {}", test.name());
+                report::test_updated(&mut stream, max_name_len, test.name())?;
             }
             return Ok(());
         }
@@ -202,7 +212,10 @@ fn main() -> anyhow::Result<()> {
         cli::Command::Run(args) => (args, true),
     };
 
-    project.add_tests(fs.load_tests()?);
+    let mut tests = fs.load_tests()?;
+    filter_tests(&mut tests, test_args.test_filter, test_args.exact);
+    project.add_tests(tests);
+
     run(
         &mut stream,
         &project,
@@ -210,6 +223,5 @@ fn main() -> anyhow::Result<()> {
         args.typst,
         test_args.fail_fast,
         compare,
-        test_args.test_filter,
     )
 }

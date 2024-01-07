@@ -65,6 +65,10 @@ pub enum Command {
     /// Update tests
     #[command(alias = "u")]
     Update {
+        /// Whether the test filter should be an exact match
+        #[arg(long, short)]
+        exact: bool,
+
         /// A filter for which tests to update, any test containing this string is updated
         test_filter: Option<String>,
     },
@@ -93,6 +97,10 @@ pub struct TestArgs {
     /// Whether to abort after the first test failure
     #[arg(long)]
     pub fail_fast: bool,
+
+    /// Whether the test filter should be an exact match
+    #[arg(long, short)]
+    pub exact: bool,
 
     /// A filter for which tests to run, any test containing this string is run
     pub test_filter: Option<String>,
