@@ -8,7 +8,6 @@ use project::fs::Fs;
 use project::test::context::ContextResult;
 use project::ScaffoldMode;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use termcolor::Color;
 use tracing::Level;
 use tracing_subscriber::filter::Targets;
 use tracing_subscriber::prelude::*;
@@ -16,10 +15,10 @@ use tracing_tree::HierarchicalLayer;
 
 use self::project::test::context::Context;
 use self::project::Project;
-use crate::project::test::{CompareFailure, TestFailure};
 
 mod cli;
 mod project;
+mod report;
 mod util;
 
 fn run<W: termcolor::WriteColor>(
@@ -49,117 +48,17 @@ fn run<W: termcolor::WriteColor>(
     ctx.cleanup()?;
 
     let results = ctx.results().clone();
-    let pad = results
+    let max_name_len = results
         .iter()
         .map(|(t, _)| t.name().len())
         .max()
         .unwrap_or_default();
 
-    let present_ok = |w: &mut dyn termcolor::WriteColor, n: &str| -> io::Result<()> {
-        write!(w, "{n:<pad$} ")?;
-        util::term::with_color(
-            w,
-            |c| c.set_bold(true).set_fg(Some(Color::Green)),
-            format_args!("success"),
-        )?;
-        writeln!(w)
-    };
-
-    // NOTE: removing the type hint makes causes the first usage to infer a longer lifetime than the
-    //       latter usage can satisfy
-
-    // TODO: long test names will cause compile errors to become harde to read, perhaps they should
-    //       be shown above, i.e by bounding the maxiumum allowd padding
-
-    let present_err = |w: &mut dyn termcolor::WriteColor, n: &str, e| -> io::Result<()> {
-        write!(w, "{n:<pad$} ")?;
-        util::term::with_color(
-            w,
-            |c| c.set_bold(true).set_fg(Some(Color::Red)),
-            format_args!("failed\n"),
-        )?;
-
-        let pad = " ".repeat(pad + 1);
-        match e {
-            TestFailure::Preparation(e) => writeln!(w, "{pad}{e}")?,
-            TestFailure::Cleanup(e) => writeln!(w, "{pad}{e}")?,
-            TestFailure::Compilation(e) => {
-                let present_buffer = |w: &mut dyn termcolor::WriteColor,
-                                      buffer: &[u8],
-                                      name: &str|
-                 -> io::Result<()> {
-                    if buffer.is_empty() {
-                        return Ok(());
-                    }
-
-                    if let Ok(s) = std::str::from_utf8(buffer) {
-                        util::term::with_color(
-                            w,
-                            |c| c.set_bold(true),
-                            format_args!("{pad}┏━ {name}\n"),
-                        )?;
-                        for line in s.lines() {
-                            util::term::with_color(
-                                w,
-                                |c| c.set_bold(true),
-                                format_args!("{pad}┃"),
-                            )?;
-                            writeln!(w, "{line}")?;
-                        }
-                        util::term::with_color(
-                            w,
-                            |c| c.set_bold(true),
-                            format_args!("{pad}┗━ {name}\n"),
-                        )?;
-                    } else {
-                        writeln!(w, "{pad}{name} was not valid utf8:")?;
-                        writeln!(w, "{pad}{buffer:?}")?;
-                    }
-
-                    Ok(())
-                };
-
-                writeln!(w, "{pad}compilation failed")?;
-                present_buffer(w, &e.output.stdout, "stdout")?;
-                present_buffer(w, &e.output.stderr, "stderr")?;
-            }
-            TestFailure::Comparison(CompareFailure::PageCount { output, reference }) => {
-                writeln!(
-                    w,
-                    "{pad}expected {reference} page{}, got {output} page{}",
-                    if reference == 1 { "" } else { "s" },
-                    if output == 1 { "" } else { "s" },
-                )?;
-            }
-            TestFailure::Comparison(CompareFailure::Page { pages }) => {
-                for (p, f) in pages {
-                    writeln!(w, "{pad}page {p}: {f}")?;
-                }
-            }
-            TestFailure::Comparison(CompareFailure::MissingOutput) => {
-                writeln!(w, "{pad}no output generated")?;
-            }
-            TestFailure::Comparison(CompareFailure::MissingReferences) => {
-                writeln!(w, "{pad}no references given")?;
-                util::term::with_color(
-                    w,
-                    |c| c.set_bold(true).set_fg(Some(Color::Cyan)),
-                    format_args!("{pad}hint: "),
-                )?;
-                writeln!(w, "use `typst-test update {n}` to accept the output test")?;
-            }
-        }
-
-        Ok(())
-    };
-
     if !results.is_empty() {
         for (test, res) in results {
             match res {
-                Ok(_) => present_ok(w, test.name())?,
-                Err(e) => {
-                    present_err(w, test.name(), e)?;
-                }
+                Ok(_) => report::test_success(w, max_name_len, test.name())?,
+                Err(err) => report::test_failure(w, max_name_len, test.name(), err)?,
             }
         }
     } else {
@@ -255,12 +154,12 @@ fn main() -> anyhow::Result<()> {
         }
         cli::Command::Add { folder, test } => {
             fs.add_test(test.clone(), folder)?;
-            println!("added {test}");
+            report::test_added(&mut stream, &test)?;
             return Ok(());
         }
         cli::Command::Remove { test } => {
             fs.remove_test(test.clone())?;
-            println!("removed {test}");
+            report::test_removed(&mut stream, &test)?;
             return Ok(());
         }
         cli::Command::Status => {
