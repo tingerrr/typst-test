@@ -134,14 +134,20 @@ pub mod fs {
 }
 
 pub mod term {
-    use std::io::IsTerminal;
+    use std::io::{self, IsTerminal};
 
-    use termcolor::ColorChoice;
+    use termcolor::{ColorChoice, StandardStream};
 
-    pub fn color_stream(color: clap::ColorChoice, stderr: bool) -> termcolor::StandardStream {
+    pub fn color_stream(color: clap::ColorChoice, stderr: bool) -> StandardStream {
         let choice = match color {
             clap::ColorChoice::Auto => {
-                if std::io::stderr().is_terminal() {
+                let stream_is_term = if stderr {
+                    io::stderr().is_terminal()
+                } else {
+                    io::stdout().is_terminal()
+                };
+
+                if stream_is_term {
                     ColorChoice::Auto
                 } else {
                     ColorChoice::Never
@@ -152,9 +158,9 @@ pub mod term {
         };
 
         if stderr {
-            termcolor::StandardStream::stderr(choice)
+            StandardStream::stderr(choice)
         } else {
-            termcolor::StandardStream::stdout(choice)
+            StandardStream::stdout(choice)
         }
     }
 }
