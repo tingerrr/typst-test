@@ -13,7 +13,7 @@ fn write_bold_colored<W: WriteColor + ?Sized>(
     annot: &str,
     color: Color,
 ) -> io::Result<()> {
-    w.set_color(&ColorSpec::new().set_bold(true).set_fg(Some(color)))?;
+    w.set_color(ColorSpec::new().set_bold(true).set_fg(Some(color)))?;
     write!(w, "{annot}")?;
     w.reset()?;
     Ok(())

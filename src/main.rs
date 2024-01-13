@@ -39,7 +39,7 @@ fn run(
 
     // TODO: fail_fast currently doesn't really do anything other than returning early, other tests
     //       still run, this makes sense as we're not stopping the other threads just yet
-    let ctx = Context::new(&project, &fs, typst, fail_fast);
+    let ctx = Context::new(project, fs, typst, fail_fast);
     ctx.prepare()?;
     let handles: Vec<_> = project
         .tests()
