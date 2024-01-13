@@ -15,9 +15,9 @@ use crate::report::Reporter;
 use crate::util;
 
 #[derive(Debug)]
-pub struct Context<'p, 'fs> {
+pub struct Context<'p, 'f> {
     _project: &'p Project,
-    fs: &'fs Fs,
+    fs: &'f Fs,
     typst: PathBuf,
     fail_fast: bool,
 }
