@@ -1,9 +1,7 @@
-use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Mutex, MutexGuard};
 
 use image::{ImageResult, RgbImage};
 
@@ -13,6 +11,7 @@ use super::{
 };
 use crate::project::fs::Fs;
 use crate::project::Project;
+use crate::report::Reporter;
 use crate::util;
 
 #[derive(Debug)]
@@ -21,13 +20,13 @@ pub struct Context<'p, 'fs> {
     fs: &'fs Fs,
     typst: PathBuf,
     fail_fast: bool,
-    results: Mutex<HashMap<Test, TestResult>>,
 }
 
 #[derive(Debug)]
 pub struct TestContext<'c, 'p, 't, 'f> {
     project_context: &'c Context<'p, 'f>,
     test: &'t Test,
+    reporter: Reporter,
     script_file: PathBuf,
     out_dir: PathBuf,
     ref_dir: PathBuf,
@@ -41,11 +40,14 @@ impl<'p, 'f> Context<'p, 'f> {
             fs,
             typst,
             fail_fast,
-            results: Mutex::new(HashMap::new()),
         }
     }
 
-    pub fn test<'c, 't>(&'c self, test: &'t Test) -> TestContext<'c, 'p, 't, 'f> {
+    pub fn test<'c, 't>(
+        &'c self,
+        test: &'t Test,
+        reporter: Reporter,
+    ) -> TestContext<'c, 'p, 't, 'f> {
         let typ_dir = self.fs.script_dir().join(&test.name);
         let out_dir = self.fs.out_dir().join(&test.name);
         let ref_dir = self.fs.ref_dir().join(&test.name);
@@ -71,6 +73,7 @@ impl<'p, 'f> Context<'p, 'f> {
         TestContext {
             project_context: self,
             test,
+            reporter,
             script_file,
             out_dir,
             ref_dir,
@@ -87,17 +90,20 @@ impl<'p, 'f> Context<'p, 'f> {
     pub fn cleanup(&self) -> Result<(), Error> {
         Ok(())
     }
-
-    pub fn results(&self) -> MutexGuard<'_, HashMap<Test, TestResult>> {
-        self.results.lock().unwrap()
-    }
 }
 
 impl TestContext<'_, '_, '_, '_> {
     #[tracing::instrument(skip(self))]
-    pub fn register_result(&self, result: TestResult) {
-        let mut results = self.project_context.results.lock().unwrap();
-        results.insert(self.test.clone(), result);
+    pub fn send_update(&self, progress: Progress) -> io::Result<()> {
+        match progress {
+            // Progress::Preparation => self.reporter.test_success(self.test.name(), "prepared"),
+            // Progress::Compilation => self.reporter.test_success(self.test.name(), "compiled"),
+            // Progress::Comparison => self.reporter.test_success(self.test.name(), "compared"),
+            // Progress::CleanUp => self.reporter.test_success(self.test.name(), "cleaned up"),
+            Progress::Done => self.reporter.test_success(self.test.name(), "ok"),
+            Progress::Error(err) => self.reporter.test_failure(self.test.name(), err),
+            _ => Ok(()),
+        }
     }
 
     #[tracing::instrument(skip(self))]
@@ -105,7 +111,7 @@ impl TestContext<'_, '_, '_, '_> {
         macro_rules! bail_if_fail_fast {
             ($err:expr) => {
                 let err: TestFailure = $err.into();
-                self.register_result(Err(err.clone()));
+                self.send_update(Progress::Error(err.clone())).unwrap();
                 if self.project_context.fail_fast {
                     return Ok(Err(err));
                 } else {
@@ -114,25 +120,29 @@ impl TestContext<'_, '_, '_, '_> {
             };
         }
 
+        self.send_update(Progress::Preparation).map_err(Error::io)?;
         if let Err(err) = self.prepare()? {
             bail_if_fail_fast!(err);
         }
 
+        self.send_update(Progress::Compilation).map_err(Error::io)?;
         if let Err(err) = self.compile()? {
             bail_if_fail_fast!(err);
         }
 
         if compare {
+            self.send_update(Progress::Comparison).map_err(Error::io)?;
             if let Err(err) = self.compare()? {
                 bail_if_fail_fast!(err);
             }
         }
 
+        self.send_update(Progress::CleanUp).map_err(Error::io)?;
         if let Err(err) = self.cleanup()? {
             bail_if_fail_fast!(err);
         }
 
-        self.register_result(Ok(()));
+        self.send_update(Progress::Done).map_err(Error::io)?;
         Ok(Ok(()))
     }
 
@@ -148,12 +158,18 @@ impl TestContext<'_, '_, '_, '_> {
         for (name, clear, path) in dirs {
             if clear {
                 tracing::trace!(?path, "clearing {name} dir");
-                util::fs::create_empty_dir(path)
-                    .map_err(|e| Error::io(Stage::Preparation, e).context(err_fn(name, path)))?;
+                util::fs::create_empty_dir(path).map_err(|e| {
+                    Error::io(e)
+                        .at(Stage::Preparation)
+                        .context(err_fn(name, path))
+                })?;
             } else {
                 tracing::trace!(?path, "creating {name} dir");
-                util::fs::create_dir(path, false)
-                    .map_err(|e| Error::io(Stage::Preparation, e).context(err_fn(name, path)))?;
+                util::fs::create_dir(path, false).map_err(|e| {
+                    Error::io(e)
+                        .at(Stage::Preparation)
+                        .context(err_fn(name, path))
+                })?;
             }
         }
 
@@ -176,9 +192,10 @@ impl TestContext<'_, '_, '_, '_> {
         tracing::trace!(args = ?[&typst], "running typst");
         let output = typst.output().map_err(|e| {
             match e.kind() {
-                ErrorKind::NotFound => Error::missing_typst(Stage::Compilation),
-                _ => Error::io(Stage::Compilation, e),
+                ErrorKind::NotFound => Error::missing_typst(),
+                _ => Error::io(e),
             }
+            .at(Stage::Compilation)
             .context("executing typst")
         })?;
 
@@ -195,7 +212,9 @@ impl TestContext<'_, '_, '_, '_> {
     #[tracing::instrument(skip_all)]
     pub fn compare(&self) -> ContextResult<CompareFailure> {
         let err_fn = |n, e, p| {
-            Error::io(Stage::Comparison, e).context(format!("reading {} dir: {:?}", n, p))
+            Error::io(e)
+                .at(Stage::Comparison)
+                .context(format!("reading {} dir: {:?}", n, p))
         };
 
         tracing::trace!(path = ?self.out_dir, "reading out dir");
@@ -251,7 +270,9 @@ impl TestContext<'_, '_, '_, '_> {
         ref_file: &Path,
     ) -> ContextResult<ComparePageFailure> {
         let err_fn = |n, e, f| {
-            Error::image(Stage::Comparison, e).context(format!("reading {n} image: {f:?}"))
+            Error::image(e)
+                .at(Stage::Comparison)
+                .context(format!("reading {n} image: {f:?}"))
         };
 
         tracing::trace!(path = ?out_file, "reading out file");
@@ -274,7 +295,7 @@ impl TestContext<'_, '_, '_, '_> {
         for (out_px, ref_px) in out_image.pixels().zip(ref_image.pixels()) {
             if out_px != ref_px {
                 self.save_diff_page(page_number, &out_image, &ref_image)
-                    .map_err(|e| Error::image(Stage::Comparison, e))?;
+                    .map_err(|e| Error::image(e).at(Stage::Comparison))?;
                 return Ok(Err(ComparePageFailure::Content));
             }
         }
@@ -309,6 +330,15 @@ impl TestContext<'_, '_, '_, '_> {
     }
 }
 
+#[derive(Debug)]
+pub enum Progress {
+    Preparation,
+    Compilation,
+    Comparison,
+    CleanUp,
+    Done,
+    Error(TestFailure),
+}
 pub type ContextResult<E = TestFailure> = Result<TestResult<E>, Error>;
 
 #[derive(Debug)]
@@ -321,32 +351,37 @@ enum ErrorImpl {
 pub struct Error {
     inner: ErrorImpl,
     context: Option<String>,
-    stage: Stage,
+    stage: Option<Stage>,
 }
 
 impl Error {
-    fn io(stage: Stage, error: io::Error) -> Self {
+    fn io(error: io::Error) -> Self {
         Self {
             inner: ErrorImpl::Io(error),
             context: None,
-            stage,
+            stage: None,
         }
     }
 
-    fn image(stage: Stage, error: image::ImageError) -> Self {
+    fn image(error: image::ImageError) -> Self {
         Self {
             inner: ErrorImpl::Image(error),
             context: None,
-            stage,
+            stage: None,
         }
     }
 
-    fn missing_typst(stage: Stage) -> Self {
+    fn missing_typst() -> Self {
         Self {
             inner: ErrorImpl::MissingTypst,
             context: None,
-            stage,
+            stage: None,
         }
+    }
+
+    fn at(mut self, stage: Stage) -> Self {
+        self.stage = Some(stage);
+        self
     }
 
     fn context<S: Into<String>>(mut self, context: S) -> Self {
@@ -363,10 +398,16 @@ impl Debug for Error {
 
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} stage failed", self.stage)?;
+        if let Some(stage) = &self.stage {
+            write!(f, "{} stage failed", stage)?;
+        } else {
+            write!(f, "failed")?;
+        }
+
         if let Some(ctx) = &self.context {
             write!(f, " while {ctx}")?;
         }
+
         if matches!(self.inner, ErrorImpl::MissingTypst) {
             write!(f, ": typst could not be run. Please make sure a valid 'typst' executable is in your PATH, or specify its path through the '--typst' option to this command.")?;
         }

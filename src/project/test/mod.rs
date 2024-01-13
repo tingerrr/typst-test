@@ -2,9 +2,8 @@ use std::ffi::OsString;
 use std::fmt::Display;
 use std::process::Output;
 
-use context::Context;
-
-use self::context::ContextResult;
+use self::context::{Context, ContextResult};
+use crate::report::Reporter;
 
 pub mod context;
 
@@ -30,8 +29,13 @@ impl Test {
     }
 
     #[tracing::instrument(skip_all, fields(test = ?self.name))]
-    pub fn run(&self, context: &Context, compare: bool) -> ContextResult {
-        let context = context.test(self);
+    pub fn run<'t>(
+        &'t self,
+        context: &Context,
+        compare: bool,
+        reporter: Reporter,
+    ) -> ContextResult {
+        let context = context.test(self, reporter);
         context.run(compare)
     }
 }

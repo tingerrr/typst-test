@@ -12,8 +12,6 @@ typst packages.
 - updating and optimizing of reference images
 
 ## Planned features
-- realtime output reporting, especially for slower operations such as updating
-  - to get realtime information regardless use `-vvv`
 - cli and lib separation to allow others to reuse the primary test running implementation
 - using the typst crate directly
   - detecting mutliple tests in one file with common setup, running tests fro a single file in

@@ -10,6 +10,7 @@ use project::test::context::ContextResult;
 use project::test::Test;
 use project::ScaffoldMode;
 use rayon::prelude::*;
+use report::Reporter;
 use tracing::Level;
 use tracing_subscriber::filter::Targets;
 use tracing_subscriber::prelude::*;
@@ -23,46 +24,32 @@ mod project;
 mod report;
 mod util;
 
-fn run<W: termcolor::WriteColor>(
-    w: &mut W,
+fn run(
+    mut reporter: Reporter,
     project: &Project,
     fs: &Fs,
     typst: PathBuf,
     fail_fast: bool,
     compare: bool,
 ) -> anyhow::Result<()> {
+    if project.tests().is_empty() {
+        reporter.raw(|w| writeln!(w, "No tests detected for {}", project.name()))?;
+        return Ok(());
+    }
+
     // TODO: fail_fast currently doesn't really do anything other than returning early, other tests
     //       still run, this makes sense as we're not stopping the other threads just yet
     let ctx = Context::new(&project, &fs, typst, fail_fast);
-
     ctx.prepare()?;
     let handles: Vec<_> = project
         .tests()
         .par_iter()
-        .map(|test| test.run(&ctx, compare))
+        .map(|test| test.run(&ctx, compare, reporter.clone()))
         .collect();
 
     // NOTE: inner result ignored as it is registered anyway, see above
     let _ = handles.into_iter().collect::<ContextResult>()?;
     ctx.cleanup()?;
-
-    let results = ctx.results().clone();
-    let max_name_len = results
-        .iter()
-        .map(|(t, _)| t.name().len())
-        .max()
-        .unwrap_or_default();
-
-    if !results.is_empty() {
-        for (test, res) in results {
-            match res {
-                Ok(_) => report::test_success(w, max_name_len, test.name())?,
-                Err(err) => report::test_failure(w, max_name_len, test.name(), err)?,
-            }
-        }
-    } else {
-        writeln!(w, "No tests detected for {}", project.name())?;
-    }
 
     Ok(())
 }
@@ -118,9 +105,8 @@ fn main() -> anyhow::Result<()> {
         .to_owned();
 
     let mut project = Project::new(name);
-    let fs = Fs::new(root);
-
-    let mut stream = util::term::color_stream(args.color, false);
+    let reporter = Reporter::new(util::term::color_stream(args.color, false));
+    let fs = Fs::new(root, reporter.clone());
 
     let filter_tests = |tests: &mut HashSet<Test>, filter, exact| match (filter, exact) {
         (Some(f), true) => {
@@ -167,7 +153,7 @@ fn main() -> anyhow::Result<()> {
         cli::Command::Add { folder, open, test } => {
             let test = Test::new(test, folder);
             fs.add_test(&test)?;
-            report::test_added(&mut stream, test.name())?;
+            reporter.test_success(test.name(), "added")?;
 
             if open {
                 // BUG: this may fail silently if path doesn exist
@@ -184,7 +170,7 @@ fn main() -> anyhow::Result<()> {
         cli::Command::Remove { test } => {
             let test = fs.find_test(&test)?;
             fs.remove_test(test.name())?;
-            report::test_removed(&mut stream, test.name())?;
+            reporter.test_success(test.name(), "removed")?;
             return Ok(());
         }
         cli::Command::Status => {
@@ -205,21 +191,12 @@ fn main() -> anyhow::Result<()> {
             let mut tests = fs.load_tests()?;
             filter_tests(&mut tests, test_filter, exact);
             project.add_tests(tests);
+            reporter.set_padding(project.tests().iter().map(|t| t.name().len()).max());
 
-            run(&mut stream, &project, &fs, args.typst, true, false)?;
+            run(reporter.clone(), &project, &fs, args.typst, true, false)?;
+
             let tests = project.tests();
-
             fs.update_tests(tests.par_iter())?;
-
-            let max_name_len = tests
-                .iter()
-                .map(|t| t.name().len())
-                .max()
-                .unwrap_or_default();
-
-            for test in tests {
-                report::test_updated(&mut stream, max_name_len, test.name())?;
-            }
             return Ok(());
         }
         cli::Command::Compile(args) => (args, false),
@@ -229,9 +206,10 @@ fn main() -> anyhow::Result<()> {
     let mut tests = fs.load_tests()?;
     filter_tests(&mut tests, test_args.test_filter, test_args.exact);
     project.add_tests(tests);
+    reporter.set_padding(project.tests().iter().map(|t| t.name().len()).max());
 
     run(
-        &mut stream,
+        reporter.clone(),
         &project,
         &fs,
         args.typst,

@@ -11,6 +11,7 @@ use rayon::prelude::*;
 
 use super::test::Test;
 use super::ScaffoldMode;
+use crate::report::Reporter;
 use crate::util;
 
 pub const DEFAULT_TEST_INPUT: &str = include_str!("../../assets/default-test/test.typ");
@@ -53,13 +54,15 @@ pub fn try_find_project_root(pwd: &Path) -> io::Result<Option<PathBuf>> {
 pub struct Fs {
     root: PathBuf,
     required_created: AtomicBool,
+    reporter: Reporter,
 }
 
 impl Fs {
-    pub fn new(root: PathBuf) -> Self {
+    pub fn new(root: PathBuf, reporter: Reporter) -> Self {
         Self {
             root,
             required_created: AtomicBool::new(false),
+            reporter,
         }
     }
 
@@ -358,6 +361,8 @@ impl Fs {
                 )
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
             }
+
+            self.reporter.test_success(test, "updated")?;
 
             Ok(())
         })
