@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
-use std::io;
+use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Mutex, MutexGuard};
@@ -174,9 +174,13 @@ impl TestContext<'_, '_, '_, '_> {
         typst.arg(self.out_dir.join("{n}").with_extension("png"));
 
         tracing::trace!(args = ?[&typst], "running typst");
-        let output = typst
-            .output()
-            .map_err(|e| Error::io(Stage::Compilation, e).context("executing typst"))?;
+        let output = typst.output().map_err(|e| {
+            match e.kind() {
+                ErrorKind::NotFound => Error::missing_typst(Stage::Compilation),
+                _ => Error::io(Stage::Compilation, e),
+            }
+            .context("executing typst")
+        })?;
 
         if !output.status.success() {
             return Ok(Err(CompileFailure {
@@ -311,6 +315,7 @@ pub type ContextResult<E = TestFailure> = Result<TestResult<E>, Error>;
 enum ErrorImpl {
     Io(io::Error),
     Image(image::ImageError),
+    MissingTypst,
 }
 
 pub struct Error {
@@ -336,6 +341,14 @@ impl Error {
         }
     }
 
+    fn missing_typst(stage: Stage) -> Self {
+        Self {
+            inner: ErrorImpl::MissingTypst,
+            context: None,
+            stage,
+        }
+    }
+
     fn context<S: Into<String>>(mut self, context: S) -> Self {
         self.context = Some(context.into());
         self
@@ -354,6 +367,9 @@ impl Display for Error {
         if let Some(ctx) = &self.context {
             write!(f, " while {ctx}")?;
         }
+        if matches!(self.inner, ErrorImpl::MissingTypst) {
+            write!(f, ": typst could not be run. Please make sure a valid 'typst' executable is in your PATH, or specify its path through the '--typst' option to this command.")?;
+        }
 
         Ok(())
     }
@@ -364,6 +380,7 @@ impl std::error::Error for Error {
         Some(match &self.inner {
             ErrorImpl::Io(e) => e,
             ErrorImpl::Image(e) => e,
+            ErrorImpl::MissingTypst => return None,
         })
     }
 }
