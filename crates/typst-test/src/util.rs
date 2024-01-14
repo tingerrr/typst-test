@@ -90,6 +90,8 @@ pub mod fs {
         inner(path.as_ref())
     }
 
+    // pub fn read_file_optional()
+
     pub fn remove_file<P: AsRef<Path>>(path: P) -> io::Result<()> {
         fn inner(path: &Path) -> io::Result<()> {
             std::fs::remove_file(path)

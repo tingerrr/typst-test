@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use typst_manifest::Manifest;
+
 use self::test::Test;
 
 pub mod fs;
@@ -13,20 +15,27 @@ pub enum ScaffoldMode {
 
 #[derive(Debug, Clone)]
 pub struct Project {
-    name: String,
+    manifest: Option<Manifest>,
     loaded_tests: HashSet<Test>,
 }
 
 impl Project {
-    pub fn new(name: String) -> Self {
+    pub fn new(manifest: Option<Manifest>) -> Self {
         Self {
-            name,
+            manifest,
             loaded_tests: HashSet::new(),
         }
     }
 
     pub fn name(&self) -> &str {
-        &self.name
+        self.manifest
+            .as_ref()
+            .map(|m| &m.package.name[..])
+            .unwrap_or("<unknown package>")
+    }
+
+    pub fn manifest(&self) -> Option<&Manifest> {
+        self.manifest.as_ref()
     }
 
     pub fn tests(&self) -> &HashSet<Test> {

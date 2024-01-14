@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::ffi::OsStr;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::{fs, io};
@@ -82,29 +81,23 @@ fn main() -> anyhow::Result<()> {
     }
 
     // TODO: read manifest to get project name
-    let (root, canonical_root) = if let Some(root) = args.root {
+    let root = if let Some(root) = args.root {
         let canonical_root = fs::canonicalize(&root)?;
         if !project::fs::is_project_root(&canonical_root)? {
             tracing::warn!("project root doesn't contain typst.toml");
         }
-        (root.to_path_buf(), canonical_root)
+        root.to_path_buf()
     } else {
         let pwd = std::env::current_dir()?;
         if let Some(root) = project::fs::try_find_project_root(&pwd)? {
-            let canonical_root = fs::canonicalize(&root)?;
-            (root, canonical_root)
+            root.to_path_buf()
         } else {
             anyhow::bail!("must be inside a typst project or pass the project root using --root");
         }
     };
 
-    let name = canonical_root
-        .file_name()
-        .and_then(OsStr::to_str)
-        .unwrap_or("<unknown project name>")
-        .to_owned();
-
-    let mut project = Project::new(name);
+    let manifest = project::fs::try_open_manifest(&root)?;
+    let mut project = Project::new(manifest);
     let reporter = Reporter::new(util::term::color_stream(args.color, false));
     let fs = Fs::new(root, reporter.clone());
 
@@ -176,10 +169,20 @@ fn main() -> anyhow::Result<()> {
         cli::Command::Status => {
             project.add_tests(fs.load_tests()?);
             let tests = project.tests();
+
+            if let Some(manifest) = project.manifest() {
+                println!(
+                    "Package: {}:{}",
+                    manifest.package.name, manifest.package.version
+                );
+
+                // TODO: list [tool.typst-test] settings
+            }
+
             if tests.is_empty() {
-                println!("No tests detected for {}", project.name());
+                println!("Tests: none");
             } else {
-                println!("Tests detected for {}:", project.name());
+                println!("Tests:");
                 for test in tests {
                     println!("  {}", test.name());
                 }

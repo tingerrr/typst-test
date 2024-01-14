@@ -8,14 +8,15 @@ use std::{fs, io};
 
 use oxipng::{InFile, Options, OutFile};
 use rayon::prelude::*;
+use typst_manifest::Manifest;
 
 use super::test::Test;
 use super::ScaffoldMode;
 use crate::report::Reporter;
 use crate::util;
 
-pub const DEFAULT_TEST_INPUT: &str = include_str!("../../assets/default-test/test.typ");
-pub const DEFAULT_TEST_OUTPUT: &[u8] = include_bytes!("../../assets/default-test/test.png");
+pub const DEFAULT_TEST_INPUT: &str = include_str!("../../../../assets/default-test/test.typ");
+pub const DEFAULT_TEST_OUTPUT: &[u8] = include_bytes!("../../../../assets/default-test/test.png");
 pub const DEFAULT_GIT_IGNORE_LINES: &[&str] = &["out/**\n", "diff/**\n"];
 
 const TEST_DIR: &str = "tests";
@@ -25,29 +26,28 @@ const OUT_SCRIPT_DIR: &str = "out";
 const DIFF_SCRIPT_DIR: &str = "diff";
 
 #[tracing::instrument]
-pub fn is_project_root(dir: &Path) -> io::Result<bool> {
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        let typ = entry.file_type()?;
-        let name = entry.file_name();
+pub fn try_open_manifest(root: &Path) -> io::Result<Option<Manifest>> {
+    if is_project_root(root)? {
+        let content = std::fs::read_to_string(root.join(typst_manifest::MANIFEST_NAME))?;
 
-        if typ.is_file() && name == "typst.toml" {
-            return Ok(true);
-        }
+        // TODO: better error handling
+        let manifest =
+            Manifest::from_str(&content).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+        Ok(Some(manifest))
+    } else {
+        Ok(None)
     }
-
-    Ok(false)
 }
 
 #[tracing::instrument]
-pub fn try_find_project_root(pwd: &Path) -> io::Result<Option<PathBuf>> {
-    for ancestor in pwd.ancestors() {
-        if is_project_root(ancestor)? {
-            return Ok(Some(ancestor.to_path_buf()));
-        }
-    }
+pub fn is_project_root(path: &Path) -> io::Result<bool> {
+    typst_manifest::is_package_root(path)
+}
 
-    Ok(None)
+#[tracing::instrument]
+pub fn try_find_project_root(path: &Path) -> io::Result<Option<&Path>> {
+    typst_manifest::try_find_package_root(path)
 }
 
 #[derive(Debug)]
