@@ -46,7 +46,7 @@ fn run(
         .map(|test| test.run(&ctx, compare, reporter.clone()))
         .collect();
 
-    // NOTE: inner result ignored as it is registered anyway, see above
+    // NOTE: inner result ignored as it is reported anyway, see above
     let _ = handles.into_iter().collect::<ContextResult>()?;
     ctx.cleanup()?;
 
@@ -80,11 +80,10 @@ fn main() -> anyhow::Result<()> {
             .init();
     }
 
-    // TODO: read manifest to get project name
     let root = if let Some(root) = args.root {
         let canonical_root = fs::canonicalize(&root)?;
         if !project::fs::is_project_root(&canonical_root)? {
-            tracing::warn!("project root doesn't contain typst.toml");
+            tracing::warn!("project root doesn't contain manifest");
         }
         root.to_path_buf()
     } else {
