@@ -48,10 +48,10 @@ impl<'p, 'f> Context<'p, 'f> {
         test: &'t Test,
         reporter: Reporter,
     ) -> TestContext<'c, 'p, 't, 'f> {
-        let typ_dir = self.fs.script_dir().join(&test.name);
-        let out_dir = self.fs.out_dir().join(&test.name);
-        let ref_dir = self.fs.ref_dir().join(&test.name);
-        let diff_dir = self.fs.diff_dir().join(&test.name);
+        let typ_dir = self.fs.test_dir(&test.name);
+        let out_dir = self.fs.out_dir(&test.name);
+        let ref_dir = self.fs.ref_dir(&test.name);
+        let diff_dir = self.fs.diff_dir(&test.name);
 
         let script_file = typ_dir.join("test").with_extension("typ");
 

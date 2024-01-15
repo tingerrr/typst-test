@@ -127,7 +127,7 @@ fn main() -> anyhow::Result<()> {
                 println!(
                     "could not initialize tests for {}, {:?} already exists",
                     project.name(),
-                    fs.test_dir()
+                    fs.tests_root_dir()
                 );
             }
             return Ok(());
