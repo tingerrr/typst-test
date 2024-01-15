@@ -14,7 +14,7 @@ pub mod fs {
         }
     }
 
-    pub fn dir_in_root<P, I, T>(root: P, parts: I) -> PathBuf
+    pub fn path_in_root<P, I, T>(root: P, parts: I) -> PathBuf
     where
         P: AsRef<Path>,
         I: IntoIterator<Item = T>,

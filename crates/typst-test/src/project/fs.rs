@@ -1,13 +1,14 @@
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::fs::File;
+use std::io;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::{fs, io};
 
 use oxipng::{InFile, Options, OutFile};
 use rayon::prelude::*;
 use typst_manifest::Manifest;
+use walkdir::WalkDir;
 
 use super::test::Test;
 use super::ScaffoldMode;
@@ -64,23 +65,27 @@ impl Fs {
     }
 
     pub fn tests_root_dir(&self) -> PathBuf {
-        util::fs::dir_in_root(&self.root, [TEST_DIR])
+        util::fs::path_in_root(&self.root, [TEST_DIR])
     }
 
     pub fn test_dir(&self, test: &str) -> PathBuf {
-        util::fs::dir_in_root(&self.root, [TEST_DIR, test])
+        util::fs::path_in_root(&self.root, [TEST_DIR, test])
     }
 
     pub fn ref_dir(&self, test: &str) -> PathBuf {
-        util::fs::dir_in_root(&self.root, [TEST_DIR, test, REF_DIR])
+        util::fs::path_in_root(&self.root, [TEST_DIR, test, REF_DIR])
     }
 
     pub fn out_dir(&self, test: &str) -> PathBuf {
-        util::fs::dir_in_root(&self.root, [TEST_DIR, test, OUT_DIR])
+        util::fs::path_in_root(&self.root, [TEST_DIR, test, OUT_DIR])
     }
 
     pub fn diff_dir(&self, test: &str) -> PathBuf {
-        util::fs::dir_in_root(&self.root, [TEST_DIR, test, DIFF_DIR])
+        util::fs::path_in_root(&self.root, [TEST_DIR, test, DIFF_DIR])
+    }
+
+    pub fn test_file(&self, test: &str) -> PathBuf {
+        util::fs::path_in_root(&self.root, [TEST_DIR, test, "test"]).with_extension("typ")
     }
 
     #[tracing::instrument(skip(self))]
@@ -104,13 +109,6 @@ impl Fs {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn resolve_script_path(&self, test: &Test) -> PathBuf {
-        self.test_dir(test.name())
-            .join("test")
-            .with_extension("typ")
-    }
-
-    #[tracing::instrument(skip(self))]
     pub fn init(&self, mode: ScaffoldMode) -> Result<bool, Error> {
         self.ensure_root()?;
 
@@ -120,15 +118,15 @@ impl Fs {
             return Ok(false);
         }
 
-        let test_dir = self.tests_root_dir();
-        let script_dir = self.test_dir("example");
+        let test_root_dir = self.tests_root_dir();
+        let test_dir = self.test_dir("example");
 
-        for (name, path) in [("test", &test_dir), ("script", &script_dir)] {
+        for (name, path) in [("tests root", &test_root_dir), ("test", &test_dir)] {
             tracing::trace!(?path, "creating {name} dir");
             util::fs::create_dir(path, false)?;
         }
 
-        let gitignore = test_dir.join(".gitignore");
+        let gitignore = test_root_dir.join(".gitignore");
         tracing::debug!(path = ?gitignore, "writing .gitignore");
         let mut gitignore = File::options()
             .write(true)
@@ -168,7 +166,6 @@ impl Fs {
             .try_for_each(|test| {
                 util::fs::remove_dir(self.out_dir(test), true)?;
                 util::fs::remove_dir(self.diff_dir(test), true)?;
-
                 Ok(())
             })
     }
@@ -193,14 +190,11 @@ impl Fs {
             return Err(Error::TestsAlreadyExists(test.name().to_owned()));
         }
 
-        // TODO: return more than jsut script path from resolve_script_path and use it here
         let test_dir = self.test_dir(test.name());
-
         tracing::trace!(path = ?test_dir, "creating test dir");
         util::fs::create_empty_dir(&test_dir)?;
 
-        let test_script = test_dir.join("test").with_extension("typ");
-
+        let test_script = self.test_file(test.name());
         tracing::trace!(path = ?test_script , "creating test script");
         let mut test_script = File::options()
             .write(true)
@@ -245,27 +239,29 @@ impl Fs {
         let tests_dir = self.tests_root_dir();
 
         let mut tests = HashSet::new();
-        for entry in fs::read_dir(tests_dir)? {
+        for entry in WalkDir::new(&tests_dir).min_depth(1) {
             let entry = entry?;
-            let typ = entry.file_type()?;
+            let typ = entry.file_type();
             let name = entry.file_name();
 
-            let Some(name) = name.to_str() else {
-                tracing::warn!(?name, "couldn't convert path into UTF-8, skipping");
-                continue;
-            };
-
-            if typ.is_dir() {
-                if !entry.path().join("test.typ").try_exists()? {
-                    tracing::debug!(?name, "skipping folder, no test.typ detected");
-                    continue;
-                }
-            } else if !name.ends_with(".typ") {
-                tracing::debug!(?name, "skipping file, not a typ file");
+            if !typ.is_file() || name != "test.typ" {
+                tracing::debug!(?name, "skipping file");
                 continue;
             }
 
-            let test = Test::new(name.trim_end_matches(".typ").into());
+            // isolate the dir path of the test script relative to the tests root dir
+            let relative = entry
+                .path()
+                .parent()
+                .and_then(|p| p.strip_prefix(&tests_dir).ok())
+                .expect("we have at one depth of directories (./tests/<x>/test.typ)");
+
+            let Some(name) = relative.to_str() else {
+                tracing::error!(?name, "couldn't convert path into UTF-8, skipping");
+                continue;
+            };
+
+            let test = Test::new(name.to_owned());
             tracing::debug!(name = ?test.name(), "loaded test");
             tests.insert(test);
         }
@@ -329,6 +325,9 @@ pub enum Error {
 
     #[error("test already exsits: {0:?}")]
     TestsAlreadyExists(String),
+
+    #[error("an error occured while traversing directories")]
+    WalkDir(#[from] walkdir::Error),
 
     #[error("an io error occurred")]
     Io(#[from] io::Error),

@@ -149,14 +149,14 @@ fn main() -> anyhow::Result<()> {
 
             if open {
                 // BUG: this may fail silently if path doesn exist
-                open::that_detached(fs.resolve_script_path(&test))?;
+                open::that_detached(fs.test_file(test.name()))?;
             }
 
             return Ok(());
         }
         cli::Command::Edit { test } => {
             let test = fs.find_test(&test)?;
-            open::that_detached(fs.resolve_script_path(&test))?;
+            open::that_detached(fs.test_file(test.name()))?;
             return Ok(());
         }
         cli::Command::Remove { test } => {
