@@ -53,12 +53,7 @@ impl<'p, 'f> Context<'p, 'f> {
         let ref_dir = self.fs.ref_dir().join(&test.name);
         let diff_dir = self.fs.diff_dir().join(&test.name);
 
-        let script_file = if test.folder {
-            typ_dir.join("test")
-        } else {
-            typ_dir.clone()
-        }
-        .with_extension("typ");
+        let script_file = typ_dir.join("test").with_extension("typ");
 
         tracing::trace!(
             test = ?test.name(),

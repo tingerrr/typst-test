@@ -142,8 +142,8 @@ fn main() -> anyhow::Result<()> {
             println!("removed test artifacts for {}", project.name());
             return Ok(());
         }
-        cli::Command::Add { folder, open, test } => {
-            let test = Test::new(test, folder);
+        cli::Command::Add { open, test } => {
+            let test = Test::new(test);
             fs.add_test(&test)?;
             reporter.test_success(test.name(), "added")?;
 

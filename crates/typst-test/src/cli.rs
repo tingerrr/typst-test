@@ -76,10 +76,6 @@ pub enum Command {
     /// Add a new test
     #[command(alias = "a")]
     Add {
-        /// Whether to create a folder for this test
-        #[arg(long)]
-        folder: bool,
-
         /// Whether to open the test script
         #[arg(long, short)]
         open: bool,

@@ -133,14 +133,10 @@ impl Fs {
 
     #[tracing::instrument(skip(self))]
     pub fn resolve_script_path(&self, test: &Test) -> PathBuf {
-        let script_dir = self.script_dir().join(test.name());
-        let script = if test.folder() {
-            script_dir.join("test")
-        } else {
-            script_dir
-        };
-
-        script.with_extension("typ")
+        self.script_dir()
+            .join(test.name())
+            .join("test")
+            .with_extension("typ")
     }
 
     #[tracing::instrument(skip(self))]
@@ -175,7 +171,7 @@ impl Fs {
 
         if mode == ScaffoldMode::WithExample {
             tracing::debug!("adding default test");
-            self.add_test(&Test::new("test".to_owned(), false))?;
+            self.add_test(&Test::new("test".to_owned()))?;
         } else {
             tracing::debug!("skipping default test");
         }
@@ -225,13 +221,10 @@ impl Fs {
 
         // TODO: return more than jsut script path from resolve_script_path and use it here
         let script_dir = self.script_dir().join(test.name());
-        let test_script = if test.folder() {
-            tracing::trace!(path = ?script_dir, "creating test dir");
-            util::fs::create_empty_dir(&script_dir)?;
-            script_dir.join("test")
-        } else {
-            script_dir
-        };
+
+        tracing::trace!(path = ?script_dir, "creating test dir");
+        util::fs::create_empty_dir(&script_dir)?;
+        let test_script = script_dir.join("test");
 
         let test_script = test_script.with_extension("typ");
         tracing::trace!(path = ?test_script , "creating test script");
@@ -276,12 +269,8 @@ impl Fs {
         }
 
         let script_dir = self.script_dir().join(test.name());
-        if test.folder() {
-            tracing::trace!(path = ?script_dir, "removing script dir");
-            util::fs::remove_dir(script_dir, true)?
-        } else {
-            util::fs::remove_file(script_dir.with_extension("typ"))?
-        }
+        tracing::trace!(path = ?script_dir, "removing script dir");
+        util::fs::remove_dir(script_dir, true)?;
 
         Ok(())
     }
@@ -314,7 +303,7 @@ impl Fs {
                 continue;
             }
 
-            let test = Test::new(name.trim_end_matches(".typ").into(), typ.is_dir());
+            let test = Test::new(name.trim_end_matches(".typ").into());
             tracing::debug!(name = ?test.name(), "loaded test");
             tests.insert(test);
         }
