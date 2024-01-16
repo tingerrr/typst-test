@@ -19,7 +19,6 @@ pub const DEFAULT_TEST_INPUT: &str = include_str!("../../../../assets/default-te
 pub const DEFAULT_TEST_OUTPUT: &[u8] = include_bytes!("../../../../assets/default-test/test.png");
 pub const DEFAULT_GIT_IGNORE_LINES: &[&str] = &["out/**\n", "diff/**\n"];
 
-const TEST_DIR: &str = "tests";
 const REF_DIR: &str = "ref";
 const OUT_DIR: &str = "out";
 const DIFF_DIR: &str = "diff";
@@ -52,40 +51,47 @@ pub fn try_find_project_root(path: &Path) -> io::Result<Option<&Path>> {
 #[derive(Debug)]
 pub struct Fs {
     root: PathBuf,
+    tests_root: PathBuf,
     reporter: Reporter,
 }
 
 impl Fs {
-    pub fn new(root: PathBuf, reporter: Reporter) -> Self {
-        Self { root, reporter }
+    pub fn new(root: PathBuf, tests_dir: PathBuf, reporter: Reporter) -> Self {
+        let tests_root = root.join(tests_dir);
+
+        Self {
+            root,
+            tests_root,
+            reporter,
+        }
     }
 
     pub fn root(&self) -> &Path {
         &self.root
     }
 
-    pub fn tests_root_dir(&self) -> PathBuf {
-        util::fs::path_in_root(&self.root, [TEST_DIR])
+    pub fn tests_root_dir(&self) -> &Path {
+        &self.tests_root
     }
 
-    pub fn test_dir(&self, test: &str) -> PathBuf {
-        util::fs::path_in_root(&self.root, [TEST_DIR, test])
+    pub fn test_dir(&self, test: &Test) -> PathBuf {
+        util::fs::path_in_root(&self.tests_root, [test.name()])
     }
 
-    pub fn ref_dir(&self, test: &str) -> PathBuf {
-        util::fs::path_in_root(&self.root, [TEST_DIR, test, REF_DIR])
+    pub fn ref_dir(&self, test: &Test) -> PathBuf {
+        util::fs::path_in_root(&self.tests_root, [test.name(), REF_DIR])
     }
 
-    pub fn out_dir(&self, test: &str) -> PathBuf {
-        util::fs::path_in_root(&self.root, [TEST_DIR, test, OUT_DIR])
+    pub fn out_dir(&self, test: &Test) -> PathBuf {
+        util::fs::path_in_root(&self.tests_root, [test.name(), OUT_DIR])
     }
 
-    pub fn diff_dir(&self, test: &str) -> PathBuf {
-        util::fs::path_in_root(&self.root, [TEST_DIR, test, DIFF_DIR])
+    pub fn diff_dir(&self, test: &Test) -> PathBuf {
+        util::fs::path_in_root(&self.tests_root, [test.name(), DIFF_DIR])
     }
 
-    pub fn test_file(&self, test: &str) -> PathBuf {
-        util::fs::path_in_root(&self.root, [TEST_DIR, test, "test"]).with_extension("typ")
+    pub fn test_file(&self, test: &Test) -> PathBuf {
+        util::fs::path_in_root(&self.tests_root, [test.name(), "test"]).with_extension("typ")
     }
 
     #[tracing::instrument(skip(self))]
@@ -118,15 +124,17 @@ impl Fs {
             return Ok(false);
         }
 
-        let test_root_dir = self.tests_root_dir();
-        let test_dir = self.test_dir("example");
+        let test = Test::new("example".to_owned());
 
-        for (name, path) in [("tests root", &test_root_dir), ("test", &test_dir)] {
+        let tests_root_dir = self.tests_root_dir();
+        let test_dir = self.test_dir(&test);
+
+        for (name, path) in [("tests root", tests_root_dir), ("example test", &test_dir)] {
             tracing::trace!(?path, "creating {name} dir");
             util::fs::create_dir(path, false)?;
         }
 
-        let gitignore = test_root_dir.join(".gitignore");
+        let gitignore = tests_root_dir.join(".gitignore");
         tracing::debug!(path = ?gitignore, "writing .gitignore");
         let mut gitignore = File::options()
             .write(true)
@@ -160,14 +168,11 @@ impl Fs {
     pub fn clean_artifacts(&self) -> Result<(), Error> {
         self.ensure_init()?;
 
-        self.load_tests()?
-            .par_iter()
-            .map(Test::name)
-            .try_for_each(|test| {
-                util::fs::remove_dir(self.out_dir(test), true)?;
-                util::fs::remove_dir(self.diff_dir(test), true)?;
-                Ok(())
-            })
+        self.load_tests()?.par_iter().try_for_each(|test| {
+            util::fs::remove_dir(self.out_dir(test), true)?;
+            util::fs::remove_dir(self.diff_dir(test), true)?;
+            Ok(())
+        })
     }
 
     #[tracing::instrument(skip(self))]
@@ -190,11 +195,11 @@ impl Fs {
             return Err(Error::TestsAlreadyExists(test.name().to_owned()));
         }
 
-        let test_dir = self.test_dir(test.name());
+        let test_dir = self.test_dir(&test);
         tracing::trace!(path = ?test_dir, "creating test dir");
         util::fs::create_empty_dir(&test_dir)?;
 
-        let test_script = self.test_file(test.name());
+        let test_script = self.test_file(&test);
         tracing::trace!(path = ?test_script , "creating test script");
         let mut test_script = File::options()
             .write(true)
@@ -202,7 +207,7 @@ impl Fs {
             .open(test_script)?;
         test_script.write_all(DEFAULT_TEST_INPUT.as_bytes())?;
 
-        let ref_dir = self.ref_dir(test.name());
+        let ref_dir = self.ref_dir(&test);
         tracing::trace!(path = ?ref_dir, "creating ref dir");
         util::fs::create_empty_dir(&ref_dir)?;
 
@@ -225,7 +230,7 @@ impl Fs {
             return Err(Error::TestUnknown(test.to_owned()));
         };
 
-        let test_dir = self.test_dir(test.name());
+        let test_dir = self.test_dir(&test);
         tracing::trace!(path = ?test_dir, "removing test dir");
         util::fs::remove_dir(test_dir, true)?;
 
@@ -278,7 +283,7 @@ impl Fs {
 
         let options = Options::max_compression();
 
-        tests.into_par_iter().map(Test::name).try_for_each(|test| {
+        tests.into_par_iter().try_for_each(|test| {
             tracing::debug!(?test, "updating refs");
             let out_dir = self.out_dir(test);
             let ref_dir = self.ref_dir(test);
@@ -292,20 +297,25 @@ impl Fs {
             tracing::trace!(path = ?out_dir, "collecting new refs from out dir");
             let entries = util::fs::collect_dir_entries(&out_dir)?;
 
-            for (idx, entry) in entries.into_iter().enumerate() {
-                tracing::debug!(?test, "ref" = ?idx + 1, "writing optimized ref");
-                let name = entry.file_name();
+            // TODO: this is rather crude, get the indices without enumerate to allow random access
+            entries
+                .into_iter()
+                .enumerate()
+                .par_bridge()
+                .try_for_each(|(idx, entry)| {
+                    tracing::debug!(?test, "ref" = ?idx + 1, "writing optimized ref");
+                    let name = entry.file_name();
 
-                // TODO: better error handling
-                oxipng::optimize(
-                    &InFile::Path(entry.path()),
-                    &OutFile::from_path(ref_dir.join(name)),
-                    &options,
-                )
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-            }
+                    // TODO: better error handling
+                    oxipng::optimize(
+                        &InFile::Path(entry.path()),
+                        &OutFile::from_path(ref_dir.join(name)),
+                        &options,
+                    )
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+                })?;
 
-            self.reporter.test_success(test, "updated")?;
+            self.reporter.test_success(test.name(), "updated")?;
 
             Ok(())
         })

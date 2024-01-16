@@ -98,7 +98,7 @@ fn main() -> anyhow::Result<()> {
     let manifest = project::fs::try_open_manifest(&root)?;
     let mut project = Project::new(manifest);
     let reporter = Reporter::new(util::term::color_stream(args.color, false));
-    let fs = Fs::new(root, reporter.clone());
+    let fs = Fs::new(root, "tests".into(), reporter.clone());
 
     let filter_tests = |tests: &mut HashSet<Test>, filter, exact| match (filter, exact) {
         (Some(f), true) => {
@@ -149,14 +149,14 @@ fn main() -> anyhow::Result<()> {
 
             if open {
                 // BUG: this may fail silently if path doesn exist
-                open::that_detached(fs.test_file(test.name()))?;
+                open::that_detached(fs.test_file(&test))?;
             }
 
             return Ok(());
         }
         cli::Command::Edit { test } => {
             let test = fs.find_test(&test)?;
-            open::that_detached(fs.test_file(test.name()))?;
+            open::that_detached(fs.test_file(&test))?;
             return Ok(());
         }
         cli::Command::Remove { test } => {
