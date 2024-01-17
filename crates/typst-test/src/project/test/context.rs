@@ -153,7 +153,7 @@ impl TestContext<'_, '_, '_, '_> {
         for (name, clear, path) in dirs {
             if clear {
                 tracing::trace!(?path, "clearing {name} dir");
-                util::fs::create_empty_dir(path).map_err(|e| {
+                util::fs::create_empty_dir(path, false).map_err(|e| {
                     Error::io(e)
                         .at(Stage::Preparation)
                         .context(err_fn(name, path))

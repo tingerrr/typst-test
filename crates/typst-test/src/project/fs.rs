@@ -212,7 +212,7 @@ impl Fs {
 
         let test_dir = self.test_dir(&test);
         tracing::trace!(path = ?test_dir, "creating test dir");
-        util::fs::create_empty_dir(&test_dir)?;
+        util::fs::create_empty_dir(&test_dir, true)?;
 
         let test_script = self.test_file(&test);
         tracing::trace!(path = ?test_script , "creating test script");
@@ -230,7 +230,7 @@ impl Fs {
         if self.test_template.is_none() {
             let ref_dir = self.ref_dir(&test);
             tracing::trace!(path = ?ref_dir, "creating ref dir");
-            util::fs::create_empty_dir(&ref_dir)?;
+            util::fs::create_empty_dir(&ref_dir, false)?;
 
             let test_ref = ref_dir.join("1").with_extension("png");
             tracing::trace!(path = ?test_ref, "creating ref image");
@@ -322,7 +322,7 @@ impl Fs {
             util::fs::create_dir(&out_dir, true)?;
 
             tracing::trace!(path = ?ref_dir, "clearing ref dir");
-            util::fs::create_empty_dir(&ref_dir)?;
+            util::fs::create_empty_dir(&ref_dir, false)?;
 
             tracing::trace!(path = ?out_dir, "collecting new refs from out dir");
             let entries = util::fs::collect_dir_entries(&out_dir)?;

@@ -81,13 +81,18 @@ pub mod fs {
         })
     }
 
-    pub fn create_empty_dir<P: AsRef<Path>>(path: P) -> io::Result<()> {
-        fn inner(path: &Path) -> io::Result<()> {
-            remove_dir(path, true)?;
-            create_dir(path, false)
+    pub fn create_empty_dir<P: AsRef<Path>>(path: P, all: bool) -> io::Result<()> {
+        fn inner(path: &Path, all: bool) -> io::Result<()> {
+            let res = remove_dir(path, true);
+            if all {
+                ignore_subset(res, |e| Ok(e.kind() == io::ErrorKind::NotFound))?;
+            } else {
+                res?;
+            }
+            create_dir(path, all)
         }
 
-        inner(path.as_ref())
+        inner(path.as_ref(), all)
     }
 
     pub fn common_ancestor<'a>(p: &'a Path, q: &'a Path) -> Option<&'a Path> {
