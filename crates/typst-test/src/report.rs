@@ -111,7 +111,7 @@ impl Reporter {
         self.inner.lock().unwrap().padding = max_padding;
     }
 
-    pub fn raw(&mut self, f: impl FnOnce(&mut dyn WriteColor) -> io::Result<()>) -> io::Result<()> {
+    pub fn raw(&self, f: impl FnOnce(&mut dyn WriteColor) -> io::Result<()>) -> io::Result<()> {
         let mut inner = self.inner.lock().unwrap();
         f(&mut inner.writer)
     }

@@ -69,11 +69,15 @@ pub enum Command {
         #[arg(long, short)]
         exact: bool,
 
-        /// A filter for which tests to update, any test containing this string is updated
+        /// A filter for which tests to update, any test containing this string
+        /// is updated
         test_filter: Option<String>,
     },
 
     /// Add a new test
+    ///
+    /// The default test simply contains `Hello World` if a `tests/template.typ`
+    /// file is given it is used instead
     #[command(alias = "a")]
     Add {
         /// Whether to open the test script

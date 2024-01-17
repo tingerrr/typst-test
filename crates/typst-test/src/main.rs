@@ -24,7 +24,7 @@ mod report;
 mod util;
 
 fn run(
-    mut reporter: Reporter,
+    reporter: Reporter,
     project: &Project,
     fs: &Fs,
     typst: PathBuf,
@@ -98,7 +98,7 @@ fn main() -> anyhow::Result<()> {
     let manifest = project::fs::try_open_manifest(&root)?;
     let mut project = Project::new(manifest);
     let reporter = Reporter::new(util::term::color_stream(args.color, false));
-    let fs = Fs::new(root, "tests".into(), reporter.clone());
+    let mut fs = Fs::new(root, "tests".into(), reporter.clone());
 
     let filter_tests = |tests: &mut HashSet<Test>, filter, exact| match (filter, exact) {
         (Some(f), true) => {
@@ -143,12 +143,13 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         cli::Command::Add { open, test } => {
+            fs.load_template()?;
             let test = Test::new(test);
             fs.add_test(&test)?;
             reporter.test_success(test.name(), "added")?;
 
             if open {
-                // BUG: this may fail silently if path doesn exist
+                // BUG: this may fail silently if the path doesn't exist
                 open::that_detached(fs.test_file(&test))?;
             }
 
@@ -168,6 +169,7 @@ fn main() -> anyhow::Result<()> {
         cli::Command::Status => {
             project.add_tests(fs.load_tests()?);
             let tests = project.tests();
+            let template = fs.load_template()?;
 
             if let Some(manifest) = project.manifest() {
                 println!(
@@ -177,6 +179,15 @@ fn main() -> anyhow::Result<()> {
 
                 // TODO: list [tool.typst-test] settings
             }
+
+            println!(
+                "Template: {}",
+                if template.is_some() {
+                    "found"
+                } else {
+                    "not found"
+                }
+            );
 
             if tests.is_empty() {
                 println!("Tests: none");

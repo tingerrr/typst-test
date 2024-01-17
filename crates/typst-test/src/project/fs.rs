@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::fmt::Debug;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -52,6 +52,7 @@ pub fn try_find_project_root(path: &Path) -> io::Result<Option<&Path>> {
 pub struct Fs {
     root: PathBuf,
     tests_root: PathBuf,
+    test_template: Option<String>,
     reporter: Reporter,
 }
 
@@ -62,6 +63,7 @@ impl Fs {
         Self {
             root,
             tests_root,
+            test_template: None,
             reporter,
         }
     }
@@ -176,6 +178,19 @@ impl Fs {
     }
 
     #[tracing::instrument(skip(self))]
+    pub fn load_template(&mut self) -> Result<Option<&str>, Error> {
+        self.ensure_init()?;
+
+        match fs::read_to_string(self.tests_root_dir().join("template.typ")) {
+            Ok(template) => self.test_template = Some(template),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+            Err(err) => return Err(Error::Io(err)),
+        }
+
+        Ok(self.test_template.as_deref())
+    }
+
+    #[tracing::instrument(skip(self))]
     pub fn get_test(&self, test: &str) -> Result<Option<Test>, Error> {
         // TODO: don't load all tests?
         Ok(self.load_tests()?.into_iter().find(|t| t.name() == test))
@@ -205,19 +220,34 @@ impl Fs {
             .write(true)
             .create_new(true)
             .open(test_script)?;
-        test_script.write_all(DEFAULT_TEST_INPUT.as_bytes())?;
+        test_script.write_all(
+            self.test_template
+                .as_deref()
+                .unwrap_or(DEFAULT_TEST_INPUT)
+                .as_bytes(),
+        )?;
 
-        let ref_dir = self.ref_dir(&test);
-        tracing::trace!(path = ?ref_dir, "creating ref dir");
-        util::fs::create_empty_dir(&ref_dir)?;
+        if self.test_template.is_none() {
+            let ref_dir = self.ref_dir(&test);
+            tracing::trace!(path = ?ref_dir, "creating ref dir");
+            util::fs::create_empty_dir(&ref_dir)?;
 
-        let test_ref = ref_dir.join("1").with_extension("png");
-        tracing::trace!(path = ?test_ref, "creating ref image");
-        let mut test_ref = File::options()
-            .write(true)
-            .create_new(true)
-            .open(test_ref)?;
-        test_ref.write_all(DEFAULT_TEST_OUTPUT)?;
+            let test_ref = ref_dir.join("1").with_extension("png");
+            tracing::trace!(path = ?test_ref, "creating ref image");
+            let mut test_ref = File::options()
+                .write(true)
+                .create_new(true)
+                .open(test_ref)?;
+            test_ref.write_all(DEFAULT_TEST_OUTPUT)?;
+        } else {
+            self.reporter.raw(|w| {
+                writeln!(
+                    w,
+                    "Test template used, no default reference generated, run `typst-test update --exact {}` to accept test",
+                    test.name(),
+                )
+            })?;
+        }
 
         Ok(())
     }
