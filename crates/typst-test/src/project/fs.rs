@@ -17,7 +17,7 @@ use crate::util;
 
 pub const DEFAULT_TEST_INPUT: &str = include_str!("../../../../assets/default-test/test.typ");
 pub const DEFAULT_TEST_OUTPUT: &[u8] = include_bytes!("../../../../assets/default-test/test.png");
-pub const DEFAULT_GIT_IGNORE_LINES: &[&str] = &["out/**\n", "diff/**\n"];
+pub const DEFAULT_GIT_IGNORE_LINES: &[&str] = &["**/out/\n", "**/diff/\n"];
 
 const REF_DIR: &str = "ref";
 const OUT_DIR: &str = "out";

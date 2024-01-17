@@ -35,6 +35,9 @@ tests/
   ...
 ```
 
+Furthermore, the patterns in the `test/.gitignore` should be adjusted from `out/**` to `**/out/`,
+the same for `diff`.
+
 Observe the following:
 - free standing tests are no longer allowed, they must be in a folder and be named `test.typ`
 - tests can now be nested, their path serves as their name
