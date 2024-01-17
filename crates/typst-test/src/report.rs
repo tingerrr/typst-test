@@ -67,10 +67,7 @@ fn write_test<W: WriteColor + ?Sized>(
     annot: (&str, Color),
     details: impl FnOnce(&str, &mut W) -> io::Result<()>,
 ) -> io::Result<()> {
-    let pad = match padding {
-        Some(padding) => std::cmp::min(padding, MAX_PADDING),
-        None => MAX_PADDING,
-    };
+    let pad = std::cmp::min(padding.unwrap_or_default(), MAX_PADDING);
 
     write!(w, "{name:<pad$} ")?;
 
