@@ -21,3 +21,4 @@ tracing-subscriber = "0.3.18"
 tracing-tree = "0.3.0"
 serde = { version = "1.0.195", features = ["derive"] }
 semver = "1.0.21"
+walkdir = "2.4.0"

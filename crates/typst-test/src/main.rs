@@ -98,7 +98,7 @@ fn main() -> anyhow::Result<()> {
     let manifest = project::fs::try_open_manifest(&root)?;
     let mut project = Project::new(manifest);
     let reporter = Reporter::new(util::term::color_stream(args.color, false));
-    let fs = Fs::new(root, reporter.clone());
+    let fs = Fs::new(root, "tests".into(), reporter.clone());
 
     let filter_tests = |tests: &mut HashSet<Test>, filter, exact| match (filter, exact) {
         (Some(f), true) => {
@@ -127,7 +127,7 @@ fn main() -> anyhow::Result<()> {
                 println!(
                     "could not initialize tests for {}, {:?} already exists",
                     project.name(),
-                    fs.test_dir()
+                    fs.tests_root_dir()
                 );
             }
             return Ok(());
@@ -142,21 +142,21 @@ fn main() -> anyhow::Result<()> {
             println!("removed test artifacts for {}", project.name());
             return Ok(());
         }
-        cli::Command::Add { folder, open, test } => {
-            let test = Test::new(test, folder);
+        cli::Command::Add { open, test } => {
+            let test = Test::new(test);
             fs.add_test(&test)?;
             reporter.test_success(test.name(), "added")?;
 
             if open {
                 // BUG: this may fail silently if path doesn exist
-                open::that_detached(fs.resolve_script_path(&test))?;
+                open::that_detached(fs.test_file(&test))?;
             }
 
             return Ok(());
         }
         cli::Command::Edit { test } => {
             let test = fs.find_test(&test)?;
-            open::that_detached(fs.resolve_script_path(&test))?;
+            open::that_detached(fs.test_file(&test))?;
             return Ok(());
         }
         cli::Command::Remove { test } => {

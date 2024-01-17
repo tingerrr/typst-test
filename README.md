@@ -22,9 +22,8 @@ typst packages.
 - better test filtering
 
 ## Stability
-This is work in progress, as such no stability guarantees are made. Especially the folder structure
-is subject to change. It's currently a little hard to navigate and will likely be changed to move
-references, output and diffs closer to each test's script.
+This is work in progress, as such no stability guarantees are made, any commit may change the
+behavior of various commands. Such changes will be documented in the [migration log][migrating].
 
 ## Tutorial
 You can install typst-test by running:
@@ -68,13 +67,6 @@ The following global options are available:
 
 For more specific options and commands, run `typst-test help`.
 
-### Adding new tests
-To add new tests simply go to `tests/typ` and add a `<test>` folder containing a `test.typ` file
-or add a `<test>.typ` directly. Reference your package by using a relative path or an absolute path
-from the `<project>` directory (the directory containing the `typst.toml` manifest). Run `typst-test
-run <test>` and check the `test/out/<test>` directory for its output. If the output is correct, run
-`typst-test update <test>` to add it.
-
 ## Motivation
 After releasing a very broken version of [hydra], I started writing tests and, as such, also a small
 script to run them automatically. I got a bit carried away and overengineered the test script, but
@@ -87,6 +79,7 @@ Contributions are of course welcome, but make sure to give me a headsup before h
 [typst community discord][typst-discord] by messaging `tinger` in `#contributors` or by sending me
 an email at `<me@tinger.dev>`. This way we can avoid working on similar features at the same time.
 
+[migrating]: migrating.md
 [hydra]: https://github.com/tingerrr/hydra
 [hydra-test]: https://github.com/tingerrr/hydra/blob/10127b1a5835a40a127b437b082c395a61d082d1/tests/run.nu
 [typst-discord]: https://discord.com/invite/2uDybryKPe
