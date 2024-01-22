@@ -19,7 +19,6 @@ typst packages.
   - in memory comparison with references
 - custom user actions
 - better diff images
-- better test filtering
 
 ## Stability
 This is work in progress, as such no stability guarantees are made, any commit may change the
@@ -39,45 +38,6 @@ typst-test run
 ```
 
 [![An asciicast showing typs-test running with one test failing.][demo-thumb]][demo]
-
-### Notable commands and options
-The following commands are available:
-- `init`, initialize a project with a test directory
-- `uinit`, remove a project's test directory
-- `clean`, clean test output artifacts
-- `run [test-filter]`, compile and run tests matching `test-filter`
-- `compile [test-filter]`, compile but don't run tests matching `test-filter`
-- `add <test>`, add a new test named `test`
-- `edit <test>`, edit the test named `test`
-- `remove <test>`, remove the test named `test`
-- `update [test-filter]`, update the reference images for tests matching `test-filter`
-
-`test-filter` is a substring filter. If no filter is given it will match all tests.
-
-The following global options are available:
-- `--typst`, the path to the typst binary to compile the tests with
-- `--root`, the project root directory
-  - the root directory for typst when compiling
-  - where `tests` is placed on `init`
-  - can be used when your project doesn't contain a `typst.toml` manifest
-- `--verbose`, increase the logging verbosity
-  - shows tracing spans from `-vvv` onwards for realtime information
-  - does not currently show any other crate's logs
-  - please run typst-test with this when reporting issues
-
-For more specific options and commands, run `typst-test help`.
-
-## Motivation
-After releasing a very broken version of [hydra], I started writing tests and, as such, also a small
-script to run them automatically. I got a bit carried away and overengineered the test script, but
-it had a fundamental flaw; It could not run tests in parallel. This and the additional burden of
-maintaining the messy script was enough to prompt me to write this program. This is direct port
-of my [hydra test script][hydra-test].
-
-## Contributions
-Contributions are of course welcome, but make sure to give me a headsup before hand either on the
-[typst community discord][typst-discord] by messaging `tinger` in `#contributors` or by sending me
-an email at `<me@tinger.dev>`. This way we can avoid working on similar features at the same time.
 
 [migrating]: migrating.md
 [hydra]: https://github.com/tingerrr/hydra

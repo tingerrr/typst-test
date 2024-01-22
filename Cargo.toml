@@ -1,6 +1,3 @@
 [workspace]
 resolver = "2"
-members = [
-  "crates/typst-test",
-  "crates/typst-manifest",
-]
+members = ["crates/*"]

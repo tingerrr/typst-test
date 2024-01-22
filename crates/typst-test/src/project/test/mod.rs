@@ -1,13 +1,50 @@
 use std::ffi::OsString;
 use std::fmt::Display;
+use std::path::PathBuf;
 use std::process::Output;
 
-use self::context::{Context, ContextResult};
-use crate::report::Reporter;
+use oxipng::PngError;
+
+use crate::{util, Project};
 
 pub mod context;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+const REF_DIR: &str = "ref";
+const OUT_DIR: &str = "out";
+const DIFF_DIR: &str = "diff";
+
+#[derive(Debug, Clone)]
+pub enum Filter {
+    Contains(String),
+    Exact(String),
+}
+
+impl Filter {
+    pub fn new(filter: String, exact: bool) -> Filter {
+        if exact {
+            Self::Exact(filter)
+        } else {
+            Self::Contains(filter)
+        }
+    }
+
+    pub fn value(&self) -> &str {
+        match self {
+            Filter::Contains(f) => f,
+            Filter::Exact(f) => f,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn matches(&self, test: &Test) -> bool {
+        match self {
+            Filter::Contains(s) => test.name().contains(s),
+            Filter::Exact(s) => test.name() == s,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct Test {
     name: String,
     // TODO: comparison
@@ -23,15 +60,25 @@ impl Test {
         &self.name
     }
 
-    #[tracing::instrument(skip_all, fields(test = ?self.name))]
-    pub fn run<'t>(
-        &'t self,
-        context: &Context,
-        compare: bool,
-        reporter: Reporter,
-    ) -> ContextResult {
-        let context = context.test(self, reporter);
-        context.run(compare)
+    pub fn test_dir(&self, project: &Project) -> PathBuf {
+        util::fs::path_in_root(project.tests_root_dir(), [self.name()])
+    }
+
+    pub fn ref_dir(&self, project: &Project) -> PathBuf {
+        util::fs::path_in_root(project.tests_root_dir(), [self.name(), REF_DIR])
+    }
+
+    pub fn out_dir(&self, project: &Project) -> PathBuf {
+        util::fs::path_in_root(project.tests_root_dir(), [self.name(), OUT_DIR])
+    }
+
+    pub fn diff_dir(&self, project: &Project) -> PathBuf {
+        util::fs::path_in_root(project.tests_root_dir(), [self.name(), DIFF_DIR])
+    }
+
+    pub fn test_file(&self, project: &Project) -> PathBuf {
+        util::fs::path_in_root(project.tests_root_dir(), [self.name(), "test"])
+            .with_extension("typ")
     }
 }
 
@@ -40,6 +87,8 @@ pub enum Stage {
     Preparation,
     Compilation,
     Comparison,
+    #[allow(dead_code)]
+    Update,
     #[allow(dead_code)]
     Cleanup,
 }
@@ -53,6 +102,7 @@ impl Display for Stage {
                 Stage::Preparation => "preparation",
                 Stage::Compilation => "compilation",
                 Stage::Comparison => "comparison",
+                Stage::Update => "update",
                 Stage::Cleanup => "cleanup",
             }
         )
@@ -66,6 +116,7 @@ pub enum TestFailure {
     Preparation(PrepareFailure),
     Compilation(CompileFailure),
     Comparison(CompareFailure),
+    Update(UpdateFailure),
     Cleanup(CleanupFailure),
 }
 
@@ -93,6 +144,12 @@ impl From<CompareFailure> for TestFailure {
     }
 }
 
+impl From<UpdateFailure> for TestFailure {
+    fn from(value: UpdateFailure) -> Self {
+        Self::Update(value)
+    }
+}
+
 impl From<CleanupFailure> for TestFailure {
     fn from(value: CleanupFailure) -> Self {
         Self::Cleanup(value)
@@ -105,6 +162,7 @@ impl std::error::Error for TestFailure {
             TestFailure::Preparation(e) => e,
             TestFailure::Compilation(e) => e,
             TestFailure::Comparison(e) => e,
+            TestFailure::Update(e) => e,
             TestFailure::Cleanup(e) => e,
         })
     }
@@ -154,6 +212,7 @@ pub enum CompareFailure {
     },
     Page {
         pages: Vec<(usize, ComparePageFailure)>,
+        diff_dir: Option<PathBuf>,
     },
     MissingOutput,
     MissingReferences,
@@ -167,7 +226,7 @@ impl Display for CompareFailure {
                 "page count differed: out ({}) != ref ({})",
                 output, reference
             ),
-            CompareFailure::Page { pages } => write!(
+            CompareFailure::Page { pages, diff_dir: _ } => write!(
                 f,
                 "{} page{} differed {:?}",
                 pages.len(),
@@ -207,3 +266,22 @@ impl Display for ComparePageFailure {
 }
 
 impl std::error::Error for ComparePageFailure {}
+
+#[derive(Debug, Clone)]
+pub enum UpdateFailure {
+    Optimize { error: PngError },
+}
+
+impl Display for UpdateFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "update failed")
+    }
+}
+
+impl std::error::Error for UpdateFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            UpdateFailure::Optimize { error } => Some(error),
+        }
+    }
+}
