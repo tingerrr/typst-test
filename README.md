@@ -24,9 +24,9 @@ typst packages.
 This is work in progress, as such no stability guarantees are made, any commit may change the
 behavior of various commands. Such changes will be documented in the [migration log][migrating].
 
-The tag `ci-semi-stable` is available to use typst-test in CI, see [`test.yml`][ci-workflow] for an
-example workflow which will run typst-test for PRs and pushes to your repo. This tag will only be
-bumped when critical bugs related to exisiting functionality are fixed. It will be retired once
+The tag `ci-semi-stable` is available to use typst-test in CI, see [`tests.yml`][ci-workflow] for
+an example workflow which will run typst-test for PRs and pushes to your repo. This tag will only
+be bumped when critical bugs related to exisiting functionality are fixed. It will be retired once
 typst-test reaches `0.1.0`.
 
 ## Tutorial
@@ -44,7 +44,7 @@ typst-test run
 
 [![An asciicast showing typs-test running with one test failing.][demo-thumb]][demo]
 
-[ci-workfow]: workflows/tests.yml
+[ci-workflow]: assets/workflows/tests.yml
 
 [migrating]: migrating.md
 [demo-thumb]: https://asciinema.org/a/tbjXoYpZ0UPSiFxtO2vOaAW8v.svg
