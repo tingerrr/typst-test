@@ -24,6 +24,11 @@ typst packages.
 This is work in progress, as such no stability guarantees are made, any commit may change the
 behavior of various commands. Such changes will be documented in the [migration log][migrating].
 
+The tag `ci-semi-stable` is available to use typst-test in CI, see [`test.yml`][ci-workflow] for an
+example workflow which will run typst-test for PRs and pushes to your repo. This tag will only be
+bumped when critical bugs related to exisiting functionality are fixed. It will be retired once
+typst-test reaches `0.1.0`.
+
 ## Tutorial
 You can install typst-test by running:
 ```bash
@@ -39,9 +44,8 @@ typst-test run
 
 [![An asciicast showing typs-test running with one test failing.][demo-thumb]][demo]
 
+[ci-workfow]: workflows/tests.yml
+
 [migrating]: migrating.md
-[hydra]: https://github.com/tingerrr/hydra
-[hydra-test]: https://github.com/tingerrr/hydra/blob/10127b1a5835a40a127b437b082c395a61d082d1/tests/run.nu
-[typst-discord]: https://discord.com/invite/2uDybryKPe
 [demo-thumb]: https://asciinema.org/a/tbjXoYpZ0UPSiFxtO2vOaAW8v.svg
 [demo]: https://asciinema.org/a/tbjXoYpZ0UPSiFxtO2vOaAW8v
