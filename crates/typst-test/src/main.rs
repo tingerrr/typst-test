@@ -123,7 +123,7 @@ fn main_impl(args: cli::Args, reporter: &mut Reporter) -> anyhow::Result<CliResu
     let manifest = project::try_open_manifest(&root)?;
     let mut project = Project::new(root, Path::new("tests"), manifest);
 
-    let (filter, compare) = match args.cmd {
+    let (runner_args, compare) = match args.cmd {
         cli::Command::Init { no_example } => return cmd::init(&mut project, reporter, no_example),
         cli::Command::Uninit => return cmd::uninit(&mut project, reporter),
         cli::Command::Clean => return cmd::clean(&mut project, reporter),
@@ -132,27 +132,35 @@ fn main_impl(args: cli::Args, reporter: &mut Reporter) -> anyhow::Result<CliResu
         cli::Command::Remove { test } => return cmd::remove(&mut project, reporter, test),
         cli::Command::Status => return cmd::status(&mut project, reporter, args.typst),
         cli::Command::Update {
-            filter,
+            runner_args,
             no_optimize,
         } => {
             return cmd::update(
                 &mut project,
                 reporter,
+                runner_args.summary,
                 args.typst,
-                filter.filter.map(|f| Filter::new(f, filter.exact)),
+                runner_args
+                    .filter
+                    .filter
+                    .map(|f| Filter::new(f, runner_args.filter.exact)),
                 args.fail_fast,
                 !no_optimize,
             )
         }
-        cli::Command::Compile(args) => (args, false),
-        cli::Command::Run(args) => (args, true),
+        cli::Command::Compile(runner_args) => (runner_args, false),
+        cli::Command::Run(runner_args) => (runner_args, true),
     };
 
     cmd::run(
         &mut project,
         reporter,
+        runner_args.summary,
         args.typst,
-        filter.filter.map(|f| Filter::new(f, filter.exact)),
+        runner_args
+            .filter
+            .filter
+            .map(|f| Filter::new(f, runner_args.filter.exact)),
         args.fail_fast,
         compare,
     )
@@ -161,16 +169,18 @@ fn main_impl(args: cli::Args, reporter: &mut Reporter) -> anyhow::Result<CliResu
 mod cmd {
     use std::io::Write;
     use std::path::PathBuf;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
+    use std::time::Instant;
 
     use rayon::prelude::*;
 
     use crate::cli::CliResult;
     use crate::project::test::context::Context;
-    use crate::project::test::Filter;
+    use crate::project::test::{Filter, Stage};
     use crate::project::{Project, ScaffoldMode};
-    use crate::report::Reporter;
+    use crate::report::{Reporter, Summary};
+    use crate::util;
 
     macro_rules! bail_gracefully {
         (if_no_typst; $project:expr; $typst:expr) => {
@@ -268,9 +278,9 @@ mod cmd {
         project.uninit()?;
         writeln!(
             reporter,
-            "Removed {} test{}",
+            "Removed {} {}",
             count,
-            if count == 1 { "" } else { "s" }
+            util::fmt::plural(count, "test"),
         )?;
 
         Ok(CliResult::Ok)
@@ -349,6 +359,7 @@ mod cmd {
     pub fn update(
         project: &mut Project,
         reporter: &mut Reporter,
+        summary: bool,
         typst: PathBuf,
         filter: Option<Filter>,
         fail_fast: bool,
@@ -357,10 +368,14 @@ mod cmd {
         run_tests(
             project,
             reporter,
+            summary,
             filter,
+            false,
+            true,
             |project| {
                 let mut ctx = Context::new(project, typst);
                 ctx.with_fail_fast(fail_fast)
+                    .with_compare(false)
                     .with_update(true)
                     .with_optimize(optimize);
                 ctx
@@ -388,6 +403,7 @@ mod cmd {
     pub fn run(
         project: &mut Project,
         reporter: &mut Reporter,
+        summary: bool,
         typst: PathBuf,
         filter: Option<Filter>,
         fail_fast: bool,
@@ -396,10 +412,15 @@ mod cmd {
         run_tests(
             project,
             reporter,
+            summary,
             filter,
+            compare,
+            false,
             |project| {
                 let mut ctx = Context::new(project, typst);
-                ctx.with_fail_fast(fail_fast).with_compare(compare);
+                ctx.with_fail_fast(fail_fast)
+                    .with_compare(compare)
+                    .with_update(false);
                 ctx
             },
             if compare { "ok" } else { "compiled" },
@@ -409,41 +430,67 @@ mod cmd {
     fn run_tests(
         project: &mut Project,
         reporter: &mut Reporter,
+        summary: bool,
         filter: Option<Filter>,
+        compare: bool,
+        update: bool,
         prepare_ctx: impl FnOnce(&Project) -> Context,
         done_annot: &str,
     ) -> anyhow::Result<CliResult> {
         bail_gracefully!(if_uninit; project);
 
         project.discover_tests()?;
+        let pre_filter = project.tests().len();
         bail_gracefully!(if_no_tests_found; project);
         bail_gracefully!(if_no_tests_match; project; &filter);
+        let post_filter = project.tests().len();
 
         let ctx = prepare_ctx(project);
         bail_gracefully!(if_no_typst; project; ctx.typst());
 
+        if !summary {
+            reporter.test_start(update)?;
+        }
+
+        reporter.indent(2);
+
+        let start = Instant::now();
         ctx.prepare()?;
 
         let reporter = Mutex::new(reporter);
-        let all_ok = AtomicBool::new(true);
+        let compiled = AtomicUsize::new(0);
+        let compared = AtomicUsize::new(0);
+
         let res = project.tests().par_iter().try_for_each(
             |(_, test)| -> Result<(), Option<anyhow::Error>> {
                 match ctx.test(test).run() {
                     Ok(Ok(_)) => {
-                        reporter
-                            .lock()
-                            .unwrap()
-                            .test_success(test, done_annot)
-                            .map_err(|e| Some(e.into()))?;
+                        compiled.fetch_add(1, Ordering::SeqCst);
+                        compared.fetch_add(1, Ordering::SeqCst);
+
+                        if !summary {
+                            reporter
+                                .lock()
+                                .unwrap()
+                                .test_success(test, done_annot)
+                                .map_err(|e| Some(e.into()))?;
+                        }
                         Ok(())
                     }
                     Ok(Err(err)) => {
-                        all_ok.store(false, Ordering::Relaxed);
-                        reporter
-                            .lock()
-                            .unwrap()
-                            .test_failure(test, err)
-                            .map_err(|e| Some(e.into()))?;
+                        if err.stage() > Stage::Compilation {
+                            compiled.fetch_add(1, Ordering::SeqCst);
+                        } else if err.stage() > Stage::Compilation {
+                            compared.fetch_add(1, Ordering::SeqCst);
+                        }
+
+                        if !summary {
+                            reporter
+                                .lock()
+                                .unwrap()
+                                .test_failure(test, err)
+                                .map_err(|e| Some(e.into()))?;
+                        }
                         if ctx.fail_fast() {
                             Err(None)
                         } else {
@@ -460,8 +507,27 @@ mod cmd {
         }
 
         ctx.cleanup()?;
+        let time = start.elapsed();
 
-        Ok(if all_ok.into_inner() {
+        let reporter = reporter.into_inner().unwrap();
+        reporter.dedent();
+
+        if !summary {
+            writeln!(reporter)?;
+        }
+
+        let summary = Summary {
+            total: pre_filter,
+            filtered: pre_filter - post_filter,
+            compiled: compiled.into_inner(),
+            compared: compare.then_some(compared.into_inner()),
+            time,
+        };
+
+        let is_ok = summary.is_ok();
+        reporter.test_summary(summary, update)?;
+
+        Ok(if is_ok {
             CliResult::Ok
         } else {
             CliResult::TestFailure

@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::fmt::{Debug, Display};
 use std::io::Write;
 use std::path::PathBuf;
+use std::time::Duration;
 use std::{fmt, io};
 
 use semver::Version;
@@ -9,19 +10,74 @@ use termcolor::{Color, ColorSpec, HyperlinkSpec, WriteColor};
 
 use crate::project::test::{CompareFailure, Test, TestFailure, UpdateFailure};
 use crate::project::Project;
+use crate::util;
 
 pub const ANNOT_PADDING: usize = 7;
 pub const MAX_TEST_LIST: usize = 10;
+
+pub struct Summary {
+    pub total: usize,
+    pub filtered: usize,
+    pub compiled: usize,
+    pub compared: Option<usize>,
+    pub time: Duration,
+}
+
+impl Summary {
+    pub fn run(&self) -> usize {
+        self.total - self.filtered
+    }
+
+    pub fn is_ok(&self) -> bool {
+        let run = self.run();
+        self.compiled == run && (self.compared.is_none() || self.compared.is_some_and(|c| c == run))
+    }
+
+    pub fn is_total_fail(&self) -> bool {
+        match self.compared {
+            Some(c) => c == 0,
+            None => self.compiled == 0,
+        }
+    }
+
+    pub fn passed(&self) -> usize {
+        match self.compared {
+            Some(c) => c,
+            None => self.compiled,
+        }
+    }
+}
+
+fn write_with<W: WriteColor + ?Sized>(
+    w: &mut W,
+    set: impl FnOnce(&mut ColorSpec) -> &mut ColorSpec,
+    unset: impl FnOnce(&mut ColorSpec) -> &mut ColorSpec,
+    f: impl FnOnce(&mut W) -> io::Result<()>,
+) -> io::Result<()> {
+    w.set_color(set(&mut ColorSpec::new()))?;
+    f(w)?;
+    w.set_color(unset(&mut ColorSpec::new()))?;
+    Ok(())
+}
+
+fn write_bold<W: WriteColor + ?Sized>(
+    w: &mut W,
+    f: impl FnOnce(&mut W) -> io::Result<()>,
+) -> io::Result<()> {
+    write_with(w, |c| c.set_bold(true), |c| c.set_bold(false), f)
+}
 
 fn write_bold_colored<W: WriteColor + ?Sized>(
     w: &mut W,
     annot: impl Display,
     color: Color,
 ) -> io::Result<()> {
-    w.set_color(ColorSpec::new().set_bold(true).set_fg(Some(color)))?;
-    write!(w, "{annot}")?;
-    w.set_color(ColorSpec::new().set_bold(false).set_fg(None))?;
-    Ok(())
+    write_with(
+        w,
+        |c| c.set_bold(true).set_fg(Some(color)),
+        |c| c.set_bold(false).set_fg(None),
+        |w| write!(w, "{annot}"),
+    )
 }
 
 fn write_program_buffer(reporter: &mut Reporter, name: &str, buffer: &[u8]) -> io::Result<()> {
@@ -67,7 +123,11 @@ pub struct Reporter {
 
 impl Debug for Reporter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "..")
+        f.debug_struct("Reporter")
+            .field("indets", &self.indents)
+            .field("need_indent", &self.need_indent)
+            .field("last_io_on_fmt_error", &self.last_io_on_fmt_error)
+            .finish_non_exhaustive()
     }
 }
 
@@ -96,7 +156,7 @@ impl Reporter {
     pub fn write_annot(&mut self, annot: &str, color: Color) -> io::Result<()> {
         self.set_color(ColorSpec::new().set_bold(true).set_fg(Some(color)))?;
         write!(self, "{annot:>ANNOT_PADDING$}")?;
-        self.reset()?;
+        self.set_color(ColorSpec::new().set_bold(false).set_fg(None))?;
         Ok(())
     }
 
@@ -116,7 +176,7 @@ impl Reporter {
         self.write_annot(annot, color)?;
         self.set_color(ColorSpec::new().set_bold(true))?;
         writeln!(self, " {name}")?;
-        self.reset()
+        self.set_color(ColorSpec::new().set_bold(false))
     }
 
     pub fn test_success(&mut self, test: &Test, annot: &str) -> io::Result<()> {
@@ -140,7 +200,7 @@ impl Reporter {
 
     pub fn test_failure(&mut self, test: &Test, error: TestFailure) -> io::Result<()> {
         self.test_result(test.name(), "failed", Color::Red)?;
-        self.indent((ANNOT_PADDING + 1) as isize);
+        self.indent(ANNOT_PADDING as isize + 1);
         match error {
             TestFailure::Preparation(e) => writeln!(self, "{e}")?,
             TestFailure::Cleanup(e) => writeln!(self, "{e}")?,
@@ -152,9 +212,9 @@ impl Reporter {
             TestFailure::Comparison(CompareFailure::PageCount { output, reference }) => {
                 writeln!(
                     self,
-                    "Expected {reference} page{}, got {output} page{}",
-                    if reference == 1 { "" } else { "s" },
-                    if output == 1 { "" } else { "s" },
+                    "Expected {reference} {}, got {output} {}",
+                    util::fmt::plural(reference, "page"),
+                    util::fmt::plural(output, "page"),
                 )?;
             }
             TestFailure::Comparison(CompareFailure::Page { pages, diff_dir }) => {
@@ -261,6 +321,60 @@ impl Reporter {
             write_bold_colored(self, tests.len(), Color::Cyan)?;
             writeln!(self)?;
         }
+
+        Ok(())
+    }
+
+    pub fn test_start(&mut self, is_update: bool) -> io::Result<()> {
+        write_bold(self, |w| {
+            writeln!(
+                w,
+                "{} tests",
+                if is_update { "Updating" } else { "Running" }
+            )
+        })
+    }
+
+    pub fn test_summary(&mut self, summary: Summary, is_update: bool) -> io::Result<()> {
+        write_bold(self, |w| writeln!(w, "Summary"))?;
+        self.indent(2);
+
+        let color = if summary.is_ok() {
+            Color::Green
+        } else if summary.is_total_fail() {
+            Color::Red
+        } else {
+            Color::Yellow
+        };
+
+        write_bold_colored(self, summary.passed(), color)?;
+        write!(self, " / ")?;
+        write_bold(self, |w| write!(w, "{}", summary.run()))?;
+        write!(self, " {}.", if is_update { "updated" } else { "passed" })?;
+
+        if summary.filtered != 0 {
+            write!(self, " ")?;
+            write_bold_colored(self, summary.filtered, Color::Yellow)?;
+            write!(self, " filtered out.")?;
+        }
+
+        let secs = summary.time.as_secs();
+        match (secs / 60, secs) {
+            (0, 0) => {}
+            (0, s) => write!(
+                self,
+                " took {s} {}",
+                util::fmt::plural(s as usize, "second")
+            )?,
+            (m, s) => write!(
+                self,
+                " took {m} {} {s} {}",
+                util::fmt::plural(m as usize, "minute"),
+                util::fmt::plural(s as usize, "second")
+            )?,
+        }
+
+        self.dedent();
 
         Ok(())
     }

@@ -1,3 +1,30 @@
+pub mod fmt {
+    use std::fmt::Display;
+
+    struct Plural<'a> {
+        term: &'a str,
+        is_singular: bool,
+    }
+
+    impl Display for Plural<'_> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(
+                f,
+                "{}{}",
+                self.term,
+                if self.is_singular { "" } else { "s" }
+            )
+        }
+    }
+
+    pub fn plural(count: usize, term: &str) -> impl Display + '_ {
+        Plural {
+            term,
+            is_singular: count == 1,
+        }
+    }
+}
+
 pub mod result {
     pub fn ignore<T: Default, E>(
         result: Result<T, E>,

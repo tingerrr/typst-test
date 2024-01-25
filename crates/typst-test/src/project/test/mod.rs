@@ -120,6 +120,18 @@ pub enum TestFailure {
     Cleanup(CleanupFailure),
 }
 
+impl TestFailure {
+    pub fn stage(&self) -> Stage {
+        match self {
+            TestFailure::Preparation(_) => Stage::Preparation,
+            TestFailure::Compilation(_) => Stage::Compilation,
+            TestFailure::Comparison(_) => Stage::Comparison,
+            TestFailure::Update(_) => Stage::Update,
+            TestFailure::Cleanup(_) => Stage::Cleanup,
+        }
+    }
+}
+
 impl Display for TestFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "test failed")
@@ -228,9 +240,9 @@ impl Display for CompareFailure {
             ),
             CompareFailure::Page { pages, diff_dir: _ } => write!(
                 f,
-                "{} page{} differed {:?}",
+                "{} {} differed {:?}",
                 pages.len(),
-                if pages.len() == 1 { "" } else { "s" },
+                util::fmt::plural(pages.len(), "page"),
                 pages.iter().map(|(n, _)| n).collect::<Vec<_>>()
             ),
             CompareFailure::MissingOutput => write!(f, "missing output"),

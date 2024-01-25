@@ -146,11 +146,11 @@ pub enum Command {
 
     /// Compile and compare tests
     #[command(alias = "r")]
-    Run(TestFilter),
+    Run(RunnerArgs),
 
     /// Compile tests
     #[command(alias = "c")]
-    Compile(TestFilter),
+    Compile(RunnerArgs),
 
     /// Update tests
     #[command(alias = "u")]
@@ -163,7 +163,7 @@ pub enum Command {
         no_optimize: bool,
 
         #[command(flatten)]
-        filter: TestFilter,
+        runner_args: RunnerArgs,
     },
 
     /// Add a new test
@@ -193,6 +193,16 @@ pub enum Command {
         /// The name of the test to remove
         test: String,
     },
+}
+
+#[derive(clap::Parser, Debug, Clone)]
+pub struct RunnerArgs {
+    /// Show a summary of the test run instread of the individual test results
+    #[arg(long, global = true)]
+    pub summary: bool,
+
+    #[command(flatten)]
+    pub filter: TestFilter,
 }
 
 #[derive(clap::Parser, Debug, Clone)]
