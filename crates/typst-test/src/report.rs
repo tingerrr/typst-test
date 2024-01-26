@@ -8,7 +8,7 @@ use std::{fmt, io};
 use semver::Version;
 use termcolor::{Color, ColorSpec, HyperlinkSpec, WriteColor};
 
-use crate::project::test::{CompareFailure, Test, TestFailure, UpdateFailure};
+use crate::project::test::{CompareFailure, ComparePageFailure, Test, TestFailure, UpdateFailure};
 use crate::project::Project;
 use crate::util;
 
@@ -218,9 +218,21 @@ impl Reporter {
                 )?;
             }
             TestFailure::Comparison(CompareFailure::Page { pages, diff_dir }) => {
-                for (p, _) in pages {
-                    writeln!(self, "Page {p} did not match")?;
+                for (p, e) in pages {
+                    match e {
+                        ComparePageFailure::Dimensions { output, reference } => {
+                            writeln!(self, "Page {p} had different dimensions")?;
+                            self.indent(2);
+                            writeln!(self, "Output: {}x{}", output.0, output.1)?;
+                            writeln!(self, "Reference: {}x{}", reference.0, reference.1)?;
+                            self.dedent();
+                        }
+                        ComparePageFailure::Content => {
+                            writeln!(self, "Page {p} did not match")?;
+                        }
+                    }
                 }
+
                 if let Some(diff_dir) = diff_dir {
                     self.hint(&format!(
                         "Diff images have been saved at '{}'",
