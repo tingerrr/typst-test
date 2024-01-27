@@ -224,7 +224,7 @@ impl Project {
 
         let test_dir = test.test_dir(self);
         tracing::trace!(path = ?test_dir, "creating test dir");
-        util::fs::create_empty_dir(&test_dir, true)?;
+        util::fs::create_dir(&test_dir, true)?;
 
         let test_script = test.test_file(self);
         tracing::trace!(path = ?test_script , "creating test script");
