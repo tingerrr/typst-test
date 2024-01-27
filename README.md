@@ -5,20 +5,11 @@ typst packages.
 
 ## Features
 - auto discovery of current project using `typst.toml`
-- overriding of typst binary to test typst PRs
+- overriding of typst binary to test typst PRs or multiple versions
 - automatic compilation and optional visual comparison of test output for all tests
 - diff image generation for visual aid
 - project setup with git support
 - updating and optimizing of reference images
-
-## Planned features
-- cli and lib separation to allow others to reuse the primary test running implementation
-- using the typst crate directly
-  - detecting mutliple tests in one file with common setup, running tests fro a single file in
-    isolation
-  - in memory comparison with references
-- custom user actions
-- better diff images
 
 ## Stability
 This is work in progress, as such no stability guarantees are made, any commit may change the
