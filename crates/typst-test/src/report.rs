@@ -29,15 +29,11 @@ impl Summary {
     }
 
     pub fn is_ok(&self) -> bool {
-        let run = self.run();
-        self.compiled == run && (self.compared.is_none() || self.compared.is_some_and(|c| c == run))
+        self.passed() == self.run()
     }
 
     pub fn is_total_fail(&self) -> bool {
-        match self.compared {
-            Some(c) => c == 0,
-            None => self.compiled == 0,
-        }
+        self.passed() == 0
     }
 
     pub fn passed(&self) -> usize {
@@ -85,29 +81,17 @@ fn write_program_buffer(reporter: &mut Reporter, name: &str, buffer: &[u8]) -> i
         return Ok(());
     }
 
-    let mut frame = ColorSpec::new();
-    frame.set_bold(true);
-
-    let mut no_frame = ColorSpec::new();
-    no_frame.set_bold(false);
-
     let lossy = String::from_utf8_lossy(buffer);
     if matches!(lossy, Cow::Owned(_)) {
         reporter.hint(format!("{name} was not valid UTF8"))?;
     }
 
-    reporter.set_color(&frame)?;
-    writeln!(reporter, "┏━ {name}")?;
-    reporter.set_color(&no_frame)?;
+    write_bold(reporter, |w| writeln!(w, "┏━ {name}"))?;
     for line in lossy.lines() {
-        reporter.set_color(&frame)?;
-        write!(reporter, "┃")?;
-        reporter.set_color(&no_frame)?;
+        write_bold(reporter, |w| write!(w, "┃"))?;
         writeln!(reporter, "{line}")?;
     }
-    reporter.set_color(&frame)?;
-    writeln!(reporter, "┗━ {name}")?;
-    reporter.set_color(&no_frame)?;
+    write_bold(reporter, |w| writeln!(w, "┗━ {name}"))?;
 
     Ok(())
 }
@@ -161,9 +145,7 @@ impl Reporter {
     }
 
     pub fn hint(&mut self, hint: impl Display) -> io::Result<()> {
-        self.set_color(ColorSpec::new().set_bold(true).set_fg(Some(Color::Cyan)))?;
-        write!(self, "hint: ")?;
-        self.set_color(ColorSpec::new().set_bold(false).set_fg(None))?;
+        write_bold_colored(self, "hint: ", Color::Cyan)?;
 
         self.indent("hint: ".len() as isize);
         writeln!(self, "{hint}")?;
@@ -174,9 +156,7 @@ impl Reporter {
 
     pub fn test_result(&mut self, name: &str, annot: &str, color: Color) -> io::Result<()> {
         self.write_annot(annot, color)?;
-        self.set_color(ColorSpec::new().set_bold(true))?;
-        writeln!(self, " {name}")?;
-        self.set_color(ColorSpec::new().set_bold(false))
+        write_bold(self, |w| writeln!(w, " {name}"))
     }
 
     pub fn test_success(&mut self, test: &Test, annot: &str) -> io::Result<()> {
@@ -191,8 +171,8 @@ impl Reporter {
             let hint = format!(
                 "Test template used, no default reference generated\nrun 'typst-test update --exact\
                 {}' to accept test",
-                    test.name(),
-                );
+                test.name(),
+            );
             self.hint(&hint)?;
             self.dedent();
         }
