@@ -187,12 +187,14 @@ impl Reporter {
         self.test_result(test.name(), "added", Color::Green)?;
 
         if no_ref {
+            self.indent(ANNOT_PADDING as isize + 1);
             let hint = format!(
                 "Test template used, no default reference generated\nrun 'typst-test update --exact\
                 {}' to accept test",
                     test.name(),
                 );
             self.hint(&hint)?;
+            self.dedent();
         }
 
         Ok(())
