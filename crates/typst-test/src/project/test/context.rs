@@ -167,27 +167,6 @@ impl TestContext<'_, '_, '_> {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn compile_and_update(&self) -> ContextResult<TestFailure> {
-        if let Err(err) = self.prepare()? {
-            bail_inner!(err);
-        }
-
-        if let Err(err) = self.compile()? {
-            bail_inner!(err);
-        }
-
-        if let Err(err) = self.update()? {
-            bail_inner!(err);
-        }
-
-        if let Err(err) = self.cleanup()? {
-            bail_inner!(err);
-        }
-
-        Ok(Ok(()))
-    }
-
-    #[tracing::instrument(skip(self))]
     pub fn prepare(&self) -> ContextResult<PrepareFailure> {
         let dirs = [
             ("out", true, &self.out_dir),
@@ -475,10 +454,6 @@ impl Display for Error {
 
         if let Some(ctx) = &self.context {
             write!(f, " while {ctx}")?;
-        }
-
-        if matches!(self.inner, ErrorImpl::MissingTypst) {
-            write!(f, ": typst could not be run. Please make sure a valid 'typst' executable is in your PATH, or specify its path through the '--typst' option to this command.")?;
         }
 
         Ok(())

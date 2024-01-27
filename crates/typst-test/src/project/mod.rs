@@ -285,7 +285,11 @@ impl Project {
             let typ = entry.file_type();
             let name = entry.file_name();
 
-            if !typ.is_file() || name != "test.typ" {
+            if !typ.is_file() {
+                continue;
+            }
+
+            if name != "test.typ" {
                 tracing::debug!(?name, "skipping file");
                 continue;
             }
