@@ -459,14 +459,22 @@ mod cmd {
 
         let reporter = Mutex::new(reporter);
         let compiled = AtomicUsize::new(0);
-        let compared = AtomicUsize::new(0);
+        let compared = compare.then_some(AtomicUsize::new(0));
+        let updated = update.then_some(AtomicUsize::new(0));
+
+        let maybe_increment = |c: &Option<AtomicUsize>| {
+            if let Some(c) = c {
+                c.fetch_add(1, Ordering::SeqCst);
+            }
+        };
 
         let res = project.tests().par_iter().try_for_each(
             |(_, test)| -> Result<(), Option<anyhow::Error>> {
                 match ctx.test(test).run() {
                     Ok(Ok(_)) => {
                         compiled.fetch_add(1, Ordering::SeqCst);
-                        compared.fetch_add(1, Ordering::SeqCst);
+                        maybe_increment(&compared);
+                        maybe_increment(&updated);
 
                         if !summary {
                             reporter
@@ -480,8 +488,14 @@ mod cmd {
                     Ok(Err(err)) => {
                         if err.stage() > Stage::Compilation {
                             compiled.fetch_add(1, Ordering::SeqCst);
-                        } else if err.stage() > Stage::Compilation {
-                            compared.fetch_add(1, Ordering::SeqCst);
+                        }
+
+                        if err.stage() > Stage::Comparison {
+                            maybe_increment(&compared);
+                        }
+
+                        if err.stage() > Stage::Update {
+                            maybe_increment(&updated);
                         }
 
                         if !summary {
@@ -520,7 +534,8 @@ mod cmd {
             total: pre_filter,
             filtered: pre_filter - post_filter,
             compiled: compiled.into_inner(),
-            compared: compare.then_some(compared.into_inner()),
+            compared: compared.map(AtomicUsize::into_inner),
+            updated: updated.map(AtomicUsize::into_inner),
             time,
         };
 

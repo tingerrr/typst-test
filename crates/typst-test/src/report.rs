@@ -20,6 +20,7 @@ pub struct Summary {
     pub filtered: usize,
     pub compiled: usize,
     pub compared: Option<usize>,
+    pub updated: Option<usize>,
     pub time: Duration,
 }
 
@@ -37,10 +38,7 @@ impl Summary {
     }
 
     pub fn passed(&self) -> usize {
-        match self.compared {
-            Some(c) => c,
-            None => self.compiled,
-        }
+        self.updated.or(self.compared).unwrap_or(self.compiled)
     }
 }
 
@@ -355,12 +353,12 @@ impl Reporter {
         let secs = summary.time.as_secs();
         match (secs / 60, secs) {
             (0, 0) => {}
-            (0, s) => write!(
+            (0, s) => writeln!(
                 self,
                 " took {s} {}",
                 util::fmt::plural(s as usize, "second")
             )?,
-            (m, s) => write!(
+            (m, s) => writeln!(
                 self,
                 " took {m} {} {s} {}",
                 util::fmt::plural(m as usize, "minute"),
