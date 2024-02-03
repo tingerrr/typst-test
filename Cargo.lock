@@ -917,9 +917,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6af6ae20167a9ece4bcb41af5b80f8a1f1df981f6391189ce00fd257af04126a"
 
 [[package]]
-name = "typst-manifest"
+name = "typst-project"
 version = "0.1.0"
+source = "git+https://github.com/tingerrr/typst-project?rev=13056f7b4f0e91aebdfba646e519188cbc93e767#13056f7b4f0e91aebdfba646e519188cbc93e767"
 dependencies = [
+ "bitflags 2.4.1",
  "semver",
  "serde",
  "toml",
@@ -942,7 +944,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tracing-tree",
- "typst-manifest",
+ "typst-project",
  "walkdir",
  "which",
 ]

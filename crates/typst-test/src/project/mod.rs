@@ -6,7 +6,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
-use typst_manifest::Manifest;
+use typst_project::manifest::Manifest;
 use walkdir::WalkDir;
 
 use self::test::Test;
@@ -21,7 +21,7 @@ const DEFAULT_GIT_IGNORE_LINES: &[&str] = &["**/out/\n", "**/diff/\n"];
 #[tracing::instrument]
 pub fn try_open_manifest(root: &Path) -> io::Result<Option<Manifest>> {
     if is_project_root(root)? {
-        let content = std::fs::read_to_string(root.join(typst_manifest::MANIFEST_NAME))?;
+        let content = std::fs::read_to_string(root.join(typst_project::heuristics::MANIFEST_FILE))?;
 
         // TODO: better error handling
         let manifest =
@@ -35,12 +35,12 @@ pub fn try_open_manifest(root: &Path) -> io::Result<Option<Manifest>> {
 
 #[tracing::instrument]
 pub fn is_project_root(path: &Path) -> io::Result<bool> {
-    typst_manifest::is_package_root(path)
+    typst_project::is_project_root(path)
 }
 
 #[tracing::instrument]
 pub fn try_find_project_root(path: &Path) -> io::Result<Option<&Path>> {
-    typst_manifest::try_find_package_root(path)
+    typst_project::try_find_project_root(path)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
