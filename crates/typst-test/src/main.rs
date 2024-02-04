@@ -177,10 +177,9 @@ mod cmd {
     macro_rules! bail_gracefully {
         (if_no_typst; $project:expr; $typst:expr) => {
             if let Err(which::Error::CannotFindBinaryPath) = which::which($typst) {
-                // TODO: test
                 return Ok(CliResult::hinted_operation_failure(
-                    "No typst binary found in PATH",
-                    "You can pass the typst binary using '--typst <path or name>'",
+                    format!("No typst binary '{}' found in PATH", $typst.display()),
+                    "You can pass the correct typst binary using '--typst <path or name>'",
                 ));
             }
         };
