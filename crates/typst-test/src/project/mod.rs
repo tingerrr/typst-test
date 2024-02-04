@@ -323,7 +323,7 @@ pub enum Error {
     #[error("project is not initalized")]
     InitNeeded,
 
-    #[error("project is already initialzied")]
+    #[error("project is already initialized")]
     DoubleInit,
 
     #[error("unknown test: {0:?}")]

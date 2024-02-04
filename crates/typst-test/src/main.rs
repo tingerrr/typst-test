@@ -293,6 +293,7 @@ mod cmd {
 
         project.clean_artifacts()?;
         writeln!(reporter, "Removed test artifacts")?;
+
         Ok(CliResult::Ok)
     }
 
@@ -313,7 +314,7 @@ mod cmd {
         reporter.test_added(test, !has_ref)?;
 
         if open {
-            // NOTE: because test form create_test extends the mutable borrow
+            // NOTE: because test from create_test extends the mutable borrow
             // we must end it early
             let test = project.find_test(&name)?;
 

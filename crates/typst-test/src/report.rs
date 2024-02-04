@@ -100,7 +100,7 @@ pub struct Reporter {
     // fmt::Write indenting fields
     indents: Vec<isize>,
     need_indent: bool,
-    last_io_on_fmt_error: Option<io::Error>,
+    spec: Option<ColorSpec>,
 }
 
 impl Debug for Reporter {
@@ -108,7 +108,7 @@ impl Debug for Reporter {
         f.debug_struct("Reporter")
             .field("indets", &self.indents)
             .field("need_indent", &self.need_indent)
-            .field("last_io_on_fmt_error", &self.last_io_on_fmt_error)
+            .field("spec", &self.spec)
             .finish_non_exhaustive()
     }
 }
@@ -119,7 +119,7 @@ impl Reporter {
             writer: Box::new(writer),
             indents: vec![],
             need_indent: true,
-            last_io_on_fmt_error: None,
+            spec: None,
         }
     }
 
@@ -374,17 +374,35 @@ impl Reporter {
 
 impl fmt::Write for Reporter {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        let pad = " ".repeat(0usize.saturating_add_signed(self.indents.iter().sum()));
-        let mut buf = s.as_bytes();
+        self.write_all(s.as_bytes()).map_err(|_| fmt::Error)
+    }
+}
 
-        let res = (|| loop {
+impl Write for Reporter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        // NOTE: not being able to write fully to stdout/stderr would be an fatal in any case, this
+        // greatly simplifies code used for indentation
+        self.write_all(buf).map(|_| buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.writer.flush()
+    }
+
+    fn write_all(&mut self, mut buf: &[u8]) -> io::Result<()> {
+        let spec = self.spec.clone().unwrap_or_default();
+        let pad = " ".repeat(0usize.saturating_add_signed(self.indents.iter().sum()));
+
+        loop {
             if self.need_indent {
                 match buf.iter().position(|&b| b != b'\n') {
                     None => break self.writer.write_all(buf),
                     Some(len) => {
                         let (head, tail) = buf.split_at(len);
                         self.writer.write_all(head)?;
+                        self.writer.reset()?;
                         self.writer.write_all(pad.as_bytes())?;
+                        self.writer.set_color(&spec)?;
                         self.need_indent = false;
                         buf = tail;
                     }
@@ -400,60 +418,6 @@ impl fmt::Write for Reporter {
                     }
                 }
             }
-        })();
-
-        match res {
-            Ok(_) => Ok(()),
-            Err(err) => {
-                self.last_io_on_fmt_error = Some(err);
-                Err(fmt::Error)
-            }
-        }
-    }
-
-    fn write_char(&mut self, c: char) -> fmt::Result {
-        let pad = " ".repeat(0usize.saturating_add_signed(self.indents.iter().sum()));
-
-        if self.need_indent {
-            self.need_indent = if c != '\n' {
-                match self.writer.write_all(pad.as_bytes()) {
-                    Ok(_) => {}
-                    Err(err) => {
-                        self.last_io_on_fmt_error = Some(err);
-                        return Err(fmt::Error);
-                    }
-                };
-                false
-            } else {
-                true
-            }
-        }
-
-        fmt::Write::write_char(self, c)
-    }
-}
-
-impl Write for Reporter {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.writer.write(buf)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        self.writer.flush()
-    }
-
-    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
-        self.writer.write_all(buf)
-    }
-
-    fn write_fmt(&mut self, fmt: fmt::Arguments<'_>) -> io::Result<()> {
-        match fmt::Write::write_str(self, &fmt.to_string()) {
-            Ok(_) => Ok(()),
-            Err(err) => Err(if let Some(io_err) = self.last_io_on_fmt_error.take() {
-                io_err
-            } else {
-                io::Error::other(err)
-            }),
         }
     }
 }
@@ -464,10 +428,12 @@ impl WriteColor for Reporter {
     }
 
     fn set_color(&mut self, spec: &ColorSpec) -> io::Result<()> {
+        self.spec = Some(spec.clone());
         self.writer.set_color(spec)
     }
 
     fn reset(&mut self) -> io::Result<()> {
+        self.spec = None;
         self.writer.reset()
     }
 
