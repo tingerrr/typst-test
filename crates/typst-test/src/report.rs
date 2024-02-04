@@ -98,7 +98,7 @@ pub struct Reporter {
     writer: Box<dyn WriteColor + Send + Sync + 'static>,
 
     // fmt::Write indenting fields
-    indents: Vec<isize>,
+    indent: usize,
     need_indent: bool,
     spec: Option<ColorSpec>,
 }
@@ -106,7 +106,7 @@ pub struct Reporter {
 impl Debug for Reporter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Reporter")
-            .field("indets", &self.indents)
+            .field("indent", &self.indent)
             .field("need_indent", &self.need_indent)
             .field("spec", &self.spec)
             .finish_non_exhaustive()
@@ -117,127 +117,129 @@ impl Reporter {
     pub fn new<W: WriteColor + Send + Sync + 'static>(writer: W) -> Self {
         Self {
             writer: Box::new(writer),
-            indents: vec![],
+            indent: 0,
             need_indent: true,
             spec: None,
         }
     }
 
-    pub fn indent(&mut self, indent: isize) {
-        self.indents.push(indent);
+    pub fn with_indent<R>(&mut self, indent: usize, f: impl FnOnce(&mut Self) -> R) -> R {
+        self.indent += indent;
+        let res = f(self);
+        self.indent -= indent;
+        res
     }
 
-    pub fn dedent(&mut self) {
-        self.indents.pop();
-    }
-
-    pub fn dedent_all(&mut self) {
-        self.indents.clear();
-    }
-
-    pub fn write_annot(&mut self, annot: &str, color: Color) -> io::Result<()> {
+    pub fn write_annotated(
+        &mut self,
+        annot: &str,
+        color: Color,
+        f: impl FnOnce(&mut Self) -> io::Result<()>,
+    ) -> io::Result<()> {
         self.set_color(ColorSpec::new().set_bold(true).set_fg(Some(color)))?;
         write!(self, "{annot:>ANNOT_PADDING$}")?;
         self.set_color(ColorSpec::new().set_bold(false).set_fg(None))?;
+        self.with_indent(ANNOT_PADDING + 1, |this| f(this))?;
         Ok(())
     }
 
     pub fn hint(&mut self, hint: impl Display) -> io::Result<()> {
         write_bold_colored(self, "hint: ", Color::Cyan)?;
-
-        self.indent("hint: ".len() as isize);
-        writeln!(self, "{hint}")?;
-        self.dedent();
-
+        self.with_indent("hint: ".len(), |this| writeln!(this, "{hint}"))?;
         Ok(())
     }
 
-    pub fn test_result(&mut self, name: &str, annot: &str, color: Color) -> io::Result<()> {
-        self.write_annot(annot, color)?;
-        write_bold(self, |w| writeln!(w, " {name}"))
+    pub fn test_result(
+        &mut self,
+        name: &str,
+        annot: &str,
+        color: Color,
+        f: impl FnOnce(&mut Self) -> io::Result<()>,
+    ) -> io::Result<()> {
+        self.write_annotated(annot, color, |this| {
+            write_bold(this, |w| writeln!(w, " {name}"))?;
+            f(this)
+        })
     }
 
     pub fn test_success(&mut self, test: &Test, annot: &str) -> io::Result<()> {
-        self.test_result(test.name(), annot, Color::Green)
+        self.test_result(test.name(), annot, Color::Green, |_| Ok(()))
     }
 
     pub fn test_added(&mut self, test: &Test, no_ref: bool) -> io::Result<()> {
-        self.test_result(test.name(), "added", Color::Green)?;
+        self.test_result(test.name(), "added", Color::Green, |this| {
+            if no_ref {
+                let hint = format!(
+                    "Test template used, no default reference generated\nrun 'typst-test update --exact\
+                    {}' to accept test",
+                    test.name(),
+                );
+                this.hint(&hint)?;
+            }
 
-        if no_ref {
-            self.indent(ANNOT_PADDING as isize + 1);
-            let hint = format!(
-                "Test template used, no default reference generated\nrun 'typst-test update --exact\
-                {}' to accept test",
-                test.name(),
-            );
-            self.hint(&hint)?;
-            self.dedent();
-        }
-
-        Ok(())
+            Ok(())
+        })
     }
 
     pub fn test_failure(&mut self, test: &Test, error: TestFailure) -> io::Result<()> {
-        self.test_result(test.name(), "failed", Color::Red)?;
-        self.indent(ANNOT_PADDING as isize + 1);
-        match error {
-            TestFailure::Preparation(e) => writeln!(self, "{e}")?,
-            TestFailure::Cleanup(e) => writeln!(self, "{e}")?,
-            TestFailure::Compilation(e) => {
-                writeln!(self, "Compilation failed ({})", e.output.status)?;
-                write_program_buffer(self, "stdout", &e.output.stdout)?;
-                write_program_buffer(self, "stderr", &e.output.stderr)?;
-            }
-            TestFailure::Comparison(CompareFailure::PageCount { output, reference }) => {
-                writeln!(
-                    self,
-                    "Expected {reference} {}, got {output} {}",
-                    util::fmt::plural(reference, "page"),
-                    util::fmt::plural(output, "page"),
-                )?;
-            }
-            TestFailure::Comparison(CompareFailure::Page { pages, diff_dir }) => {
-                for (p, e) in pages {
-                    match e {
-                        ComparePageFailure::Dimensions { output, reference } => {
-                            writeln!(self, "Page {p} had different dimensions")?;
-                            self.indent(2);
-                            writeln!(self, "Output: {}x{}", output.0, output.1)?;
-                            writeln!(self, "Reference: {}x{}", reference.0, reference.1)?;
-                            self.dedent();
-                        }
-                        ComparePageFailure::Content => {
-                            writeln!(self, "Page {p} did not match")?;
+        self.test_result(test.name(), "failed", Color::Red, |this| {
+            match error {
+                TestFailure::Preparation(e) => writeln!(this, "{e}")?,
+                TestFailure::Cleanup(e) => writeln!(this, "{e}")?,
+                TestFailure::Compilation(e) => {
+                    writeln!(this, "Compilation failed ({})", e.output.status)?;
+                    write_program_buffer(this, "stdout", &e.output.stdout)?;
+                    write_program_buffer(this, "stderr", &e.output.stderr)?;
+                }
+                TestFailure::Comparison(CompareFailure::PageCount { output, reference }) => {
+                    writeln!(
+                        this,
+                        "Expected {reference} {}, got {output} {}",
+                        util::fmt::plural(reference, "page"),
+                        util::fmt::plural(output, "page"),
+                    )?;
+                }
+                TestFailure::Comparison(CompareFailure::Page { pages, diff_dir }) => {
+                    for (p, e) in pages {
+                        match e {
+                            ComparePageFailure::Dimensions { output, reference } => {
+                                writeln!(this, "Page {p} had different dimensions")?;
+                                this.with_indent(2, |this| {
+                                    writeln!(this, "Output: {}x{}", output.0, output.1)?;
+                                    writeln!(this, "Reference: {}x{}", reference.0, reference.1)
+                                })?;
+                            }
+                            ComparePageFailure::Content => {
+                                writeln!(this, "Page {p} did not match")?;
+                            }
                         }
                     }
-                }
 
-                if let Some(diff_dir) = diff_dir {
-                    self.hint(&format!(
-                        "Diff images have been saved at '{}'",
-                        diff_dir.display()
+                    if let Some(diff_dir) = diff_dir {
+                        this.hint(&format!(
+                            "Diff images have been saved at '{}'",
+                            diff_dir.display()
+                        ))?;
+                    }
+                }
+                TestFailure::Comparison(CompareFailure::MissingOutput) => {
+                    writeln!(this, "No output was generated")?;
+                }
+                TestFailure::Comparison(CompareFailure::MissingReferences) => {
+                    writeln!(this, "No references were found")?;
+                    this.hint(&format!(
+                        "Use 'typst-test update --exact {}' to accept the test output",
+                        test.name(),
                     ))?;
                 }
+                TestFailure::Update(UpdateFailure::Optimize { error }) => {
+                    writeln!(this, "Failed to optimize image")?;
+                    writeln!(this, "{error}")?;
+                }
             }
-            TestFailure::Comparison(CompareFailure::MissingOutput) => {
-                writeln!(self, "No output was generated")?;
-            }
-            TestFailure::Comparison(CompareFailure::MissingReferences) => {
-                writeln!(self, "No references were found")?;
-                self.hint(&format!(
-                    "Use 'typst-test update --exact {}' to accept the test output",
-                    test.name(),
-                ))?;
-            }
-            TestFailure::Update(UpdateFailure::Optimize { error }) => {
-                writeln!(self, "Failed to optimize image")?;
-                writeln!(self, "{error}")?;
-            }
-        }
-        self.dedent();
 
-        Ok(())
+            Ok(())
+        })
     }
 
     pub fn package(&mut self, package: &str, version: Option<&Version>) -> io::Result<()> {
@@ -329,46 +331,43 @@ impl Reporter {
 
     pub fn test_summary(&mut self, summary: Summary, is_update: bool) -> io::Result<()> {
         write_bold(self, |w| writeln!(w, "Summary"))?;
-        self.indent(2);
+        self.with_indent(2, |this| {
+            let color = if summary.is_ok() {
+                Color::Green
+            } else if summary.is_total_fail() {
+                Color::Red
+            } else {
+                Color::Yellow
+            };
 
-        let color = if summary.is_ok() {
-            Color::Green
-        } else if summary.is_total_fail() {
-            Color::Red
-        } else {
-            Color::Yellow
-        };
+            write_bold_colored(this, summary.passed(), color)?;
+            write!(this, " / ")?;
+            write_bold(this, |w| write!(w, "{}", summary.run()))?;
+            write!(this, " {}.", if is_update { "updated" } else { "passed" })?;
 
-        write_bold_colored(self, summary.passed(), color)?;
-        write!(self, " / ")?;
-        write_bold(self, |w| write!(w, "{}", summary.run()))?;
-        write!(self, " {}.", if is_update { "updated" } else { "passed" })?;
+            if summary.filtered != 0 {
+                write!(this, " ")?;
+                write_bold_colored(this, summary.filtered, Color::Yellow)?;
+                write!(this, " filtered out.")?;
+            }
 
-        if summary.filtered != 0 {
-            write!(self, " ")?;
-            write_bold_colored(self, summary.filtered, Color::Yellow)?;
-            write!(self, " filtered out.")?;
-        }
-
-        let secs = summary.time.as_secs();
-        match (secs / 60, secs) {
-            (0, 0) => {}
-            (0, s) => writeln!(
-                self,
-                " took {s} {}",
-                util::fmt::plural(s as usize, "second")
-            )?,
-            (m, s) => writeln!(
-                self,
-                " took {m} {} {s} {}",
-                util::fmt::plural(m as usize, "minute"),
-                util::fmt::plural(s as usize, "second")
-            )?,
-        }
-
-        self.dedent();
-
-        Ok(())
+            let secs = summary.time.as_secs();
+            match (secs / 60, secs) {
+                (0, 0) => {}
+                (0, s) => writeln!(
+                    this,
+                    " took {s} {}",
+                    util::fmt::plural(s as usize, "second")
+                )?,
+                (m, s) => writeln!(
+                    this,
+                    " took {m} {} {s} {}",
+                    util::fmt::plural(m as usize, "minute"),
+                    util::fmt::plural(s as usize, "second")
+                )?,
+            }
+            Ok(())
+        })
     }
 }
 
@@ -391,7 +390,7 @@ impl Write for Reporter {
 
     fn write_all(&mut self, mut buf: &[u8]) -> io::Result<()> {
         let spec = self.spec.clone().unwrap_or_default();
-        let pad = " ".repeat(0usize.saturating_add_signed(self.indents.iter().sum()));
+        let pad = " ".repeat(self.indent);
 
         loop {
             if self.need_indent {

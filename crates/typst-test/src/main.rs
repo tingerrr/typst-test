@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use clap::{ColorChoice, Parser};
 use project::test::Filter;
-use termcolor::{Color, ColorSpec, WriteColor};
+use termcolor::{Color, WriteColor};
 use tracing::Level;
 use tracing_subscriber::filter::Targets;
 use tracing_subscriber::prelude::*;
@@ -49,9 +49,7 @@ fn main() -> ExitCode {
 
     let mut reporter = Reporter::new(util::term::color_stream(args.color, false));
 
-    reporter.indent(2);
-    let res = main_impl(args, &mut reporter);
-    reporter.dedent();
+    let res = reporter.with_indent(2, |r| main_impl(args, r));
 
     let exit_code = match res {
         Ok(cli_res) => match cli_res {
@@ -74,23 +72,17 @@ fn main() -> ExitCode {
             )
             .unwrap();
 
-            reporter.indent(2);
             reporter
-                .set_color(ColorSpec::new().set_bold(true).set_fg(Some(Color::Red)))
+                .with_indent(2, |r| {
+                    r.write_annotated("Error:", Color::Red, |r| writeln!(r, "{err}"))
+                })
                 .unwrap();
-            write!(reporter, "Error: ").unwrap();
-            reporter.indent("Error: ".len() as isize);
-            reporter.reset().unwrap();
-            writeln!(reporter, "{err}").unwrap();
-            reporter.dedent();
-            reporter.dedent();
 
             cli::EXIT_ERROR
         }
     };
 
     // NOTE: ensure we completely reset the terminal to standard
-    reporter.dedent_all();
     reporter.reset().unwrap();
     write!(reporter, "").unwrap();
     ExitCode::from(exit_code)
@@ -453,12 +445,6 @@ mod cmd {
             reporter.test_start(update)?;
         }
 
-        reporter.indent(2);
-
-        let start = Instant::now();
-        ctx.prepare()?;
-
-        let reporter = Mutex::new(reporter);
         let compiled = AtomicUsize::new(0);
         let compared = compare.then_some(AtomicUsize::new(0));
         let updated = update.then_some(AtomicUsize::new(0));
@@ -469,63 +455,66 @@ mod cmd {
             }
         };
 
-        let res = project.tests().par_iter().try_for_each(
-            |(_, test)| -> Result<(), Option<anyhow::Error>> {
-                match ctx.test(test).run() {
-                    Ok(Ok(_)) => {
-                        compiled.fetch_add(1, Ordering::SeqCst);
-                        maybe_increment(&compared);
-                        maybe_increment(&updated);
+        let time = reporter.with_indent(2, |reporter| {
+            let start = Instant::now();
+            ctx.prepare()?;
 
-                        if !summary {
-                            reporter
-                                .lock()
-                                .unwrap()
-                                .test_success(test, done_annot)
-                                .map_err(|e| Some(e.into()))?;
-                        }
-                        Ok(())
-                    }
-                    Ok(Err(err)) => {
-                        if err.stage() > Stage::Compilation {
+            let reporter = Mutex::new(reporter);
+            let res = project.tests().par_iter().try_for_each(
+                |(_, test)| -> Result<(), Option<anyhow::Error>> {
+                    match ctx.test(test).run() {
+                        Ok(Ok(_)) => {
                             compiled.fetch_add(1, Ordering::SeqCst);
-                        }
-
-                        if err.stage() > Stage::Comparison {
                             maybe_increment(&compared);
-                        }
-
-                        if err.stage() > Stage::Update {
                             maybe_increment(&updated);
-                        }
 
-                        if !summary {
-                            reporter
-                                .lock()
-                                .unwrap()
-                                .test_failure(test, err)
-                                .map_err(|e| Some(e.into()))?;
-                        }
-                        if ctx.fail_fast() {
-                            Err(None)
-                        } else {
+                            if !summary {
+                                reporter
+                                    .lock()
+                                    .unwrap()
+                                    .test_success(test, done_annot)
+                                    .map_err(|e| Some(e.into()))?;
+                            }
                             Ok(())
                         }
+                        Ok(Err(err)) => {
+                            if err.stage() > Stage::Compilation {
+                                compiled.fetch_add(1, Ordering::SeqCst);
+                            }
+
+                            if err.stage() > Stage::Comparison {
+                                maybe_increment(&compared);
+                            }
+
+                            if err.stage() > Stage::Update {
+                                maybe_increment(&updated);
+                            }
+
+                            if !summary {
+                                reporter
+                                    .lock()
+                                    .unwrap()
+                                    .test_failure(test, err)
+                                    .map_err(|e| Some(e.into()))?;
+                            }
+                            if ctx.fail_fast() {
+                                Err(None)
+                            } else {
+                                Ok(())
+                            }
+                        }
+                        Err(err) => Err(Some(err.into())),
                     }
-                    Err(err) => Err(Some(err.into())),
-                }
-            },
-        );
+                },
+            );
 
-        if let Err(Some(err)) = res {
-            return Err(err);
-        }
+            if let Err(Some(err)) = res {
+                return Err(err);
+            }
 
-        ctx.cleanup()?;
-        let time = start.elapsed();
-
-        let reporter = reporter.into_inner().unwrap();
-        reporter.dedent();
+            ctx.cleanup()?;
+            Ok(start.elapsed())
+        })?;
 
         if !summary {
             writeln!(reporter)?;
