@@ -353,20 +353,19 @@ impl Reporter {
 
             let secs = summary.time.as_secs();
             match (secs / 60, secs) {
-                (0, 0) => {}
+                (0, 0) => writeln!(this),
                 (0, s) => writeln!(
                     this,
                     " took {s} {}",
                     util::fmt::plural(s as usize, "second")
-                )?,
+                ),
                 (m, s) => writeln!(
                     this,
                     " took {m} {} {s} {}",
                     util::fmt::plural(m as usize, "minute"),
                     util::fmt::plural(s as usize, "second")
-                )?,
+                ),
             }
-            Ok(())
         })
     }
 }
