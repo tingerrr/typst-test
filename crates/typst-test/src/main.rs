@@ -112,7 +112,17 @@ fn main_impl(args: cli::Args, reporter: &mut Reporter) -> anyhow::Result<CliResu
         )));
     }
 
-    let manifest = project::try_open_manifest(&root)?;
+    let manifest = match project::try_open_manifest(&root) {
+        Ok(manifest) => manifest,
+        Err(err) => {
+            reporter.write_annotated("warning: ", Color::Yellow, |this| {
+                writeln!(this, "Error while parsing manifest, skipping")
+            })?;
+
+            None
+        }
+    };
+
     let mut project = Project::new(root, Path::new("tests"), manifest);
 
     let (runner_args, compare) = match args.cmd {
