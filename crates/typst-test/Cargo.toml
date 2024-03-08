@@ -7,7 +7,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-typst-project = { git = "https://github.com/tingerrr/typst-project", rev = "13056f7b4f0e91aebdfba646e519188cbc93e767" }
+typst-project = { git = "https://github.com/tingerrr/typst-project", rev = "a71db5451ebdca2174adc0a323c71ba5ab2f8120" }
 
 anyhow = { version = "1.0.78", features = ["backtrace"] }
 clap = { version = "4.4.12", features = ["derive"] }
