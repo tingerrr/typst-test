@@ -129,9 +129,17 @@ pub struct Args {
 pub enum Command {
     /// Initialize the current project with a test directory
     Init {
-        /// Do not create a default example
+        /// Do not create a default example test
         #[arg(long)]
         no_example: bool,
+
+        /// Do not create a default .ignore file
+        #[arg(long)]
+        no_ignore: bool,
+
+        /// Do not create a default .gitignore file
+        #[arg(long)]
+        no_gitignore: bool,
     },
 
     /// Remove the test directory from the current project

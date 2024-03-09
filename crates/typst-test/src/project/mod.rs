@@ -16,6 +16,7 @@ pub mod test;
 
 const DEFAULT_TEST_INPUT: &str = include_str!("../../../../assets/default-test/test.typ");
 const DEFAULT_TEST_OUTPUT: &[u8] = include_bytes!("../../../../assets/default-test/test.png");
+const DEFAULT_IGNORE_LINES: &[&str] = &["**.png\n", "**.svg\n", "**.pdf\n"];
 const DEFAULT_GIT_IGNORE_LINES: &[&str] = &["**/out/\n", "**/diff/\n"];
 
 #[tracing::instrument]
@@ -43,10 +44,18 @@ pub fn try_find_project_root(path: &Path) -> io::Result<Option<&Path>> {
     typst_project::try_find_project_root(path)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ScaffoldMode {
-    WithExample,
-    NoExample,
+bitflags::bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub struct ScaffoldOptions: u32 {
+        /// Create a default example test.
+        const EXAMPLE = 0;
+
+        /// Create a default .ignore file.
+        const IGNORE = 1 << 0;
+
+        /// Create a default .gitignore file.
+        const GITIGNORE = 1 << 1;
+    }
 }
 
 #[derive(Debug)]
@@ -131,7 +140,7 @@ impl Project {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn init(&mut self, mode: ScaffoldMode) -> Result<Option<&Test>, Error> {
+    pub fn init(&mut self, options: ScaffoldOptions) -> Result<Option<&Test>, Error> {
         #[cfg(debug_assertions)]
         self.ensure_root()?;
 
@@ -145,19 +154,34 @@ impl Project {
         tracing::trace!(path = ?tests_root_dir, "creating tests root dir");
         util::fs::create_dir(tests_root_dir, false)?;
 
-        let gitignore = tests_root_dir.join(".gitignore");
-        tracing::debug!(path = ?gitignore, "writing .gitignore");
-        let mut gitignore = File::options()
-            .write(true)
-            .create_new(true)
-            .open(gitignore)?;
+        let create_ignore = |file, option, lines: &[&str]| -> Result<(), Error> {
+            if options.contains(option) {
+                let gitignore = tests_root_dir.join(file);
+                tracing::debug!(path = ?gitignore, "writing {file}");
+                let mut gitignore = File::options()
+                    .write(true)
+                    .create_new(true)
+                    .open(gitignore)?;
 
-        gitignore.write_all(b"# added by typst-test, do not edit this section\n")?;
-        for pattern in DEFAULT_GIT_IGNORE_LINES {
-            gitignore.write_all(pattern.as_bytes())?;
-        }
+                gitignore.write_all(b"# added by typst-test\n")?;
+                for pattern in lines {
+                    gitignore.write_all(pattern.as_bytes())?;
+                }
+            } else {
+                tracing::debug!("skipping default {file}");
+            }
 
-        if mode == ScaffoldMode::WithExample {
+            Ok(())
+        };
+
+        create_ignore(".ignore", ScaffoldOptions::IGNORE, DEFAULT_IGNORE_LINES)?;
+        create_ignore(
+            ".gitignore",
+            ScaffoldOptions::GITIGNORE,
+            DEFAULT_GIT_IGNORE_LINES,
+        )?;
+
+        if options.contains(ScaffoldOptions::EXAMPLE) {
             tracing::debug!("adding default test");
             let (test, _) = self.create_test("example")?;
             Ok(Some(test))

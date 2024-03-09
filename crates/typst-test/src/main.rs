@@ -114,7 +114,7 @@ fn main_impl(args: cli::Args, reporter: &mut Reporter) -> anyhow::Result<CliResu
 
     let manifest = match project::try_open_manifest(&root) {
         Ok(manifest) => manifest,
-        Err(err) => {
+        Err(_) => {
             reporter.write_annotated("warning: ", Color::Yellow, |this| {
                 writeln!(this, "Error while parsing manifest, skipping")
             })?;
@@ -126,7 +126,11 @@ fn main_impl(args: cli::Args, reporter: &mut Reporter) -> anyhow::Result<CliResu
     let mut project = Project::new(root, Path::new("tests"), manifest);
 
     let (runner_args, compare) = match args.cmd {
-        cli::Command::Init { no_example } => return cmd::init(&mut project, reporter, no_example),
+        cli::Command::Init {
+            no_example,
+            no_ignore,
+            no_gitignore,
+        } => return cmd::init(&mut project, reporter, no_example, no_ignore, no_gitignore),
         cli::Command::Uninit => return cmd::uninit(&mut project, reporter),
         cli::Command::Clean => return cmd::clean(&mut project, reporter),
         cli::Command::Add { open, test } => return cmd::add(&mut project, reporter, test, open),
@@ -180,7 +184,7 @@ mod cmd {
     use crate::cli::CliResult;
     use crate::project::test::context::Context;
     use crate::project::test::{Filter, Stage};
-    use crate::project::{Project, ScaffoldMode};
+    use crate::project::{Project, ScaffoldOptions};
     use crate::report::{Reporter, Summary};
     use crate::util;
 
@@ -250,6 +254,8 @@ mod cmd {
         project: &mut Project,
         reporter: &mut Reporter,
         no_example: bool,
+        no_ignore: bool,
+        no_gitignore: bool,
     ) -> anyhow::Result<CliResult> {
         if project.is_init()? {
             return Ok(CliResult::operation_failure(format!(
@@ -258,13 +264,12 @@ mod cmd {
             )));
         }
 
-        let mode = if no_example {
-            ScaffoldMode::NoExample
-        } else {
-            ScaffoldMode::WithExample
-        };
+        let mut options = ScaffoldOptions::empty();
+        options.set(ScaffoldOptions::EXAMPLE, !no_example);
+        options.set(ScaffoldOptions::IGNORE, !no_ignore);
+        options.set(ScaffoldOptions::GITIGNORE, !no_gitignore);
 
-        project.init(mode)?;
+        project.init(options)?;
         writeln!(reporter, "Initialized project '{}'", project.name())?;
 
         Ok(CliResult::Ok)
