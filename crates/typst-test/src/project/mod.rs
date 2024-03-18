@@ -10,6 +10,7 @@ use typst_project::manifest::Manifest;
 use walkdir::WalkDir;
 
 use self::test::Test;
+use crate::config::Config;
 use crate::util;
 
 pub mod test;
@@ -60,22 +61,20 @@ bitflags::bitflags! {
 
 #[derive(Debug)]
 pub struct Project {
+    config: Config,
     manifest: Option<Manifest>,
     root: PathBuf,
-    test_root: PathBuf,
     tests: BTreeMap<String, Test>,
     template: Option<String>,
 }
 
 impl Project {
-    pub fn new(root: PathBuf, tests_dir: &Path, manifest: Option<Manifest>) -> Self {
-        let test_root = root.join(tests_dir);
-
+    pub fn new(root: PathBuf, config: Config, manifest: Option<Manifest>) -> Self {
         Self {
+            config,
             manifest,
             tests: BTreeMap::new(),
             root,
-            test_root,
             template: None,
         }
     }
@@ -91,6 +90,10 @@ impl Project {
         &self.root
     }
 
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
+
     pub fn manifest(&self) -> Option<&Manifest> {
         self.manifest.as_ref()
     }
@@ -103,12 +106,16 @@ impl Project {
         &mut self.tests
     }
 
+    pub fn template_path(&self) -> Option<PathBuf> {
+        self.config.template.as_ref().map(|t| self.root.join(t))
+    }
+
     pub fn template(&self) -> Option<&str> {
         self.template.as_deref()
     }
 
-    pub fn tests_root_dir(&self) -> &Path {
-        &self.test_root
+    pub fn tests_root_dir(&self) -> PathBuf {
+        self.root.join(&self.config.tests)
     }
 
     pub fn root_exists(&self) -> io::Result<bool> {
@@ -152,7 +159,7 @@ impl Project {
 
         let tests_root_dir = self.tests_root_dir();
         tracing::trace!(path = ?tests_root_dir, "creating tests root dir");
-        util::fs::create_dir(tests_root_dir, false)?;
+        util::fs::create_dir(&tests_root_dir, false)?;
 
         let create_ignore = |file, option, lines: &[&str]| -> Result<(), Error> {
             if options.contains(option) {
@@ -304,7 +311,8 @@ impl Project {
         #[cfg(debug_assertions)]
         self.ensure_init()?;
 
-        for entry in WalkDir::new(&self.test_root).min_depth(1) {
+        let root = self.tests_root_dir();
+        for entry in WalkDir::new(&root).min_depth(1) {
             let entry = entry?;
             let typ = entry.file_type();
             let name = entry.file_name();
@@ -322,7 +330,7 @@ impl Project {
             let relative = entry
                 .path()
                 .parent()
-                .and_then(|p| p.strip_prefix(&self.test_root).ok())
+                .and_then(|p| p.strip_prefix(&root).ok())
                 .expect("we have at one depth of directories (./tests/<x>/test.typ)");
 
             let Some(name) = relative.to_str() else {

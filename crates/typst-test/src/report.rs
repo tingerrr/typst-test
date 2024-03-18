@@ -13,7 +13,6 @@ use crate::project::Project;
 use crate::util;
 
 pub const ANNOT_PADDING: usize = 7;
-pub const MAX_TEST_LIST: usize = 10;
 
 pub struct Summary {
     pub total: usize,
@@ -266,27 +265,47 @@ impl Reporter {
             )?;
             writeln!(self)?;
 
-            // TODO: list [tool.typst-test] settings
+            // TODO: list config settings + if it is manifest or file
+            let _config = project.config();
         } else {
             write!(self, " Project ┌ ")?;
             write_bold_colored(self, "none", Color::Yellow)?;
             writeln!(self)?;
         }
 
-        write!(self, "Template ├ ")?;
-        if project.template().is_some() {
-            write_bold_colored(self, "found", Color::Green)?;
-        } else {
-            write_bold_colored(self, "not found", Color::Yellow)?;
+        let tests = project.tests();
+        write!(self, "   Tests ├ ")?;
+        if tests.is_empty() {
+            write_bold_colored(self, "none", Color::Cyan)?;
             write!(
                 self,
-                " (looked at '{}')",
-                project.tests_root_dir().join("template.typ").display()
+                " (searched at '{}')",
+                project.tests_root_dir().display()
             )?;
+        } else {
+            write_bold_colored(self, tests.len(), Color::Cyan)?;
         }
         writeln!(self)?;
 
-        write!(self, "   Typst ├ ")?;
+        write!(self, "Template ├ ")?;
+        match (project.template_path(), project.template()) {
+            (None, None) => {
+                write_bold_colored(self, "none", Color::Green)?;
+            }
+            (None, Some(_)) => {
+                unreachable!("the path must be given for the file to be read");
+            }
+            (Some(path), None) => {
+                write_bold_colored(self, "not found", Color::Red)?;
+                write!(self, " (searched at '{}')", path.display())?;
+            }
+            (Some(_), Some(_)) => {
+                write_bold_colored(self, "found", Color::Green)?;
+            }
+        }
+        writeln!(self)?;
+
+        write!(self, "   Typst └ ")?;
         if let Some(path) = typst_path {
             write_bold_colored(self, path.display(), Color::Green)?;
         } else {
@@ -294,27 +313,6 @@ impl Reporter {
             write!(self, " (searched for '{}')", typst.display())?;
         }
         writeln!(self)?;
-
-        let tests = project.tests();
-        if tests.is_empty() {
-            write!(self, "   Tests └ ")?;
-            write_bold_colored(self, "none", Color::Cyan)?;
-        } else if tests.len() <= MAX_TEST_LIST {
-            write!(self, "   Tests ├ ")?;
-            write_bold_colored(self, tests.len(), Color::Cyan)?;
-            writeln!(self)?;
-            for (idx, name) in project.tests().keys().enumerate() {
-                if idx == tests.len() - 1 {
-                    writeln!(self, "         └ {}", name)?;
-                } else {
-                    writeln!(self, "         │ {}", name)?;
-                }
-            }
-        } else {
-            write!(self, "   Tests └ ")?;
-            write_bold_colored(self, tests.len(), Color::Cyan)?;
-            writeln!(self)?;
-        }
 
         Ok(())
     }

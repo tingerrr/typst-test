@@ -1,9 +1,8 @@
-use std::io;
-use std::io::{IsTerminal, Write};
-use std::path::Path;
+use std::io::{self, ErrorKind, IsTerminal, Write};
 use std::process::ExitCode;
 
 use clap::{ColorChoice, Parser};
+use config::Config;
 use project::test::Filter;
 use termcolor::{Color, WriteColor};
 use tracing::Level;
@@ -16,6 +15,7 @@ use self::project::Project;
 use self::report::Reporter;
 
 mod cli;
+mod config;
 mod project;
 mod report;
 mod util;
@@ -123,7 +123,37 @@ fn main_impl(args: cli::Args, reporter: &mut Reporter) -> anyhow::Result<CliResu
         }
     };
 
-    let mut project = Project::new(root, Path::new("tests"), manifest);
+    let manifest_config = manifest
+        .as_ref()
+        .and_then(|m| {
+            m.tool
+                .as_ref()
+                .map(|t| t.get_section::<Config>("typst-test"))
+        })
+        .transpose()?
+        .flatten();
+
+    let config = util::result::ignore(
+        std::fs::read_to_string(root.join("typst-test.toml")).map(Some),
+        |err| err.kind() == ErrorKind::NotFound,
+    )?;
+
+    let config = config.map(|c| toml::from_str(&c)).transpose()?;
+
+    if manifest_config.is_some() && config.is_some() {
+        reporter.write_annotated("warning: ", Color::Yellow, |this| {
+            writeln!(
+                this,
+                "Ignoring manifest config in favor of 'typst-test.toml'"
+            )
+        })?;
+    }
+
+    let mut project = Project::new(
+        root,
+        config.or(manifest_config).unwrap_or_default(),
+        manifest,
+    );
 
     let (runner_args, compare) = match args.cmd {
         cli::Command::Init {
