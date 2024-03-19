@@ -169,8 +169,8 @@ impl Reporter {
         self.test_result(test.name(), "added", Color::Green, |this| {
             if no_ref {
                 let hint = format!(
-                    "Test template used, no default reference generated\nrun 'typst-test update --exact\
-                    {}' to accept test",
+                    "Test template used, no default reference generated\nrun 'typst-test update \
+                    --exact {}' to accept test",
                     test.name(),
                 );
                 this.hint(&hint)?;
