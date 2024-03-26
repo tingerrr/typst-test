@@ -8,6 +8,7 @@ use std::time::Duration;
 use image::{ImageResult, RgbImage};
 use oxipng::{Deflaters, InFile, IndexSet, Options, OutFile, PngResult, StripChunks};
 use rayon::prelude::*;
+use semver::Version;
 
 use super::{
     CleanupFailure, CompareFailure, ComparePageFailure, CompileFailure, PrepareFailure, Stage,
@@ -40,6 +41,8 @@ fn no_optimize_options() -> Options {
 pub struct Context<'p> {
     project: &'p Project,
     typst: PathBuf,
+    typst_version: Option<Version>,
+    color: bool,
     fail_fast: bool,
     compare: bool,
     update: bool,
@@ -61,6 +64,8 @@ impl<'p> Context<'p> {
         Self {
             project,
             typst,
+            typst_version: None,
+            color: false,
             fail_fast: false,
             compare: false,
             update: false,
@@ -70,6 +75,25 @@ impl<'p> Context<'p> {
 
     pub fn typst(&self) -> &Path {
         &self.typst
+    }
+
+    pub fn typst_version(&self) -> Option<&Version> {
+        self.typst_version.as_ref()
+    }
+
+    pub fn with_typst_version(&mut self, value: Option<Version>) -> &mut Self {
+        self.typst_version = value;
+        self
+    }
+
+    #[allow(dead_code)]
+    pub fn color(&self) -> bool {
+        self.color
+    }
+
+    pub fn with_color(&mut self, yes: bool) -> &mut Self {
+        self.color = yes;
+        self
     }
 
     pub fn fail_fast(&self) -> bool {
@@ -203,6 +227,15 @@ impl TestContext<'_, '_, '_> {
     #[tracing::instrument(skip(self))]
     pub fn compile(&self) -> ContextResult<CompileFailure> {
         let mut typst = Command::new(&self.project_context.typst);
+
+        if self.project_context.color {
+            if let Some(version) = self.project_context.typst_version() {
+                if *version >= Version::new(0, 11, 0) {
+                    typst.arg("--color=always");
+                }
+            }
+        }
+
         typst.args(["compile", "--root"]);
         typst.arg(self.project_context.project.root());
         typst.arg(&self.test_file);

@@ -1,7 +1,7 @@
-use std::io::{self, ErrorKind, IsTerminal, Write};
+use std::io::{ErrorKind, Write};
 use std::process::ExitCode;
 
-use clap::{ColorChoice, Parser};
+use clap::Parser;
 use config::Config;
 use project::test::Filter;
 use termcolor::{Color, WriteColor};
@@ -20,6 +20,8 @@ mod project;
 mod report;
 mod util;
 
+const IS_OUTPUT_STDERR: bool = false;
+
 fn main() -> ExitCode {
     let args = cli::Args::parse();
 
@@ -28,11 +30,7 @@ fn main() -> ExitCode {
             .with(
                 HierarchicalLayer::new(4)
                     .with_targets(true)
-                    .with_ansi(match args.color {
-                        ColorChoice::Auto => io::stderr().is_terminal(),
-                        ColorChoice::Always => true,
-                        ColorChoice::Never => false,
-                    }),
+                    .with_ansi(util::term::color(args.color, IS_OUTPUT_STDERR)),
             )
             .with(Targets::new().with_target(
                 std::env!("CARGO_CRATE_NAME"),
@@ -47,7 +45,7 @@ fn main() -> ExitCode {
             .init();
     }
 
-    let mut reporter = Reporter::new(util::term::color_stream(args.color, false));
+    let mut reporter = Reporter::new(util::term::color_stream(args.color, IS_OUTPUT_STDERR));
 
     let res = reporter.with_indent(2, |r| main_impl(args, r));
 
@@ -180,6 +178,7 @@ fn main_impl(args: cli::Args, reporter: &mut Reporter) -> anyhow::Result<CliResu
                     .filter
                     .filter
                     .map(|f| Filter::new(f, runner_args.filter.exact)),
+                util::term::color(args.color, IS_OUTPUT_STDERR),
                 args.fail_fast,
                 !no_optimize,
             )
@@ -197,6 +196,7 @@ fn main_impl(args: cli::Args, reporter: &mut Reporter) -> anyhow::Result<CliResu
             .filter
             .filter
             .map(|f| Filter::new(f, runner_args.filter.exact)),
+        util::term::color(args.color, IS_OUTPUT_STDERR),
         args.fail_fast,
         compare,
     )
@@ -205,11 +205,14 @@ fn main_impl(args: cli::Args, reporter: &mut Reporter) -> anyhow::Result<CliResu
 mod cmd {
     use std::io::Write;
     use std::path::PathBuf;
+    use std::str::FromStr;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
     use std::time::Instant;
 
+    use anyhow::Context as _;
     use rayon::prelude::*;
+    use semver::Version;
 
     use crate::cli::CliResult;
     use crate::project::test::context::Context;
@@ -399,6 +402,7 @@ mod cmd {
         summary: bool,
         typst: PathBuf,
         filter: Option<Filter>,
+        color: bool,
         fail_fast: bool,
         optimize: bool,
     ) -> anyhow::Result<CliResult> {
@@ -411,7 +415,8 @@ mod cmd {
             true,
             |project| {
                 let mut ctx = Context::new(project, typst);
-                ctx.with_fail_fast(fail_fast)
+                ctx.with_color(color)
+                    .with_fail_fast(fail_fast)
                     .with_compare(false)
                     .with_update(true)
                     .with_optimize(optimize);
@@ -443,6 +448,7 @@ mod cmd {
         summary: bool,
         typst: PathBuf,
         filter: Option<Filter>,
+        color: bool,
         fail_fast: bool,
         compare: bool,
     ) -> anyhow::Result<CliResult> {
@@ -455,7 +461,8 @@ mod cmd {
             false,
             |project| {
                 let mut ctx = Context::new(project, typst);
-                ctx.with_fail_fast(fail_fast)
+                ctx.with_color(color)
+                    .with_fail_fast(fail_fast)
                     .with_compare(compare)
                     .with_update(false);
                 ctx
@@ -482,8 +489,21 @@ mod cmd {
         bail_gracefully!(if_no_tests_match; project; &filter);
         let post_filter = project.tests().len();
 
-        let ctx = prepare_ctx(project);
+        let mut ctx = prepare_ctx(project);
         bail_gracefully!(if_no_typst; project; ctx.typst());
+
+        let version = util::command::parse_stdout(
+            ctx.typst(),
+            &["--version"],
+            |stdout| -> anyhow::Result<Version> {
+                // "typst <x>.<y>.<z> (<hash>)"
+                Ok(Version::from_str(
+                    stdout.split(' ').nth(1).context("version wasn't given")?,
+                )?)
+            },
+        )??;
+
+        ctx.with_typst_version(Some(version));
 
         if !summary {
             reporter.test_start(update)?;

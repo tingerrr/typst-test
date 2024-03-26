@@ -176,4 +176,37 @@ pub mod term {
             StandardStream::stdout(choice)
         }
     }
+
+    pub fn color(color: clap::ColorChoice, is_stderr: bool) -> bool {
+        match color {
+            clap::ColorChoice::Auto => {
+                if is_stderr {
+                    io::stderr().is_terminal()
+                } else {
+                    io::stdout().is_terminal()
+                }
+            }
+            clap::ColorChoice::Always => true,
+            clap::ColorChoice::Never => false,
+        }
+    }
+}
+
+pub mod command {
+    use std::ffi::OsStr;
+    use std::process::Command;
+
+    pub fn parse_stdout<R>(
+        program: impl AsRef<OsStr>,
+        args: &[&str],
+        f: impl FnOnce(String) -> R,
+    ) -> anyhow::Result<R> {
+        let mut cmd = Command::new(program.as_ref());
+        cmd.args(args);
+        let output = cmd.output()?;
+        if !output.status.success() {
+            anyhow::bail!("failed to run {:?} {args:?}", program.as_ref());
+        }
+        Ok(f(String::from_utf8(output.stdout)?))
+    }
 }
