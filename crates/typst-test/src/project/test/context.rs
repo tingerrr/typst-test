@@ -170,7 +170,7 @@ impl TestContext<'_, '_, '_> {
     pub fn prepare(&self) -> ContextResult<PrepareFailure> {
         let dirs = [
             ("out", true, &self.out_dir),
-            ("ref", false, &self.ref_dir),
+            ("ref", self.project_context.update, &self.ref_dir),
             ("diff", true, &self.diff_dir),
         ];
 
