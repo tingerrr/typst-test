@@ -149,7 +149,7 @@ pub enum Command {
     Clean,
 
     /// Show information about the current project
-    #[command(alias = "s")]
+    #[command(alias = "st")]
     Status,
 
     /// List the tests in the current project
