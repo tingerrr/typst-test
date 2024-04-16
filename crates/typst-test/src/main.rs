@@ -165,6 +165,7 @@ fn main_impl(args: cli::Args, reporter: &mut Reporter) -> anyhow::Result<CliResu
         cli::Command::Edit { test } => return cmd::edit(&mut project, reporter, test),
         cli::Command::Remove { test } => return cmd::remove(&mut project, reporter, test),
         cli::Command::Status => return cmd::status(&mut project, reporter, args.typst),
+        cli::Command::List => return cmd::list(&mut project, reporter),
         cli::Command::Update {
             runner_args,
             no_optimize,
@@ -438,6 +439,15 @@ mod cmd {
 
         let path = which::which(&typst).ok();
         reporter.project(project, typst, path)?;
+
+        Ok(CliResult::Ok)
+    }
+
+    pub fn list(project: &mut Project, reporter: &mut Reporter) -> anyhow::Result<CliResult> {
+        bail_gracefully!(if_uninit; project);
+
+        project.discover_tests()?;
+        reporter.tests(project)?;
 
         Ok(CliResult::Ok)
     }

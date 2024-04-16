@@ -366,6 +366,17 @@ impl Reporter {
             }
         })
     }
+
+    pub fn tests(&mut self, project: &Project) -> io::Result<()> {
+        write_bold(self, |w| writeln!(w, "Tests"))?;
+        self.with_indent(2, |this| {
+            for name in project.tests().keys() {
+                writeln!(this, "{name}")?;
+            }
+
+            Ok(())
+        })
+    }
 }
 
 impl fmt::Write for Reporter {

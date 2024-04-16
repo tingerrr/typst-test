@@ -152,6 +152,10 @@ pub enum Command {
     #[command(alias = "s")]
     Status,
 
+    /// List the tests in the current project
+    #[command(alias = "ls")]
+    List,
+
     /// Compile and compare tests
     #[command(alias = "r")]
     Run(RunnerArgs),
