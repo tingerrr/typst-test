@@ -99,6 +99,12 @@ pub struct Args {
     #[arg(long, global = true)]
     pub fail_fast: bool,
 
+    /// The output format to use
+    ///
+    /// Using anyting but pretty implies --color=never
+    #[arg(long, short, global = true, alias = "fmt", default_value = "pretty")]
+    pub format: OutputFormat,
+
     /// When to use colorful output
     ///
     /// If set to auto, color will only be enabled if a capable terminal is
@@ -226,4 +232,20 @@ pub struct TestFilter {
     /// A filter for which tests to run, any test matching this filter is
     /// run
     pub filter: Option<String>,
+}
+
+// TODO: add json
+#[derive(clap::ValueEnum, Debug, Clone, Copy)]
+pub enum OutputFormat {
+    /// Pretty human-readible color output
+    Pretty,
+
+    /// Plain output for script processing
+    Plain,
+}
+
+impl OutputFormat {
+    pub fn is_pretty(&self) -> bool {
+        matches!(self, Self::Pretty)
+    }
 }

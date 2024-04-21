@@ -1,7 +1,8 @@
 use std::io::{ErrorKind, Write};
 use std::process::ExitCode;
 
-use clap::Parser;
+use clap::{ColorChoice, Parser};
+use cli::OutputFormat;
 use config::Config;
 use project::test::Filter;
 use termcolor::{Color, WriteColor};
@@ -23,7 +24,11 @@ mod util;
 const IS_OUTPUT_STDERR: bool = false;
 
 fn main() -> ExitCode {
-    let args = cli::Args::parse();
+    let mut args = cli::Args::parse();
+
+    if !args.format.is_pretty() {
+        args.color = ColorChoice::Never;
+    }
 
     if args.verbose >= 1 {
         tracing_subscriber::registry()
@@ -45,7 +50,11 @@ fn main() -> ExitCode {
             .init();
     }
 
-    let mut reporter = Reporter::new(util::term::color_stream(args.color, IS_OUTPUT_STDERR));
+    // TODO: simpler output when using plain
+    let mut reporter = Reporter::new(
+        util::term::color_stream(args.color, IS_OUTPUT_STDERR),
+        args.format,
+    );
 
     let res = reporter.with_indent(2, |r| main_impl(args, r));
 
@@ -484,7 +493,7 @@ mod cmd {
     fn run_tests(
         project: &mut Project,
         reporter: &mut Reporter,
-        summary: bool,
+        summary_only: bool,
         filter: Option<Filter>,
         compare: bool,
         update: bool,
@@ -515,9 +524,7 @@ mod cmd {
 
         ctx.with_typst_version(Some(version));
 
-        if !summary {
-            reporter.test_start(update)?;
-        }
+        reporter.test_start(update)?;
 
         let compiled = AtomicUsize::new(0);
         let compared = compare.then_some(AtomicUsize::new(0));
@@ -542,7 +549,7 @@ mod cmd {
                             maybe_increment(&compared);
                             maybe_increment(&updated);
 
-                            if !summary {
+                            if !summary_only {
                                 reporter
                                     .lock()
                                     .unwrap()
@@ -564,7 +571,7 @@ mod cmd {
                                 maybe_increment(&updated);
                             }
 
-                            if !summary {
+                            if !summary_only {
                                 reporter
                                     .lock()
                                     .unwrap()
@@ -590,7 +597,7 @@ mod cmd {
             Ok(start.elapsed())
         })?;
 
-        if !summary {
+        if !summary_only {
             writeln!(reporter)?;
         }
 
@@ -604,7 +611,7 @@ mod cmd {
         };
 
         let is_ok = summary.is_ok();
-        reporter.test_summary(summary, update)?;
+        reporter.test_summary(summary, update, summary_only)?;
 
         Ok(if is_ok {
             CliResult::Ok

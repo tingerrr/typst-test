@@ -8,6 +8,7 @@ use std::{fmt, io};
 use semver::Version;
 use termcolor::{Color, ColorSpec, HyperlinkSpec, WriteColor};
 
+use crate::cli::OutputFormat;
 use crate::project::test::{CompareFailure, ComparePageFailure, Test, TestFailure, UpdateFailure};
 use crate::project::Project;
 use crate::util;
@@ -83,12 +84,20 @@ fn write_program_buffer(reporter: &mut Reporter, name: &str, buffer: &[u8]) -> i
         reporter.hint(format!("{name} was not valid UTF8"))?;
     }
 
-    write_bold(reporter, |w| writeln!(w, "┏━ {name}"))?;
-    for line in lossy.lines() {
-        write_bold(reporter, |w| write!(w, "┃"))?;
-        writeln!(reporter, "{line}")?;
+    if reporter.format.is_pretty() {
+        write_bold(reporter, |w| writeln!(w, "┏━ {name}"))?;
+        for line in lossy.lines() {
+            write_bold(reporter, |w| write!(w, "┃"))?;
+            writeln!(reporter, "{line}")?;
+        }
+        write_bold(reporter, |w| writeln!(w, "┗━ {name}"))?;
+    } else {
+        writeln!(reporter, "begin: {name}")?;
+        for line in lossy.lines() {
+            writeln!(reporter, "{line}")?;
+        }
+        writeln!(reporter, "end: {name}")?;
     }
-    write_bold(reporter, |w| writeln!(w, "┗━ {name}"))?;
 
     Ok(())
 }
@@ -100,6 +109,9 @@ pub struct Reporter {
     indent: usize,
     need_indent: bool,
     spec: Option<ColorSpec>,
+
+    // other confiuration
+    format: OutputFormat,
 }
 
 impl Debug for Reporter {
@@ -108,21 +120,33 @@ impl Debug for Reporter {
             .field("indent", &self.indent)
             .field("need_indent", &self.need_indent)
             .field("spec", &self.spec)
+            .field("format", &self.format)
             .finish_non_exhaustive()
     }
 }
 
 impl Reporter {
-    pub fn new<W: WriteColor + Send + Sync + 'static>(writer: W) -> Self {
+    pub fn format(&self) -> OutputFormat {
+        self.format
+    }
+}
+
+impl Reporter {
+    pub fn new<W: WriteColor + Send + Sync + 'static>(writer: W, format: OutputFormat) -> Self {
         Self {
             writer: Box::new(writer),
             indent: 0,
             need_indent: true,
             spec: None,
+            format,
         }
     }
 
     pub fn with_indent<R>(&mut self, indent: usize, f: impl FnOnce(&mut Self) -> R) -> R {
+        if !self.format.is_pretty() {
+            return f(self);
+        }
+
         self.indent += indent;
         let res = f(self);
         self.indent -= indent;
@@ -136,13 +160,21 @@ impl Reporter {
         f: impl FnOnce(&mut Self) -> io::Result<()>,
     ) -> io::Result<()> {
         self.set_color(ColorSpec::new().set_bold(true).set_fg(Some(color)))?;
-        write!(self, "{annot:>ANNOT_PADDING$}")?;
+        if self.format.is_pretty() {
+            write!(self, "{annot:>ANNOT_PADDING$}")?;
+        } else {
+            write!(self, "{annot}")?;
+        }
         self.set_color(ColorSpec::new().set_bold(false).set_fg(None))?;
         self.with_indent(ANNOT_PADDING + 1, |this| f(this))?;
         Ok(())
     }
 
     pub fn hint(&mut self, hint: impl Display) -> io::Result<()> {
+        if !self.format.is_pretty() {
+            return Ok(());
+        }
+
         write_bold_colored(self, "hint: ", Color::Cyan)?;
         self.with_indent("hint: ".len(), |this| writeln!(this, "{hint}"))?;
         Ok(())
@@ -182,6 +214,10 @@ impl Reporter {
 
     pub fn test_failure(&mut self, test: &Test, error: TestFailure) -> io::Result<()> {
         self.test_result(test.name(), "failed", Color::Red, |this| {
+            if !this.format.is_pretty() {
+                return Ok(());
+            }
+
             match error {
                 TestFailure::Preparation(e) => writeln!(this, "{e}")?,
                 TestFailure::Cleanup(e) => writeln!(this, "{e}")?,
@@ -257,8 +293,38 @@ impl Reporter {
         typst: PathBuf,
         typst_path: Option<PathBuf>,
     ) -> io::Result<()> {
+        struct Delims {
+            open: &'static str,
+            middle: &'static str,
+            close: &'static str,
+        }
+
+        let (delims, align) = if self.format.is_pretty() {
+            (
+                Delims {
+                    open: " ┌ ",
+                    middle: " ├ ",
+                    close: " └ ",
+                },
+                ["Template", "Project", "Tests", "Typst"]
+                    .map(str::len)
+                    .into_iter()
+                    .max()
+                    .unwrap(),
+            )
+        } else {
+            (
+                Delims {
+                    open: " ",
+                    middle: " ",
+                    close: " ",
+                },
+                0,
+            )
+        };
+
         if let Some(manifest) = project.manifest() {
-            write!(self, " Project ┌ ")?;
+            write!(self, "{:>align$}{}", "Project", delims.open)?;
             self.package(
                 &manifest.package.name.to_string(),
                 Some(&manifest.package.version),
@@ -268,13 +334,13 @@ impl Reporter {
             // TODO: list config settings + if it is manifest or file
             let _config = project.config();
         } else {
-            write!(self, " Project ┌ ")?;
+            write!(self, "{:>align$}{}", "Project", delims.open)?;
             write_bold_colored(self, "none", Color::Yellow)?;
             writeln!(self)?;
         }
 
         let tests = project.tests();
-        write!(self, "   Tests ├ ")?;
+        write!(self, "{:>align$}{}", "Tests", delims.middle)?;
         if tests.is_empty() {
             write_bold_colored(self, "none", Color::Cyan)?;
             write!(
@@ -287,7 +353,7 @@ impl Reporter {
         }
         writeln!(self)?;
 
-        write!(self, "Template ├ ")?;
+        write!(self, "{:>align$}{}", "Template", delims.middle)?;
         match (project.template_path(), project.template()) {
             (None, None) => {
                 write_bold_colored(self, "none", Color::Green)?;
@@ -305,7 +371,7 @@ impl Reporter {
         }
         writeln!(self)?;
 
-        write!(self, "   Typst └ ")?;
+        write!(self, "{:>align$}{}", "Typst", delims.close)?;
         if let Some(path) = typst_path {
             write_bold_colored(self, path.display(), Color::Green)?;
         } else {
@@ -318,6 +384,10 @@ impl Reporter {
     }
 
     pub fn test_start(&mut self, is_update: bool) -> io::Result<()> {
+        if !self.format.is_pretty() {
+            return Ok(());
+        }
+
         write_bold(self, |w| {
             writeln!(
                 w,
@@ -327,7 +397,17 @@ impl Reporter {
         })
     }
 
-    pub fn test_summary(&mut self, summary: Summary, is_update: bool) -> io::Result<()> {
+    // TODO: the force option is not a pretty solution
+    pub fn test_summary(
+        &mut self,
+        summary: Summary,
+        is_update: bool,
+        force: bool,
+    ) -> io::Result<()> {
+        if !self.format.is_pretty() && !force {
+            return Ok(());
+        }
+
         write_bold(self, |w| writeln!(w, "Summary"))?;
         self.with_indent(2, |this| {
             let color = if summary.is_ok() {
@@ -368,7 +448,10 @@ impl Reporter {
     }
 
     pub fn tests(&mut self, project: &Project) -> io::Result<()> {
-        write_bold(self, |w| writeln!(w, "Tests"))?;
+        if self.format.is_pretty() {
+            write_bold(self, |w| writeln!(w, "Tests"))?;
+        }
+
         self.with_indent(2, |this| {
             for name in project.tests().keys() {
                 writeln!(this, "{name}")?;
