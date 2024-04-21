@@ -9,11 +9,3 @@ test root=justfile_directory():
 # install typst-test using cargo
 install:
 	cargo install --path crates/typst-test
-
-# update and force push the ci-semi-stable tag
-[confirm("this will update the ci-semi-stable tag [y/n]:")]
-ci-tag:
-	git rev-parse ci-semi-stable
-	git tag -d ci-semi-stable
-	git tag ci-semi-stable
-	git push --tags --force

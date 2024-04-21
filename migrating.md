@@ -4,6 +4,26 @@ typst-test. The entries are ordered in decending relevance, i.e. last breaking c
 
 This file will be removed on the first release, as from then on, a changelog shall be curated.
 
+## CI semi stable tag
+The `ci-semi-stable` tag will no longer be bumped on breaking changes. Instead a branhc of the same
+name that follows `main` is provided for the same purpose.
+
+Simply change your CI step to use the branch option instead:
+```diff
+ jobs:
+   tests:
+     # ...
+     steps:
+       - name: Install typst-test from github
+         uses: baptiste0928/cargo-install@v2.2.0
+         with:
+           crate: typst-test
+           git: https://github.com/tingerrr/typst-test.git
+-          tag: ci-semi-stable
++          branch: ci-semi-stable
+     # ...
+```
+
 ## Folder Structure
 The folder structure changed from having all tests in a dediacted folder with referencs and the like
 in different dedicated folders to having a dedicated folder per test. To use your existing project's
