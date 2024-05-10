@@ -54,6 +54,7 @@ pub struct TestContext<'c, 'p, 't> {
     project_context: &'c Context<'p>,
     test: &'t Test,
     test_file: PathBuf,
+    ref_file: PathBuf,
     out_dir: PathBuf,
     ref_dir: PathBuf,
     diff_dir: PathBuf,
@@ -130,12 +131,14 @@ impl<'p> Context<'p> {
         let ref_dir = test.ref_dir(self.project);
         let diff_dir = test.diff_dir(self.project);
         let test_file = test.test_file(self.project);
+        let ref_file = test.ref_file(self.project).unwrap_or_default();
 
         tracing::trace!(test = ?test.name(), "establishing test context");
         TestContext {
             project_context: self,
             test,
             test_file,
+            ref_file,
             out_dir,
             ref_dir,
             diff_dir,
@@ -167,8 +170,14 @@ impl TestContext<'_, '_, '_> {
             bail_inner!(err);
         }
 
-        if let Err(err) = self.compile()? {
+        if let Err(err) = self.compile_test()? {
             bail_inner!(err);
+        }
+
+        if self.test.is_ephemeral {
+            if let Err(err) = self.compile_refs()? {
+                bail_inner!(err);
+            }
         }
 
         if self.project_context.compare {
@@ -177,7 +186,7 @@ impl TestContext<'_, '_, '_> {
             }
         }
 
-        if self.project_context.update {
+        if !self.test.is_ephemeral || self.project_context.update {
             if let Err(err) = self.update()? {
                 bail_inner!(err);
             }
@@ -194,7 +203,11 @@ impl TestContext<'_, '_, '_> {
     pub fn prepare(&self) -> ContextResult<PrepareFailure> {
         let dirs = [
             ("out", true, &self.out_dir),
-            ("ref", self.project_context.update, &self.ref_dir),
+            (
+                "ref",
+                self.test.is_ephemeral || self.project_context.update,
+                &self.ref_dir,
+            ),
             ("diff", true, &self.diff_dir),
         ];
 
@@ -225,7 +238,22 @@ impl TestContext<'_, '_, '_> {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn compile(&self) -> ContextResult<CompileFailure> {
+    pub fn compile_refs(&self) -> ContextResult<CompileFailure> {
+        self.compile(&self.ref_file, &self.ref_dir, true)
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn compile_test(&self) -> ContextResult<CompileFailure> {
+        self.compile(&self.test_file, &self.out_dir, false)
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn compile(
+        &self,
+        file: &Path,
+        folder: &Path,
+        is_ref: bool,
+    ) -> ContextResult<CompileFailure> {
         let mut typst = Command::new(&self.project_context.typst);
 
         if self.project_context.color {
@@ -238,8 +266,8 @@ impl TestContext<'_, '_, '_> {
 
         typst.args(["compile", "--root"]);
         typst.arg(self.project_context.project.root());
-        typst.arg(&self.test_file);
-        typst.arg(self.out_dir.join("{n}").with_extension("png"));
+        typst.arg(file);
+        typst.arg(folder.join("{n}").with_extension("png"));
 
         tracing::trace!(args = ?[&typst], "running typst");
         let output = typst.output().map_err(|e| {
@@ -255,6 +283,7 @@ impl TestContext<'_, '_, '_> {
             return Ok(Err(CompileFailure {
                 args: typst.get_args().map(ToOwned::to_owned).collect(),
                 output,
+                is_ref,
             }));
         }
 

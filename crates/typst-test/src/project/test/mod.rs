@@ -47,17 +47,22 @@ impl Filter {
 #[derive(Debug)]
 pub struct Test {
     name: String,
+    is_ephemeral: bool,
     // TODO: comparison
     // TODO: actions done before/after compiling/comparing
 }
 
 impl Test {
-    pub fn new(name: String) -> Self {
-        Self { name }
+    pub fn new(name: String, is_ephemeral: bool) -> Self {
+        Self { name, is_ephemeral }
     }
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    pub fn is_ephemeral(&self) -> bool {
+        self.is_ephemeral
     }
 
     pub fn test_dir(&self, project: &Project) -> PathBuf {
@@ -79,6 +84,13 @@ impl Test {
     pub fn test_file(&self, project: &Project) -> PathBuf {
         util::fs::path_in_root(project.tests_root_dir(), [self.name(), "test"])
             .with_extension("typ")
+    }
+
+    pub fn ref_file(&self, project: &Project) -> Option<PathBuf> {
+        self.is_ephemeral.then(|| {
+            util::fs::path_in_root(project.tests_root_dir(), [self.name(), "ref"])
+                .with_extension("typ")
+        })
     }
 }
 
@@ -206,6 +218,7 @@ impl std::error::Error for CleanupFailure {}
 pub struct CompileFailure {
     pub args: Vec<OsString>,
     pub output: Output,
+    pub is_ref: bool,
 }
 
 impl Display for CompileFailure {

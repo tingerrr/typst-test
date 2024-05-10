@@ -17,8 +17,10 @@ pub mod test;
 
 const DEFAULT_TEST_INPUT: &str = include_str!("../../../../assets/default-test/test.typ");
 const DEFAULT_TEST_OUTPUT: &[u8] = include_bytes!("../../../../assets/default-test/test.png");
-const DEFAULT_IGNORE_LINES: &[&str] = &["**.png\n", "**.svg\n", "**.pdf\n"];
-const DEFAULT_GIT_IGNORE_LINES: &[&str] = &["**/out/\n", "**/diff/\n"];
+const DEFAULT_IGNORE_LINES: &[&str] = &["**.png", "**.svg", "**.pdf"];
+const DEFAULT_GIT_IGNORE_LINES: &[&str] = &["out/**", "diff/**\n"];
+const DEFAULT_GIT_IGNORE_LINES_PERSISTENT: &[&str] = &[];
+const DEFAULT_GIT_IGNORE_LINES_EPHEMERAL: &[&str] = &["ref/**"];
 
 #[tracing::instrument]
 pub fn try_open_manifest(root: &Path) -> io::Result<Option<Manifest>> {
@@ -151,13 +153,12 @@ impl Project {
         #[cfg(debug_assertions)]
         self.ensure_root()?;
 
-        let test_dir = self.tests_root_dir();
-        if test_dir.try_exists()? {
-            tracing::warn!(path = ?test_dir, "test dir already exists");
+        let tests_root_dir = self.tests_root_dir();
+        if tests_root_dir.try_exists()? {
+            tracing::warn!(path = ?tests_root_dir, "test dir already exists");
             return Err(Error::DoubleInit);
         }
 
-        let tests_root_dir = self.tests_root_dir();
         tracing::trace!(path = ?tests_root_dir, "creating tests root dir");
         util::fs::create_dir(&tests_root_dir, false)?;
 
@@ -173,6 +174,7 @@ impl Project {
                 gitignore.write_all(b"# added by typst-test\n")?;
                 for pattern in lines {
                     gitignore.write_all(pattern.as_bytes())?;
+                    gitignore.write_all(b"\n")?;
                 }
             } else {
                 tracing::debug!("skipping default {file}");
@@ -190,7 +192,7 @@ impl Project {
 
         if options.contains(ScaffoldOptions::EXAMPLE) {
             tracing::debug!("adding default test");
-            let (test, _) = self.create_test("example")?;
+            let (test, _) = self.create_test("example", false)?;
             Ok(Some(test))
         } else {
             tracing::debug!("skipping default test");
@@ -243,7 +245,7 @@ impl Project {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn create_test(&mut self, test: &str) -> Result<(&Test, bool), Error> {
+    pub fn create_test(&mut self, test: &str, ephemeral: bool) -> Result<(&Test, bool), Error> {
         #[cfg(debug_assertions)]
         self.ensure_init()?;
 
@@ -251,11 +253,37 @@ impl Project {
             return Err(Error::TestsAlreadyExists(test.to_owned()));
         }
 
-        let test = Test::new(test.to_owned());
+        let test = Test::new(test.to_owned(), ephemeral);
 
         let test_dir = test.test_dir(self);
         tracing::trace!(path = ?test_dir, "creating test dir");
         util::fs::create_dir(&test_dir, true)?;
+
+        let create_ignore = |file, lines: &[&str]| -> Result<(), Error> {
+            let gitignore = test_dir.join(file);
+            tracing::debug!(path = ?gitignore, "writing {file}");
+            let mut gitignore = File::options()
+                .write(true)
+                .create_new(true)
+                .open(gitignore)?;
+
+            gitignore.write_all(b"# added by typst-test\n")?;
+            for pattern in lines {
+                gitignore.write_all(pattern.as_bytes())?;
+                gitignore.write_all(b"\n")?;
+            }
+
+            Ok(())
+        };
+
+        create_ignore(
+            ".gitignore",
+            if ephemeral {
+                DEFAULT_GIT_IGNORE_LINES_EPHEMERAL
+            } else {
+                DEFAULT_GIT_IGNORE_LINES_PERSISTENT
+            },
+        )?;
 
         let test_script = test.test_file(self);
         tracing::trace!(path = ?test_script , "creating test script");
@@ -270,7 +298,21 @@ impl Project {
                 .as_bytes(),
         )?;
 
-        if self.template.is_none() {
+        if let Some(ref_script) = test.ref_file(self) {
+            tracing::trace!(path = ?test_script , "creating ref script");
+            let mut test_script = File::options()
+                .write(true)
+                .create_new(true)
+                .open(ref_script)?;
+            test_script.write_all(
+                self.template
+                    .as_deref()
+                    .unwrap_or(DEFAULT_TEST_INPUT)
+                    .as_bytes(),
+            )?;
+        }
+
+        if self.template.is_none() && !test.is_ephemeral() {
             let ref_dir = test.ref_dir(self);
             tracing::trace!(path = ?ref_dir, "creating ref dir");
             util::fs::create_empty_dir(&ref_dir, false)?;
@@ -331,14 +373,21 @@ impl Project {
                 .path()
                 .parent()
                 .and_then(|p| p.strip_prefix(&root).ok())
-                .expect("we have at one depth of directories (./tests/<x>/test.typ)");
+                .expect("we have at least one depth of directories (./tests/<x>/test.typ)");
 
             let Some(name) = relative.to_str() else {
                 tracing::error!(?name, "couldn't convert path into UTF-8, skipping");
                 continue;
             };
 
-            let test = Test::new(name.to_owned());
+            let is_ephemeral = entry
+                .path()
+                .parent()
+                .expect("we have at least one parent")
+                .join("ref.typ")
+                .try_exists()?;
+
+            let test = Test::new(name.to_owned(), is_ephemeral);
             tracing::debug!(name = ?test.name(), "loaded test");
             self.tests.insert(test.name().to_owned(), test);
         }

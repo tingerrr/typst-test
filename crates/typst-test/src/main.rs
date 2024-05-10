@@ -169,7 +169,11 @@ fn main_impl(args: cli::Args, reporter: &mut Reporter) -> anyhow::Result<CliResu
         } => return cmd::init(&mut project, reporter, no_example, no_ignore, no_gitignore),
         cli::Command::Uninit => return cmd::uninit(&mut project, reporter),
         cli::Command::Clean => return cmd::clean(&mut project, reporter),
-        cli::Command::Add { open, test } => return cmd::add(&mut project, reporter, test, open),
+        cli::Command::Add {
+            ephemeral,
+            open,
+            test,
+        } => return cmd::add(&mut project, reporter, test, ephemeral, open),
         cli::Command::Edit { test } => return cmd::edit(&mut project, reporter, test),
         cli::Command::Remove { test } => return cmd::remove(&mut project, reporter, test),
         cli::Command::Status => return cmd::status(&mut project, reporter, args.typst),
@@ -349,6 +353,7 @@ mod cmd {
         project: &mut Project,
         reporter: &mut Reporter,
         name: String,
+        ephemeral: bool,
         open: bool,
     ) -> anyhow::Result<CliResult> {
         bail_gracefully!(if_uninit; project);
@@ -358,7 +363,7 @@ mod cmd {
 
         bail_gracefully!(if_test_not_new; project; &name);
 
-        let (test, has_ref) = project.create_test(&name)?;
+        let (test, has_ref) = project.create_test(&name, ephemeral)?;
         reporter.test_added(test, !has_ref)?;
 
         if open {
@@ -368,6 +373,11 @@ mod cmd {
 
             // BUG: this may fail silently if the path doesn't exist
             open::that_detached(test.test_file(project))?;
+
+            // NOTE: this may run two editors for people who don't use GUIs
+            if let Some(path) = test.ref_file(project) {
+                open::that_detached(path)?;
+            }
         }
 
         Ok(CliResult::Ok)

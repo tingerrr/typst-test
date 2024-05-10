@@ -193,7 +193,7 @@ impl Reporter {
 
     pub fn test_added(&mut self, test: &Test, no_ref: bool) -> io::Result<()> {
         self.test_result(test.name(), "added", Color::Green, |this| {
-            if no_ref {
+            if no_ref && !test.is_ephemeral() {
                 let hint = format!(
                     "Test template used, no default reference generated\nrun 'typst-test update \
                     --exact {}' to accept test",
@@ -216,7 +216,12 @@ impl Reporter {
                 TestFailure::Preparation(e) => writeln!(this, "{e}")?,
                 TestFailure::Cleanup(e) => writeln!(this, "{e}")?,
                 TestFailure::Compilation(e) => {
-                    writeln!(this, "Compilation failed ({})", e.output.status)?;
+                    writeln!(
+                        this,
+                        "Compilation of {} failed ({})",
+                        if e.is_ref { "references" } else { "test" },
+                        e.output.status
+                    )?;
                     write_program_buffer(this, "stdout", &e.output.stdout)?;
                     write_program_buffer(this, "stderr", &e.output.stderr)?;
                 }
@@ -344,6 +349,13 @@ impl Reporter {
             )?;
         } else {
             write_bold_colored(self, tests.len(), Color::Cyan)?;
+            write!(self, " (")?;
+            write_bold_colored(
+                self,
+                tests.iter().filter(|(_, t)| t.is_ephemeral()).count(),
+                Color::Yellow,
+            )?;
+            write!(self, " ephemeral)")?;
         }
         writeln!(self)?;
 
@@ -447,8 +459,14 @@ impl Reporter {
         }
 
         self.with_indent(2, |this| {
-            for name in project.tests().keys() {
-                writeln!(this, "{name}")?;
+            for (name, test) in project.tests() {
+                write!(this, "{name} ")?;
+                if test.is_ephemeral() {
+                    write_bold_colored(this, "ephemeral", Color::Yellow)?;
+                } else {
+                    write_bold_colored(this, "persistent", Color::Green)?;
+                }
+                writeln!(this)?;
             }
 
             Ok(())

@@ -190,6 +190,13 @@ pub enum Command {
     /// `tests/template.typ` file is given, it is used instead.
     #[command(alias = "a")]
     Add {
+        /// Whether this test creates it's references on the fly
+        ///
+        /// An ephemeral test consistes of two scripts which are compared
+        /// against each other. The reference script must be called `ref.typ`.
+        #[arg(long, short)]
+        ephemeral: bool,
+
         /// Whether to open the test script
         #[arg(long, short)]
         open: bool,
