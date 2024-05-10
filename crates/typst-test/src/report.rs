@@ -126,12 +126,6 @@ impl Debug for Reporter {
 }
 
 impl Reporter {
-    pub fn format(&self) -> OutputFormat {
-        self.format
-    }
-}
-
-impl Reporter {
     pub fn new<W: WriteColor + Send + Sync + 'static>(writer: W, format: OutputFormat) -> Self {
         Self {
             writer: Box::new(writer),

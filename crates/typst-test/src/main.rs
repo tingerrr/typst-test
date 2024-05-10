@@ -2,7 +2,6 @@ use std::io::{ErrorKind, Write};
 use std::process::ExitCode;
 
 use clap::{ColorChoice, Parser};
-use cli::OutputFormat;
 use config::Config;
 use project::test::Filter;
 use termcolor::{Color, WriteColor};
