@@ -80,7 +80,7 @@ fn main() -> ExitCode {
 
             reporter
                 .with_indent(2, |r| {
-                    r.write_annotated("Error:", Color::Red, |r| writeln!(r, "{err}"))
+                    r.write_annotated("Error:", Color::Red, |r| writeln!(r, "{err:?}"))
                 })
                 .unwrap();
 
@@ -120,13 +120,16 @@ fn main_impl(args: cli::Args, reporter: &mut Reporter) -> anyhow::Result<CliResu
 
     let manifest = match project::try_open_manifest(&root) {
         Ok(manifest) => manifest,
-        Err(_) => {
+        Err(project::Error::InvalidManifest(err)) => {
             reporter.write_annotated("warning: ", Color::Yellow, |this| {
-                writeln!(this, "Error while parsing manifest, skipping")
+                tracing::error!(?err, "Couldn't parse manifest");
+                writeln!(this, "Error while parsing manifest, skipping")?;
+                writeln!(this, "{}", err.message())
             })?;
 
             None
         }
+        Err(err) => anyhow::bail!(err),
     };
 
     let manifest_config = manifest

@@ -13,7 +13,7 @@ use crate::project::test::{CompareFailure, ComparePageFailure, Test, TestFailure
 use crate::project::Project;
 use crate::util;
 
-pub const ANNOT_PADDING: usize = 7;
+pub const ANNOT_PADDING: usize = 8;
 
 pub struct Summary {
     pub total: usize,

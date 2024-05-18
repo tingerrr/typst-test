@@ -23,14 +23,10 @@ const DEFAULT_GIT_IGNORE_LINES_PERSISTENT: &[&str] = &[];
 const DEFAULT_GIT_IGNORE_LINES_EPHEMERAL: &[&str] = &["ref/**"];
 
 #[tracing::instrument]
-pub fn try_open_manifest(root: &Path) -> io::Result<Option<Manifest>> {
+pub fn try_open_manifest(root: &Path) -> Result<Option<Manifest>, Error> {
     if is_project_root(root)? {
         let content = std::fs::read_to_string(root.join(typst_project::heuristics::MANIFEST_FILE))?;
-
-        // TODO: better error handling
-        let manifest =
-            Manifest::from_str(&content).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-
+        let manifest = Manifest::from_str(&content)?;
         Ok(Some(manifest))
     } else {
         Ok(None)
@@ -400,6 +396,9 @@ impl Project {
 pub enum Error {
     #[error("project not found: {0:?}")]
     RootNotFound(PathBuf),
+
+    #[error("invalid manifest")]
+    InvalidManifest(#[from] toml::de::Error),
 
     #[error("project is not initalized")]
     InitNeeded,
