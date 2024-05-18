@@ -186,7 +186,7 @@ impl TestContext<'_, '_, '_> {
             }
         }
 
-        if !self.test.is_ephemeral || self.project_context.update {
+        if !self.test.is_ephemeral && self.project_context.update {
             if let Err(err) = self.update()? {
                 bail_inner!(err);
             }
