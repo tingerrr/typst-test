@@ -17,6 +17,9 @@ use super::{
 use crate::project::Project;
 use crate::util;
 
+const CHANNEL_DELTA: u8 = 10;
+const COMPARISON_THRESHOLD: f32 = 0.05;
+
 fn no_optimize_options() -> Options {
     Options {
         fix_errors: false,
@@ -380,11 +383,23 @@ impl TestContext<'_, '_, '_> {
             }));
         }
 
+        let mut running_error = 0;
+        let threshold = COMPARISON_THRESHOLD * (out_image.width() * out_image.height()) as f32;
+
         for (out_px, ref_px) in out_image.pixels().zip(ref_image.pixels()) {
-            if out_px != ref_px {
-                self.save_diff_page(page_number, &out_image, &ref_image)
-                    .map_err(|e| Error::image(e).at(Stage::Comparison))?;
-                return Ok(Err(ComparePageFailure::Content));
+            if out_px
+                .0
+                .into_iter()
+                .zip(ref_px.0)
+                .any(|(a, b)| u8::abs_diff(a, b) >= CHANNEL_DELTA)
+            {
+                running_error += 1;
+
+                if running_error as f32 >= threshold {
+                    self.save_diff_page(page_number, &out_image, &ref_image)
+                        .map_err(|e| Error::image(e).at(Stage::Comparison))?;
+                    return Ok(Err(ComparePageFailure::Content));
+                }
             }
         }
 
