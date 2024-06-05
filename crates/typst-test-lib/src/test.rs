@@ -19,8 +19,8 @@ mod tests {
 
     #[test]
     fn test_full_ephemeral_pass() {
-        let src_path = "../../assets/tests/ephemeral-src.typ";
-        let ref_path = "../../assets/tests/ephemeral-ref.typ";
+        let src_path = "../../assets/test-assets/test/ephemeral-src.typ";
+        let ref_path = "../../assets/test-assets/test/ephemeral-ref.typ";
 
         let test = Test {
             name: "main".into(),
