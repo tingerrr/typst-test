@@ -5,7 +5,7 @@ typst-test. The entries are ordered in decending relevance, i.e. last breaking c
 This file will be removed on the first release, as from then on, a changelog shall be curated.
 
 ## CI semi stable tag
-The `ci-semi-stable` tag will no longer be bumped on breaking changes. Instead a branhc of the same
+The `ci-semi-stable` tag will no longer be bumped on breaking changes. Instead a branch of the same
 name that follows `main` is provided for the same purpose.
 
 Simply change your CI step to use the branch option instead:

@@ -155,9 +155,9 @@ impl Reporter {
     ) -> io::Result<()> {
         self.set_color(ColorSpec::new().set_bold(true).set_fg(Some(color)))?;
         if self.format.is_pretty() {
-            write!(self, "{annot:>ANNOT_PADDING$}")?;
+            write!(self, "{annot:>ANNOT_PADDING$} ")?;
         } else {
-            write!(self, "{annot}")?;
+            write!(self, "{annot} ")?;
         }
         self.set_color(ColorSpec::new().set_bold(false).set_fg(None))?;
         self.with_indent(ANNOT_PADDING + 1, |this| f(this))?;
@@ -182,7 +182,7 @@ impl Reporter {
         f: impl FnOnce(&mut Self) -> io::Result<()>,
     ) -> io::Result<()> {
         self.write_annotated(annot, color, |this| {
-            write_bold(this, |w| writeln!(w, " {name}"))?;
+            write_bold(this, |w| writeln!(w, "{name}"))?;
             f(this)
         })
     }

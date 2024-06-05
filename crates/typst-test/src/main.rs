@@ -121,7 +121,7 @@ fn main_impl(args: cli::Args, reporter: &mut Reporter) -> anyhow::Result<CliResu
     let manifest = match project::try_open_manifest(&root) {
         Ok(manifest) => manifest,
         Err(project::Error::InvalidManifest(err)) => {
-            reporter.write_annotated("warning: ", Color::Yellow, |this| {
+            reporter.write_annotated("warning:", Color::Yellow, |this| {
                 tracing::error!(?err, "Couldn't parse manifest");
                 writeln!(this, "Error while parsing manifest, skipping")?;
                 writeln!(this, "{}", err.message())
@@ -150,7 +150,7 @@ fn main_impl(args: cli::Args, reporter: &mut Reporter) -> anyhow::Result<CliResu
     let config = config.map(|c| toml::from_str(&c)).transpose()?;
 
     if manifest_config.is_some() && config.is_some() {
-        reporter.write_annotated("warning: ", Color::Yellow, |this| {
+        reporter.write_annotated("warning:", Color::Yellow, |this| {
             writeln!(
                 this,
                 "Ignoring manifest config in favor of 'typst-test.toml'"
