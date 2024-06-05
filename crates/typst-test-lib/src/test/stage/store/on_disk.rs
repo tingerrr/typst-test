@@ -102,7 +102,7 @@ where
 }
 
 #[tracing::instrument]
-fn save_pages(dir: &Path, pages: Resource) -> Result<(), SaveFailure> {
+pub fn save_pages(dir: &Path, pages: Resource) -> Result<(), SaveFailure> {
     match pages {
         Resource::Png(pages) => {
             save_pages_internal(dir, &pages, "png", |page, path| page.save_png(path))

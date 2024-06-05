@@ -13,9 +13,23 @@ use typst::{Library, World};
 
 use super::Metrics;
 use crate::util;
+#[derive(Clone)]
+pub struct Output {
+    pub document: Document,
+}
 
 #[derive(Debug, Error)]
 #[error("compilation failed with {} {}", errors.len(), util::fmt::plural(errors.len(), "error"))]
+impl Debug for Output {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Output")
+            .field("document", &self.document)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, Error)]
+#[error("compilation failed")]
 pub struct Failure {
     errors: EcoVec<SourceDiagnostic>,
 }
@@ -26,6 +40,20 @@ pub fn compile<W: World>(
     tracer: &mut Tracer,
     metrics: &mut Metrics,
 ) -> Result<Document, Failure> {
+impl Debug for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Failure")
+            .field("errors", &self.errors)
+            .finish_non_exhaustive()
+    }
+}
+
+// TODO: metrics similar to tracer
+pub fn compile<W: World>(
+    source: Source,
+    world: &W,
+    tracer: &mut Tracer,
+) -> Result<Output, Failure> {
     let world = TestWorld::new(&source, world);
 
     let start = std::time::Instant::now();
@@ -33,6 +61,10 @@ pub fn compile<W: World>(
     metrics.duration = start.elapsed();
 
     res.map_err(|errors| Failure { errors })
+    match typst::compile(&world, tracer) {
+        Ok(document) => Ok(Output { document }),
+        Err(errors) => Err(Failure { errors }),
+    }
 }
 
 /// Provides a [`World`] implementation which treats a [`Test`] as main, but otherwise delegates to

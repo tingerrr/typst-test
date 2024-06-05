@@ -3,7 +3,9 @@ use std::fmt::Display;
 use std::path::PathBuf;
 use std::process::Output;
 
+use ecow::EcoVec;
 use oxipng::PngError;
+use typst::diag::SourceDiagnostic;
 
 use crate::{util, Project};
 
@@ -214,15 +216,26 @@ impl Display for CleanupFailure {
 
 impl std::error::Error for CleanupFailure {}
 
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum PersistenceFailure {
+    #[error("loading resources failed")]
+    Loading,
+
+    #[error("saving resources failed")]
+    Saving,
+
+    #[error("encoding resources")]
+    Encoding,
+}
+
 #[derive(Debug, Clone)]
 pub struct CompileFailure {
-    pub args: Vec<OsString>,
-    pub output: Output,
-    pub is_ref: bool,
+    errors: EcoVec<SourceDiagnostic>,
 }
 
 impl Display for CompileFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // TODO: error impl
         write!(f, "compilation failed")
     }
 }

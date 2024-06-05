@@ -1,24 +1,35 @@
+use std::collections::btree_map::Entry;
+use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
+use std::fs::DirEntry;
 use std::io;
-use std::io::ErrorKind;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::Duration;
 
 use image::{ImageResult, RgbImage};
 use oxipng::{Deflaters, InFile, IndexSet, Options, OutFile, PngResult, StripChunks};
 use rayon::prelude::*;
 use semver::Version;
+use tiny_skia::Pixmap;
+use typst::eval::Tracer;
+use typst::model::Document;
+use typst_test_lib::test::stage::compile::Metrics;
+use typst_test_lib::test::stage::store::on_disk::{LoadFailure, SaveFailure};
+use typst_test_lib::test::stage::{compare, store};
+use typst_test_lib::test::Test;
 
 use super::{
-    CleanupFailure, CompareFailure, ComparePageFailure, CompileFailure, PrepareFailure, Stage,
-    Test, TestFailure, TestResult, UpdateFailure,
+    CleanupFailure, CompareFailure, ComparePageFailure, CompileFailure, PersistenceFailure,
+    PrepareFailure, Stage, TestFailure, TestResult, UpdateFailure,
 };
 use crate::project::Project;
 use crate::util;
 
 const CHANNEL_DELTA: u8 = 10;
 const COMPARISON_THRESHOLD: f32 = 0.05;
+
+// TODO: render stage, saving render output in context, loading stage, saving loaded images in context
 
 fn no_optimize_options() -> Options {
     Options {
@@ -41,63 +52,45 @@ fn no_optimize_options() -> Options {
 }
 
 #[derive(Debug)]
-pub struct Context<'p> {
+pub struct ProjectContext<'p> {
     project: &'p Project,
-    typst: PathBuf,
-    typst_version: Option<Version>,
-    color: bool,
     fail_fast: bool,
-    compare: bool,
-    update: bool,
-    optimize_options: Box<Options>,
+    action: ActionInner,
 }
 
 #[derive(Debug)]
-pub struct TestContext<'c, 'p, 't> {
-    project_context: &'c Context<'p>,
-    test: &'t Test,
-    test_file: PathBuf,
-    ref_file: PathBuf,
-    out_dir: PathBuf,
-    ref_dir: PathBuf,
-    diff_dir: PathBuf,
+pub enum Action {
+    CompareVisual,
+    Update,
+    None,
 }
 
-impl<'p> Context<'p> {
-    pub fn new(project: &'p Project, typst: PathBuf) -> Self {
+#[derive(Debug)]
+enum ActionInner {
+    Compare {
+        // TODO: strategies
+    },
+    Update {
+        optimize_options: Box<Options>,
+    },
+    None,
+}
+
+// #[derive(Debug)]
+pub struct TestContext<'c, 'p, 't> {
+    project_context: &'c ProjectContext<'p>,
+    test: &'t Test,
+    tracer: Tracer,
+    metrics: Metrics,
+}
+
+impl<'p> ProjectContext<'p> {
+    pub fn new(project: &'p Project) -> Self {
         Self {
             project,
-            typst,
-            typst_version: None,
-            color: false,
             fail_fast: false,
-            compare: false,
-            update: false,
-            optimize_options: Box::new(no_optimize_options()),
+            action: ActionInner::None,
         }
-    }
-
-    pub fn typst(&self) -> &Path {
-        &self.typst
-    }
-
-    pub fn typst_version(&self) -> Option<&Version> {
-        self.typst_version.as_ref()
-    }
-
-    pub fn with_typst_version(&mut self, value: Option<Version>) -> &mut Self {
-        self.typst_version = value;
-        self
-    }
-
-    #[allow(dead_code)]
-    pub fn color(&self) -> bool {
-        self.color
-    }
-
-    pub fn with_color(&mut self, yes: bool) -> &mut Self {
-        self.color = yes;
-        self
     }
 
     pub fn fail_fast(&self) -> bool {
@@ -109,51 +102,31 @@ impl<'p> Context<'p> {
         self
     }
 
-    pub fn with_compare(&mut self, yes: bool) -> &mut Self {
-        self.compare = yes;
-        self
-    }
-
-    pub fn with_update(&mut self, yes: bool) -> &mut Self {
-        self.update = yes;
-        self
-    }
-
-    pub fn with_optimize(&mut self, yes: bool) -> &mut Self {
-        self.update = true;
-        self.optimize_options = Box::new(if yes {
-            Options::max_compression()
-        } else {
-            no_optimize_options()
-        });
+    pub fn with_action(&mut self, action: Action) -> &mut Self {
+        self.action = match action {
+            Action::CompareVisual => ActionInner::Compare {},
+            Action::Update => ActionInner::Update {
+                optimize_options: Box::new(Options::max_compression()),
+            },
+            Action::None => ActionInner::None,
+        };
         self
     }
 
     pub fn test<'c, 't>(&'c self, test: &'t Test) -> TestContext<'c, 'p, 't> {
-        let out_dir = test.out_dir(self.project);
-        let ref_dir = test.ref_dir(self.project);
-        let diff_dir = test.diff_dir(self.project);
-        let test_file = test.test_file(self.project);
-        let ref_file = test.ref_file(self.project).unwrap_or_default();
-
-        tracing::trace!(test = ?test.name(), "establishing test context");
+        tracing::trace!(test = ?test.name, "establishing test context");
         TestContext {
             project_context: self,
             test,
-            test_file,
-            ref_file,
-            out_dir,
-            ref_dir,
-            diff_dir,
+            tracer: Tracer::new(),
+            metrics: Metrics::new(),
         }
     }
 
-    #[tracing::instrument(skip(self))]
     pub fn prepare(&self) -> Result<(), Error> {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self))]
     pub fn cleanup(&self) -> Result<(), Error> {
         Ok(())
     }
@@ -167,32 +140,48 @@ macro_rules! bail_inner {
 }
 
 impl TestContext<'_, '_, '_> {
-    #[tracing::instrument(skip(self))]
-    pub fn run(&self) -> ContextResult<TestFailure> {
+    fn tmp_dir(&self) -> PathBuf {
+        todo!()
+    }
+
+    fn ref_dir(&self) -> PathBuf {
+        todo!()
+    }
+
+    fn out_dir(&self) -> PathBuf {
+        todo!()
+    }
+}
+
+impl TestContext<'_, '_, '_> {
+    pub fn run(&self) -> StageResult<TestFailure> {
         if let Err(err) = self.prepare()? {
             bail_inner!(err);
         }
 
+        // TODO: possibly parallelize those two compilations, needs disjunct storage for their output
         if let Err(err) = self.compile_test()? {
             bail_inner!(err);
         }
 
-        if self.test.is_ephemeral {
+        if self.test.reference.is_some() {
             if let Err(err) = self.compile_refs()? {
                 bail_inner!(err);
             }
         }
 
-        if self.project_context.compare {
-            if let Err(err) = self.compare()? {
-                bail_inner!(err);
+        match &self.project_context.action {
+            ActionInner::Compare {} => {
+                if let Err(err) = self.compare()? {
+                    bail_inner!(err);
+                }
             }
-        }
-
-        if !self.test.is_ephemeral && self.project_context.update {
-            if let Err(err) = self.update()? {
-                bail_inner!(err);
+            ActionInner::Update { optimize_options } => {
+                if let Err(err) = self.update()? {
+                    bail_inner!(err);
+                }
             }
+            ActionInner::None => {}
         }
 
         if let Err(err) = self.cleanup()? {
@@ -202,217 +191,104 @@ impl TestContext<'_, '_, '_> {
         Ok(Ok(()))
     }
 
-    #[tracing::instrument(skip(self))]
-    pub fn prepare(&self) -> ContextResult<PrepareFailure> {
-        let dirs = [
-            ("out", true, &self.out_dir),
-            (
-                "ref",
-                self.test.is_ephemeral || self.project_context.update,
-                &self.ref_dir,
-            ),
-            ("diff", true, &self.diff_dir),
-        ];
-
-        for (name, clear, path) in dirs {
-            if clear {
-                tracing::trace!(?path, "clearing {name} dir");
-                util::fs::create_empty_dir(path, false).map_err(|e| {
-                    Error::io(e)
-                        .at(Stage::Preparation)
-                        .context(format!("clearing {} dir: {:?}", name, path))
-                })?;
-            } else {
-                tracing::trace!(?path, "creating {name} dir");
-                util::fs::create_dir(path, false).map_err(|e| {
-                    Error::io(e)
-                        .at(Stage::Preparation)
-                        .context(format!("creating {} dir: {:?}", name, path))
-                })?;
-            }
-        }
-
-        Ok(Ok(()))
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub fn cleanup(&self) -> ContextResult<CleanupFailure> {
-        Ok(Ok(()))
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub fn compile_refs(&self) -> ContextResult<CompileFailure> {
-        self.compile(&self.ref_file, &self.ref_dir, true)
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub fn compile_test(&self) -> ContextResult<CompileFailure> {
-        self.compile(&self.test_file, &self.out_dir, false)
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub fn compile(
-        &self,
-        file: &Path,
-        folder: &Path,
-        is_ref: bool,
-    ) -> ContextResult<CompileFailure> {
-        let mut typst = Command::new(&self.project_context.typst);
-
-        if self.project_context.color {
-            if let Some(version) = self.project_context.typst_version() {
-                if *version >= Version::new(0, 11, 0) {
-                    typst.arg("--color=always");
-                }
-            }
-        }
-
-        typst.args(["compile", "--root"]);
-        typst.arg(self.project_context.project.root());
-        typst.arg(file);
-        typst.arg(folder.join("{n}").with_extension("png"));
-
-        tracing::trace!(args = ?[&typst], "running typst");
-        let output = typst.output().map_err(|e| {
-            match e.kind() {
-                ErrorKind::NotFound => Error::missing_typst(),
-                _ => Error::io(e),
-            }
-            .at(Stage::Compilation)
-            .context("executing typst")
+    pub fn prepare(&self) -> StageResult<PrepareFailure> {
+        let path = self.tmp_dir();
+        tracing::trace!(test = ?self.test.name, ?path, "clearing tmp dir");
+        util::fs::create_empty_dir(&path, false).map_err(|e| {
+            Error::io(e)
+                .at(Stage::Preparation)
+                .context(format!("clearing tmp dir: {:?}", path))
         })?;
 
-        if !output.status.success() {
-            return Ok(Err(CompileFailure {
-                args: typst.get_args().map(ToOwned::to_owned).collect(),
-                output,
-                is_ref,
-            }));
-        }
-
         Ok(Ok(()))
     }
 
-    #[tracing::instrument(skip(self))]
-    pub fn compare(&self) -> ContextResult<CompareFailure> {
-        let err_fn = |n, e, p| {
-            Error::io(e)
-                .at(Stage::Comparison)
-                .context(format!("reading {} dir: {:?}", n, p))
+    pub fn cleanup(&self) -> StageResult<CleanupFailure> {
+        Ok(Ok(()))
+    }
+
+    pub fn compile_refs(&self) -> StageResult<CompileFailure> {
+        let Some(reference) = self.test.reference.clone() else {
+            // TODO: this is an outer failure, not an inner one
+            return Err(Error::missing_references().at(Stage::Compilation));
         };
 
-        tracing::trace!(path = ?self.out_dir, "reading out dir");
-        let mut out_entries = util::fs::collect_dir_entries(&self.out_dir)
-            .map_err(|e| err_fn("out", e, &self.out_dir))?;
-
-        tracing::trace!(path = ?self.ref_dir, "reading ref dir");
-        let mut ref_entries = util::fs::collect_dir_entries(&self.ref_dir)
-            .map_err(|e| err_fn("ref", e, &self.ref_dir))?;
-
-        if out_entries.is_empty() {
-            return Ok(Err(CompareFailure::MissingOutput));
-        }
-
-        if ref_entries.is_empty() {
-            return Ok(Err(CompareFailure::MissingReferences));
-        }
-
-        out_entries.sort_by_key(|t| t.file_name());
-        ref_entries.sort_by_key(|t| t.file_name());
-
-        if out_entries.len() != ref_entries.len() {
-            return Ok(Err(CompareFailure::PageCount {
-                output: out_entries.len(),
-                reference: ref_entries.len(),
-            }));
-        }
-
-        let mut pages = vec![];
-
-        for (idx, (out_entry, ref_entry)) in out_entries.into_iter().zip(ref_entries).enumerate() {
-            let p = idx + 1;
-            if let Err(err) = self.compare_page(p, &out_entry.path(), &ref_entry.path())? {
-                pages.push((p, err));
-                if self.project_context.fail_fast {
-                    break;
-                }
+        match typst_test_lib::test::stage::compile::in_memory::compile(
+            reference,
+            self.project_context.project,
+            &mut self.tracer,
+            &mut self.metrics,
+        ) {
+            Ok(output) => {
+                self.reference_output = Some(output.document);
+                Ok(Ok(()))
             }
+            Err(errors) => Ok(Err(CompileFailure { errors })),
         }
-
-        if !pages.is_empty() {
-            let has_content_error = pages
-                .iter()
-                .any(|(_, f)| matches!(f, ComparePageFailure::Content));
-
-            return Ok(Err(CompareFailure::Page {
-                pages,
-                diff_dir: has_content_error.then(|| self.diff_dir.clone()),
-            }));
-        }
-
-        Ok(Ok(()))
     }
 
-    #[tracing::instrument(skip_all, fields(page = ?page_number))]
-    fn compare_page(
-        &self,
-        page_number: usize,
-        out_file: &Path,
-        ref_file: &Path,
-    ) -> ContextResult<ComparePageFailure> {
-        let err_fn = |n, e, f| {
-            Error::image(e)
-                .at(Stage::Comparison)
-                .context(format!("reading {n} image: {f:?}"))
+    pub fn compile_test(&self) -> StageResult<CompileFailure> {
+        match typst_test_lib::test::stage::compile::in_memory::compile(
+            self.test.source.clone(),
+            self.project_context.project,
+            &mut self.tracer,
+            &mut self.metrics,
+        ) {
+            Ok(output) => {
+                self.test_output = Some(output.document);
+                Ok(Ok(()))
+            }
+            Err(errors) => Ok(Err(CompileFailure { errors })),
+        }
+    }
+
+    pub fn load_reference_render(&self) -> Result<Vec<Pixmap>, LoadFailure> {
+        store::on_disk::load_pages(&self.ref_dir(), store::Format::Png)
+    }
+
+    pub fn save_reference_render(&self) -> Result<(), SaveFailure> {
+        store::on_disk::save_pages(&self.ref_dir(), store::Resource::Png(todo!()))
+    }
+
+    pub fn save_test_render(&mut self) -> Result<(), SaveFailure> {
+        store::on_disk::save_pages(&self.out_dir(), store::Resource::Png(todo!()))
+    }
+
+    pub fn compare(&self) -> Result<Result<(), compare::Failure>, Error> {
+        let Some(output) = self.test_render.map(|r| r.iter()) else {
+            return Error::missing_renders("test").at(Stage::Comparison);
         };
 
-        tracing::trace!(path = ?out_file, "reading out file");
-        let out_image = image::open(out_file)
-            .map_err(|e| err_fn("out", e, out_file))?
-            .into_rgb8();
+        let Some(reference) = self.reference_render.map(|r| r.iter()) else {
+            return Error::missing_renders("reference").at(Stage::Comparison);
+        };
 
-        tracing::trace!(path = ?ref_file, "reading ref file");
-        let ref_image = image::open(ref_file)
-            .map_err(|e| err_fn("ref", e, ref_file))?
-            .into_rgb8();
-
-        if out_image.dimensions() != ref_image.dimensions() {
-            return Ok(Err(ComparePageFailure::Dimensions {
-                output: out_image.dimensions(),
-                reference: ref_image.dimensions(),
-            }));
-        }
-
-        let mut running_error = 0;
-        let threshold = COMPARISON_THRESHOLD * (out_image.width() * out_image.height()) as f32;
-
-        for (out_px, ref_px) in out_image.pixels().zip(ref_image.pixels()) {
-            if out_px
-                .0
-                .into_iter()
-                .zip(ref_px.0)
-                .any(|(a, b)| u8::abs_diff(a, b) >= CHANNEL_DELTA)
-            {
-                running_error += 1;
-
-                if running_error as f32 >= threshold {
-                    self.save_diff_page(page_number, &out_image, &ref_image)
-                        .map_err(|e| Error::image(e).at(Stage::Comparison))?;
-                    return Ok(Err(ComparePageFailure::Content));
-                }
-            }
+        if let Err(err) = compare::visual::compare_pages(
+            outout,
+            reference,
+            // TODO: make configurable
+            compare::visual::Strategy::Simple {
+                min_delta: NonZeroU8::new(1).unwrap(),
+                min_deviation: NonZeroUsize::new(1).unwrap(),
+            },
+            self.project_context.fail_fast,
+        ) {
+            return Ok(Err(err));
         }
 
         Ok(Ok(()))
     }
 
-    #[tracing::instrument(skip_all, fields(page = ?page_number))]
-    fn save_diff_page(
-        &self,
-        page_number: usize,
-        out_image: &RgbImage,
-        ref_image: &RgbImage,
-    ) -> ImageResult<()> {
+    pub fn diff(&self) -> Result<Result<(), compare::Failure>, Error> {
+        let Some(output) = self.test_render.map(|r| r.iter()) else {
+            return Error::missing_renders("test").at(Stage::Comparison);
+        };
+
+        let Some(reference) = self.reference_render.map(|r| r.iter()) else {
+            return Error::missing_renders("reference").at(Stage::Comparison);
+        };
+
+        // TODO: make parallel for each page
         let mut diff_image = out_image.clone();
 
         for (out_px, ref_px) in diff_image.pixels_mut().zip(ref_image.pixels()) {
@@ -429,11 +305,10 @@ impl TestContext<'_, '_, '_> {
         tracing::trace!(?path, "saving diff image");
         diff_image.save(path)?;
 
-        Ok(())
+        Ok(Ok(()))
     }
 
-    #[tracing::instrument(skip(self))]
-    pub fn update(&self) -> ContextResult<UpdateFailure> {
+    pub fn update(&self) -> StageResult<UpdateFailure> {
         tracing::trace!(path = ?self.out_dir, "collecting new refs from out dir");
         let entries = util::fs::collect_dir_entries(&self.out_dir).map_err(Error::io)?;
 
@@ -446,31 +321,16 @@ impl TestContext<'_, '_, '_> {
 
         Ok(Ok(()))
     }
-
-    #[tracing::instrument(skip(self))]
-    fn update_optimize_ref(&self, out_file: &Path, ref_file: &Path) -> PngResult<()> {
-        let name = out_file.file_name().expect("we only pass files paths here");
-        tracing::trace!(
-            test = ?self.test.name(),
-            "ref" = ?name.to_str().expect("we only write utf-8 paths").trim_end_matches(".png"),
-            "optimizing ref"
-        );
-
-        oxipng::optimize(
-            &InFile::Path(out_file.to_path_buf()),
-            &OutFile::from_path(ref_file.to_path_buf()),
-            &self.project_context.optimize_options,
-        )
-    }
 }
 
-pub type ContextResult<E = TestFailure> = Result<TestResult<E>, Error>;
+pub type ContextResult<V> = Result<V, Error>;
+pub type StageResult<E = TestFailure> = ContextResult<TestResult<E>>;
 
 #[derive(Debug)]
 enum ErrorImpl {
     Io(io::Error),
     Image(image::ImageError),
-    MissingTypst,
+    MissingReferences,
 }
 
 pub struct Error {
@@ -496,10 +356,18 @@ impl Error {
         }
     }
 
-    fn missing_typst() -> Self {
+    fn missing_references() -> Self {
         Self {
-            inner: ErrorImpl::MissingTypst,
+            inner: ErrorImpl::MissingReferences,
             context: None,
+            stage: None,
+        }
+    }
+
+    fn missing_renders(kind: &str) -> Self {
+        Self {
+            inner: ErrorImpl::MissingRenders,
+            context: Some(format!("couldn't find {kind} renders")),
             stage: None,
         }
     }
@@ -542,7 +410,7 @@ impl std::error::Error for Error {
         Some(match &self.inner {
             ErrorImpl::Io(e) => e,
             ErrorImpl::Image(e) => e,
-            ErrorImpl::MissingTypst => return None,
+            ErrorImpl::MissingReferences => return None,
         })
     }
 }
