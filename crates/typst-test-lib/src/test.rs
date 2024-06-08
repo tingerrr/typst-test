@@ -12,7 +12,9 @@ pub struct Test {
 
 #[cfg(test)]
 mod tests {
+    use stage::compile::Metrics;
     use stage::{compare, compile, render};
+    use typst::eval::Tracer;
     use typst::syntax::{FileId, Source, VirtualPath};
 
     use super::*;
@@ -36,12 +38,23 @@ mod tests {
 
         let world = crate::_dev::GlobalTestWorld::default();
 
-        let output = compile::in_memory::compile(test.source.clone(), &world).unwrap();
-        let reference =
-            compile::in_memory::compile(test.reference.unwrap().clone(), &world).unwrap();
+        let output = compile::in_memory::compile(
+            test.source.clone(),
+            &world,
+            &mut Tracer::new(),
+            &mut Metrics::new(),
+        )
+        .unwrap();
+        let reference = compile::in_memory::compile(
+            test.reference.unwrap().clone(),
+            &world,
+            &mut Tracer::new(),
+            &mut Metrics::new(),
+        )
+        .unwrap();
 
-        let output = render::render_document(output.document(), render::Strategy::default());
-        let reference = render::render_document(reference.document(), render::Strategy::default());
+        let output = render::render_document(&output, render::Strategy::default());
+        let reference = render::render_document(&reference, render::Strategy::default());
 
         compare::visual::compare_pages(
             output,

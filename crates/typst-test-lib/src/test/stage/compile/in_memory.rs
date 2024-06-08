@@ -11,57 +11,28 @@ use typst::syntax::{FileId, Source};
 use typst::text::{Font, FontBook};
 use typst::{Library, World};
 
-#[derive(Clone)]
-pub struct Output {
-    document: Document,
-    tracer: Tracer,
-}
+use super::Metrics;
+use crate::util;
 
-impl Output {
-    pub fn new(document: Document, tracer: Tracer) -> Self {
-        Self { document, tracer }
-    }
-
-    pub fn document(&self) -> &Document {
-        &self.document
-    }
-
-    pub fn tracer(&self) -> &Tracer {
-        &self.tracer
-    }
-}
-
-impl Debug for Output {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Output")
-            .field("document", &self.document)
-            .finish_non_exhaustive()
-    }
-}
-
-#[derive(Clone, Error)]
-#[error("compilation failed")]
+#[derive(Debug, Error)]
+#[error("compilation failed with {} {}", errors.len(), util::fmt::plural(errors.len(), "error"))]
 pub struct Failure {
     errors: EcoVec<SourceDiagnostic>,
-    tracer: Tracer,
 }
 
-impl Debug for Failure {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Failure")
-            .field("errors", &self.errors)
-            .finish_non_exhaustive()
-    }
-}
-
-pub fn compile<W: World>(source: Source, world: &W) -> Result<Output, Failure> {
+pub fn compile<W: World>(
+    source: Source,
+    world: &W,
+    tracer: &mut Tracer,
+    metrics: &mut Metrics,
+) -> Result<Document, Failure> {
     let world = TestWorld::new(&source, world);
-    let mut tracer = Tracer::new();
 
-    match typst::compile(&world, &mut tracer) {
-        Ok(document) => Ok(Output { document, tracer }),
-        Err(errors) => Err(Failure { errors, tracer }),
-    }
+    let start = std::time::Instant::now();
+    let res = typst::compile(&world, tracer);
+    metrics.duration = start.elapsed();
+
+    res.map_err(|errors| Failure { errors })
 }
 
 /// Provides a [`World`] implementation which treats a [`Test`] as main, but otherwise delegates to
@@ -131,7 +102,7 @@ mod tests {
         let world = GlobalTestWorld::default();
         let source = Source::detached("Hello World");
 
-        compile(source, &world).unwrap();
+        compile(source, &world, &mut Tracer::new(), &mut Metrics::new()).unwrap();
     }
 
     #[test]
@@ -140,6 +111,6 @@ mod tests {
         let world = GlobalTestWorld::default();
         let source = Source::detached("#panic()");
 
-        compile(source, &world).unwrap();
+        compile(source, &world, &mut Tracer::new(), &mut Metrics::new()).unwrap();
     }
 }
