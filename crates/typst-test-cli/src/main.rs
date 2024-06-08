@@ -519,18 +519,28 @@ mod cmd {
         let mut ctx = prepare_ctx(project);
         bail_gracefully!(if_no_typst; project; ctx.typst());
 
-        let version = util::command::parse_stdout(
+        match util::command::parse_stdout(
             ctx.typst(),
             &["--version"],
             |stdout| -> anyhow::Result<Version> {
                 // "typst <x>.<y>.<z> (<hash>)"
                 Ok(Version::from_str(
-                    stdout.split(' ').nth(1).context("version wasn't given")?,
+                    stdout
+                        .trim()
+                        .split(' ')
+                        .nth(1)
+                        .context("version wasn't given")?,
                 )?)
             },
-        )??;
-
-        ctx.with_typst_version(Some(version));
+        ) {
+            Ok(Ok(version)) => {
+                ctx.with_typst_version(Some(version));
+            }
+            Ok(Err(err)) | Err(err) => {
+                tracing::warn!(?err, "Couldn't typst version");
+                reporter.warning("couldn't get typst version, using no color")?;
+            }
+        };
 
         reporter.test_start(update)?;
 
