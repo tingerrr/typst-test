@@ -164,14 +164,18 @@ impl Reporter {
         Ok(())
     }
 
+    pub fn warning(&mut self, warning: impl Display) -> io::Result<()> {
+        self.write_annotated("warning:", Color::Yellow, |this| {
+            writeln!(this, "{warning}")
+        })
+    }
+
     pub fn hint(&mut self, hint: impl Display) -> io::Result<()> {
         if !self.format.is_pretty() {
             return Ok(());
         }
 
-        write_bold_colored(self, "hint: ", Color::Cyan)?;
-        self.with_indent("hint: ".len(), |this| writeln!(this, "{hint}"))?;
-        Ok(())
+        self.write_annotated("hint:", Color::Cyan, |this| writeln!(this, "{hint}"))
     }
 
     pub fn test_result(
