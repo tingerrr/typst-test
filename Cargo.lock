@@ -2312,6 +2312,7 @@ dependencies = [
  "typst-dev-assets",
  "typst-project",
  "typst-render",
+ "unscanny",
 ]
 
 [[package]]
