@@ -1,11 +1,12 @@
-use ecow::EcoString;
+use id::Identifier;
 use typst::syntax::Source;
 
+pub mod id;
 pub mod stage;
 
 #[derive(Debug, Clone)]
 pub struct Test {
-    pub name: EcoString,
+    pub name: Identifier,
     pub source: Source,
     pub reference: Option<Source>,
 }
@@ -25,7 +26,7 @@ mod tests {
         let ref_path = "../../assets/test-assets/test/ephemeral-ref.typ";
 
         let test = Test {
-            name: "main".into(),
+            name: Identifier::new("main").unwrap(),
             source: Source::new(
                 FileId::new(None, VirtualPath::new(src_path)),
                 std::fs::read_to_string(src_path).unwrap(),
