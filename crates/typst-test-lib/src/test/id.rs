@@ -26,7 +26,12 @@ pub struct Identifier {
 }
 
 impl Identifier {
-    pub const RESERVED: &'static [&'static str] = &["out", "ref", "tmp", "self"];
+    pub const RESERVED: &'static [&'static str] = &[
+        super::REF_NAME,
+        super::TEST_NAME,
+        super::OUT_NAME,
+        super::DIFF_NAME,
+    ];
 
     pub const SEPARATOR: &'static str = "/";
 
@@ -211,6 +216,7 @@ mod tests {
 
     #[test]
     fn test_str_invalid() {
+        assert!(Identifier::new("out").is_err());
         assert!(Identifier::new("/a").is_err());
         assert!(Identifier::new("a/").is_err());
         assert!(Identifier::new("a//b").is_err());
@@ -231,6 +237,7 @@ mod tests {
 
     #[test]
     fn test_path_invalid() {
+        assert!(Identifier::from_path("out").is_err());
         assert!(Identifier::from_path("a ").is_err());
         assert!(Identifier::from_path("1a").is_err());
         assert!(Identifier::from_path("").is_err());
