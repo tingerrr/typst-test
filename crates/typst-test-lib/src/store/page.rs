@@ -15,7 +15,7 @@ pub trait PageFormat {
     type SaveError: std::error::Error + 'static;
 
     /// The type returned after the format is fully loaded.
-    type Type;
+    type Type: Debug;
 
     /// The extension used for this format.
     const EXTENSION: &'static str;
@@ -152,11 +152,15 @@ fn load_pages_internal<F: PageFormat>(
 
 /// Loads all pages in the given direcory in the given format. The file names
 /// for the indiviual pages are their 1-based index without any 0-padding.
-pub fn save_pages<F: PageFormat>(dir: &Path, pages: &[F::Type]) -> Result<(), SaveError<F>>
+pub fn save_pages<'p, F>(
+    dir: &Path,
+    pages: impl IntoIterator<Item = &'p F::Type>,
+) -> Result<(), SaveError<F>>
 where
-    F::Type: Debug,
+    F: PageFormat,
+    F::Type: 'p,
 {
-    for (idx, page) in pages.iter().enumerate() {
+    for (idx, page) in pages.into_iter().enumerate() {
         let path = dir.join(idx.to_string()).with_extension(F::EXTENSION);
         F::save_page(page, &path).map_err(SaveError::Format)?;
     }

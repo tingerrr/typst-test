@@ -26,7 +26,14 @@ pub mod fmt {
 }
 
 pub mod result {
-    pub fn ignore<T, E, F>(result: Result<T, E>, check: F) -> Result<T, E>
+    pub fn ignore<T, E, F>(result: Result<T, E>, check: F) -> Result<Option<T>, E>
+    where
+        F: FnOnce(&E) -> bool,
+    {
+        ignore_with(result.map(Some), check, |_| None)
+    }
+
+    pub fn ignore_default<T, E, F>(result: Result<T, E>, check: F) -> Result<T, E>
     where
         T: Default,
         F: FnOnce(&E) -> bool,
@@ -90,9 +97,22 @@ pub mod fs {
             }
         }
 
-        result::ignore(inner(path.as_ref(), all), |e| {
+        result::ignore_default(inner(path.as_ref(), all), |e| {
             e.kind() == ErrorKind::AlreadyExists
         })
+    }
+
+    pub fn remove_file<P>(path: P) -> io::Result<()>
+    where
+        P: AsRef<Path>,
+    {
+        fn inner(path: &Path) -> io::Result<()> {
+            result::ignore_default(std::fs::remove_file(path), |e| {
+                e.kind() == ErrorKind::NotFound
+            })
+        }
+
+        inner(path.as_ref())
     }
 
     pub fn remove_dir<P>(path: P, all: bool) -> io::Result<()>
@@ -109,7 +129,7 @@ pub mod fs {
 
         let path = path.as_ref();
 
-        result::ignore(inner(path, all), |e| {
+        result::ignore_default(inner(path, all), |e| {
             if e.kind() == ErrorKind::NotFound {
                 let parent_exists = path
                     .parent()

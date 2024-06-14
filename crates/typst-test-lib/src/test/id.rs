@@ -13,14 +13,6 @@ pub enum ParseIdentifierError {
     #[error("identifier contained an invalid fragment")]
     InvalidFrament,
 
-    /// An identifier was not valid UTF-8.
-    #[error("identifier was not valid UTF-8")]
-    NotUtf8,
-
-    /// An identifier contained a reserved fragment.
-    #[error("identifier contained a reserved fragment {0:?}")]
-    Reserved(&'static str),
-
     /// An identifier contained empty or no fragments.
     #[error("identifier contained empty or no fragments")]
     Empty,
@@ -34,14 +26,6 @@ pub struct Identifier {
 }
 
 impl Identifier {
-    /// Reserved components, these may not be used for test or module names.
-    pub const RESERVED: &'static [&'static str] = &[
-        super::REF_NAME,
-        super::TEST_NAME,
-        super::OUT_NAME,
-        super::DIFF_NAME,
-    ];
-
     /// The test component separator.
     pub const SEPARATOR: &'static str = "/";
 
@@ -54,78 +38,109 @@ impl Identifier {
     /// # Examples
     /// ```
     /// # use typst_test_lib::test::id::Identifier;
-    /// let id = Identifier::from_path("a/b/c")?;
+    /// let id = Identifier::new("a/b/c")?;
     /// # Ok::<_, Box<dyn std::error::Error>>(())
     /// ```
     ///
     /// # Errors
     /// Returns an error if a component wasn't valid.
-    pub fn new<S: Into<EcoString>>(id: S) -> Result<Self, ParseIdentifierError> {
-        let id = id.into();
-
-        for fragment in id.split(Self::SEPARATOR) {
-            Self::check_component(fragment)?;
-        }
+    pub fn new<S: Into<EcoString>>(string: S) -> Result<Self, ParseIdentifierError> {
+        let id = string.into();
+        Self::validate(&id)?;
 
         Ok(Self { id })
     }
 
-    /// Turns this path into an identifier.
-    ///
-    /// All components must start at least one ascii alphabetic letter and
-    /// contain only ascii alphanumeric characters, underscores and minuses.
-    /// No component can be equal to the values in [`Identifier::RESERVED`].
+    /// Turns this path into an identifier, this follows the same rules as
+    /// [`Self::new`] with the additional constraint that paths must valid
+    /// UTF-8.
     ///
     /// # Examples
     /// ```
     /// # use typst_test_lib::test::id::Identifier;
-    /// let id = Identifier::from_path("a/b/c")?;
+    /// let id = Identifier::new_from_path("a/b/c")?;
     /// # Ok::<_, Box<dyn std::error::Error>>(())
     /// ```
     ///
     /// # Errors
     /// Returns an error if a component wasn't valid.
-    pub fn from_path<S: AsRef<Path>>(id: S) -> Result<Self, ParseIdentifierError> {
-        fn inner(path: &Path) -> Result<Identifier, ParseIdentifierError> {
-            if path.as_os_str().is_empty() {
-                return Err(ParseIdentifierError::Empty);
-            }
+    pub fn new_from_path<P: AsRef<Path>>(path: P) -> Result<Self, ParseIdentifierError> {
+        let mut id = String::new();
 
-            let mut id = EcoString::new();
+        for component in path.as_ref().components() {
+            match component {
+                Component::Normal(comp) => {
+                    if let Some(comp) = comp.to_str() {
+                        Self::validate_component(comp)?;
 
-            for component in path.components() {
-                match component {
-                    Component::RootDir => {}
-                    Component::Prefix(_) | Component::CurDir | Component::ParentDir => {
-                        return Err(ParseIdentifierError::InvalidFrament)
-                    }
-                    Component::Normal(component) => {
-                        let fragment = component.to_str().ok_or(ParseIdentifierError::NotUtf8)?;
-                        Identifier::check_component(fragment)?;
                         if !id.is_empty() {
-                            id.push_str(Identifier::SEPARATOR);
+                            id.push_str(Self::SEPARATOR);
                         }
-                        id.push_str(fragment);
+
+                        id.push_str(comp);
+                    } else {
+                        return Err(ParseIdentifierError::InvalidFrament);
                     }
                 }
+                _ => return Err(ParseIdentifierError::InvalidFrament),
             }
-
-            Ok(Identifier { id })
         }
 
-        inner(id.as_ref())
+        Ok(Self { id: id.into() })
     }
 
-    fn check_component(fragment: &str) -> Result<(), ParseIdentifierError> {
-        if fragment.is_empty() {
+    /// Turns this string into an identifier without validating it.
+    ///
+    /// # Safety
+    /// The caller must ensure that the given string is a valid identifier.
+    pub unsafe fn new_unchecked(string: EcoString) -> Self {
+        debug_assert!(Self::is_valid(&string));
+        Self { id: string }
+    }
+
+    /// Returns whether the given string is a valid identifier.
+    ///
+    /// # Exmaples
+    /// ```
+    /// # use typst_test_lib::test::id::Identifier;
+    /// assert!( Identifier::is_valid("a/b/c"));
+    /// assert!( Identifier::is_valid("a/b"));
+    /// assert!( Identifier::is_valid("a"));
+    /// assert!(!Identifier::is_valid("a//b")); // empty component
+    /// assert!(!Identifier::is_valid("a/"));   // empty component
+    /// ```
+    pub fn is_valid(string: &str) -> bool {
+        Self::validate(string).is_ok()
+    }
+
+    fn validate(string: &str) -> Result<(), ParseIdentifierError> {
+        for fragment in string.split(Self::SEPARATOR) {
+            Self::validate_component(fragment)?;
+        }
+
+        Ok(())
+    }
+
+    /// Returns whether the given string is a valid identifier component.
+    ///
+    /// # Exmaples
+    /// ```
+    /// # use typst_test_lib::test::id::Identifier;
+    /// assert!( Identifier::is_component_valid("a"));
+    /// assert!( Identifier::is_component_valid("a1"));
+    /// assert!(!Identifier::is_component_valid("1a"));  // invalid char
+    /// assert!(!Identifier::is_component_valid("a "));  // invalid char
+    /// ```
+    pub fn is_component_valid(component: &str) -> bool {
+        Self::validate_component(component).is_ok()
+    }
+
+    fn validate_component(component: &str) -> Result<(), ParseIdentifierError> {
+        if component.is_empty() {
             return Err(ParseIdentifierError::Empty);
         }
 
-        if let Some(reserved) = Self::RESERVED.iter().find(|&&r| fragment == r) {
-            return Err(ParseIdentifierError::Reserved(reserved));
-        }
-
-        let mut chars = fragment.chars().peekable();
+        let mut chars = component.chars().peekable();
         if !chars.next().unwrap().is_ascii_alphabetic() {
             return Err(ParseIdentifierError::InvalidFrament);
         }
@@ -150,7 +165,7 @@ impl Identifier {
     /// # Examples
     /// ```
     /// # use typst_test_lib::test::id::Identifier;
-    /// let id = Identifier::from_path("a/b/c")?;
+    /// let id = Identifier::new("a/b/c")?;
     /// assert_eq!(id.name(), "c");
     /// # Ok::<_, Box<dyn std::error::Error>>(())
     /// ```
@@ -164,7 +179,7 @@ impl Identifier {
     /// # Examples
     /// ```
     /// # use typst_test_lib::test::id::Identifier;
-    /// let id = Identifier::from_path("a/b/c")?;
+    /// let id = Identifier::new("a/b/c")?;
     /// assert_eq!(id.module(), "a/b");
     /// # Ok::<_, Box<dyn std::error::Error>>(())
     /// ```
@@ -180,7 +195,7 @@ impl Identifier {
     /// # Examples
     /// ```
     /// # use typst_test_lib::test::id::Identifier;
-    /// let id = Identifier::from_path("a/b/c")?;
+    /// let id = Identifier::new("a/b/c")?;
     /// let mut components = id.components();
     /// assert_eq!(components.next(), Some("a"));
     /// assert_eq!(components.next(), Some("b"));
@@ -285,28 +300,18 @@ impl<'id> DoubleEndedIterator for Components<'id> {
 mod tests {
     use super::*;
 
-    macro_rules! assert_components {
-        ($ctor:ident, $val:expr, $comps:expr) => {
-            assert_eq!(
-                Identifier::$ctor($val)
-                    .unwrap()
-                    .components()
-                    .collect::<Vec<_>>(),
-                $comps,
-            );
-        };
-    }
-
     #[test]
     fn test_components() {
         assert_eq!(
-            Identifier { id: "a/b/c".into() }
+            Identifier::new("a/b/c")
+                .unwrap()
                 .components()
                 .collect::<Vec<_>>(),
             ["a", "b", "c"]
         );
         assert_eq!(
-            Identifier { id: "a/b/c".into() }
+            Identifier::new("a/b/c")
+                .unwrap()
                 .components()
                 .rev()
                 .collect::<Vec<_>>(),
@@ -333,14 +338,7 @@ mod tests {
     }
 
     #[test]
-    fn test_str_valid() {
-        assert_components!(new, "a/b/c", ["a", "b", "c"]);
-        assert_components!(new, "a1", ["a1"]);
-    }
-
-    #[test]
     fn test_str_invalid() {
-        assert!(Identifier::new("out").is_err());
         assert!(Identifier::new("/a").is_err());
         assert!(Identifier::new("a/").is_err());
         assert!(Identifier::new("a//b").is_err());
@@ -348,22 +346,5 @@ mod tests {
         assert!(Identifier::new("a ").is_err());
         assert!(Identifier::new("1a").is_err());
         assert!(Identifier::new("").is_err());
-    }
-
-    #[test]
-    fn test_path_valid() {
-        assert_components!(from_path, "a/b/c", ["a", "b", "c"]);
-        assert_components!(from_path, "a//c", ["a", "c"]);
-        assert_components!(from_path, "/a", ["a"]);
-        assert_components!(from_path, "a/", ["a"]);
-        assert_components!(from_path, "a1", ["a1"]);
-    }
-
-    #[test]
-    fn test_path_invalid() {
-        assert!(Identifier::from_path("out").is_err());
-        assert!(Identifier::from_path("a ").is_err());
-        assert!(Identifier::from_path("1a").is_err());
-        assert!(Identifier::from_path("").is_err());
     }
 }
