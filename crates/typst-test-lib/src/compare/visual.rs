@@ -2,7 +2,7 @@ use std::num::{NonZeroU8, NonZeroUsize};
 
 use tiny_skia::Pixmap;
 
-use super::{Failure, PageFailure, Size};
+use super::{Error, PageError, Size};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Strategy {
@@ -28,9 +28,9 @@ pub fn compare_pages(
     references: impl ExactSizeIterator<Item = Pixmap>,
     strategy: Strategy,
     fail_fast: bool,
-) -> Result<(), Failure> {
+) -> Result<(), Error> {
     if outputs.len() != references.len() {
-        return Err(Failure::PageCount {
+        return Err(Error::PageCount {
             output: outputs.len(),
             reference: references.len(),
         });
@@ -54,7 +54,7 @@ pub fn compare_pages(
 
     if page_errors.len() != 0 {
         page_errors.shrink_to_fit();
-        return Err(Failure::Page { pages: page_errors });
+        return Err(Error::Page { pages: page_errors });
     }
 
     Ok(())
@@ -64,14 +64,14 @@ pub fn compare_page(
     output: Pixmap,
     reference: Pixmap,
     strategy: Strategy,
-) -> Result<(), PageFailure> {
+) -> Result<(), PageError> {
     let Strategy::Simple {
         min_delta,
         min_deviation,
     } = strategy;
 
     if output.width() != reference.width() || output.height() != reference.height() {
-        return Err(PageFailure::Dimensions {
+        return Err(PageError::Dimensions {
             output: Size {
                 width: output.width(),
                 height: output.height(),
@@ -93,7 +93,7 @@ pub fn compare_page(
         .count();
 
     if deviations >= min_deviation.get() {
-        return Err(PageFailure::Content { deviations });
+        return Err(PageError::Content { deviations });
     }
 
     Ok(())
@@ -158,7 +158,7 @@ mod tests {
                     min_deviation: NonZeroUsize::new(1).unwrap(),
                 },
             ),
-            Err(PageFailure::Content { deviations: 4 })
+            Err(PageError::Content { deviations: 4 })
         ))
     }
 }

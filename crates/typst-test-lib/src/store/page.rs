@@ -6,22 +6,36 @@ use std::path::Path;
 use thiserror::Error;
 use tiny_skia::Pixmap;
 
-pub trait DiskFormat: Sized {
+/// A format which saves multiple pages of a document as individual files.
+pub trait PageFormat {
+    /// The error type returned when loading a page fails.
     type LoadError: std::error::Error + 'static;
+
+    /// The error type returned when saving a page fails.
     type SaveError: std::error::Error + 'static;
+
+    /// The type returned after the format is fully loaded.
     type Type;
+
+    /// The extension used for this format.
     const EXTENSION: &'static str;
 
+    /// Loads a single page from the given path.
     fn load_page(path: &Path) -> Result<Self::Type, Self::LoadError>;
+
+    /// Saves a single page at the given path.
     fn save_page(value: &Self::Type, path: &Path) -> Result<(), Self::SaveError>;
 }
 
+/// The PNG file format used for storing rendered apges for visual comparison.
 pub struct Png(());
 
-impl DiskFormat for Png {
+impl PageFormat for Png {
     type LoadError = png::DecodingError;
     type SaveError = png::EncodingError;
+
     type Type = Pixmap;
+
     const EXTENSION: &'static str = "png";
 
     fn load_page(path: &Path) -> Result<Self::Type, Self::LoadError> {
@@ -33,8 +47,9 @@ impl DiskFormat for Png {
     }
 }
 
+/// A generic loading error for a format.
 #[derive(Error)]
-pub enum LoadFailure<F: DiskFormat> {
+pub enum LoadError<F: PageFormat> {
     #[error("an io error occured")]
     Io(#[from] io::Error),
 
@@ -42,7 +57,7 @@ pub enum LoadFailure<F: DiskFormat> {
     Format(#[source] F::LoadError),
 }
 
-impl<F: DiskFormat> Debug for LoadFailure<F>
+impl<F: PageFormat> Debug for LoadError<F>
 where
     F::LoadError: Debug,
 {
@@ -54,8 +69,9 @@ where
     }
 }
 
+/// A generic saving error for a format.
 #[derive(Error)]
-pub enum SaveFailure<F: DiskFormat> {
+pub enum SaveError<F: PageFormat> {
     #[error("an io error occured")]
     Io(#[from] io::Error),
 
@@ -63,7 +79,7 @@ pub enum SaveFailure<F: DiskFormat> {
     Format(#[source] F::SaveError),
 }
 
-impl<F: DiskFormat> Debug for SaveFailure<F>
+impl<F: PageFormat> Debug for SaveError<F>
 where
     F::SaveError: Debug,
 {
@@ -75,8 +91,10 @@ where
     }
 }
 
-#[tracing::instrument]
-pub fn probe_pages<F: DiskFormat>(dir: &Path) -> Result<usize, LoadFailure<F>> {
+/// Counts all pages in the given direcory of a given format. Any files which do
+/// not have ascii numerals are their file name and the format extension are
+/// ignored.
+pub fn count_pages<F: PageFormat>(dir: &Path) -> Result<usize, LoadError<F>> {
     let mut count = 0;
 
     load_pages_internal(dir, |_, _| -> Result<_, F::LoadError> {
@@ -87,8 +105,10 @@ pub fn probe_pages<F: DiskFormat>(dir: &Path) -> Result<usize, LoadFailure<F>> {
     Ok(count)
 }
 
-#[tracing::instrument]
-pub fn load_pages<F: DiskFormat>(dir: &Path) -> Result<Vec<F::Type>, LoadFailure<F>> {
+/// Loads all pages in the given direcory of a given format. Any files which do
+/// not have ascii numerals are their file name and the format extension are
+/// ignored.
+pub fn load_pages<F: PageFormat>(dir: &Path) -> Result<Vec<F::Type>, LoadError<F>> {
     let mut values = BTreeMap::new();
 
     load_pages_internal(dir, |path, page| -> Result<_, F::LoadError> {
@@ -99,10 +119,10 @@ pub fn load_pages<F: DiskFormat>(dir: &Path) -> Result<Vec<F::Type>, LoadFailure
     Ok(values.into_values().collect())
 }
 
-fn load_pages_internal<F: DiskFormat>(
+fn load_pages_internal<F: PageFormat>(
     dir: &Path,
     mut loader: impl FnMut(&Path, usize) -> Result<(), F::LoadError>,
-) -> Result<(), LoadFailure<F>> {
+) -> Result<(), LoadError<F>> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
 
@@ -123,21 +143,22 @@ fn load_pages_internal<F: DiskFormat>(
         };
 
         if path.extension().is_some_and(|ext| ext == F::EXTENSION) {
-            loader(&path, page).map_err(LoadFailure::Format)?;
+            loader(&path, page).map_err(LoadError::Format)?;
         }
     }
 
     Ok(())
 }
 
-#[tracing::instrument]
-fn save_pages<F: DiskFormat>(dir: &Path, pages: &[F::Type]) -> Result<(), SaveFailure<F>>
+/// Loads all pages in the given direcory in the given format. The file names
+/// for the indiviual pages are their 1-based index without any 0-padding.
+pub fn save_pages<F: PageFormat>(dir: &Path, pages: &[F::Type]) -> Result<(), SaveError<F>>
 where
     F::Type: Debug,
 {
     for (idx, page) in pages.iter().enumerate() {
         let path = dir.join(idx.to_string()).with_extension(F::EXTENSION);
-        F::save_page(page, &path).map_err(SaveFailure::Format)?;
+        F::save_page(page, &path).map_err(SaveError::Format)?;
     }
 
     Ok(())
@@ -183,9 +204,9 @@ mod tests {
     }
 
     #[test]
-    fn test_probe_png() {
+    fn test_count_png() {
         assert_eq!(
-            probe_pages::<Png>(Path::new("../../assets/test-assets/store/load")).unwrap(),
+            count_pages::<Png>(Path::new("../../assets/test-assets/store/load")).unwrap(),
             3
         );
     }

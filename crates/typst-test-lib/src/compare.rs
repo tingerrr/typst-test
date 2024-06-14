@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use thiserror::Error;
 
 use super::render;
@@ -5,6 +7,9 @@ use crate::util;
 
 pub mod structural;
 pub mod visual;
+
+// TODO: comparison erros should differ depending on the format and strategy
+// implement this similar to the store page formats, currently they are to visual centric
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Strategy {
@@ -18,8 +23,8 @@ impl Default for Strategy {
     }
 }
 
-#[derive(Debug, Clone, Error)]
-pub enum Failure {
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
     #[error("page count differed: out ({output}) != ref ({reference})")]
     PageCount { output: usize, reference: usize },
 
@@ -29,7 +34,7 @@ pub enum Failure {
         util::fmt::plural(pages.len(), "page"),
         pages.iter().map(|(n, _)| n).collect::<Vec<_>>()
     )]
-    Page { pages: Vec<(usize, PageFailure)> },
+    Page { pages: Vec<(usize, PageError)> },
 
     #[error("document mismatch")]
     Document,
@@ -41,9 +46,9 @@ pub enum Failure {
     MissingReferences,
 }
 
-#[derive(Debug, Clone, Error)]
-pub enum PageFailure {
-    #[error("dimensions differed: out {output:?} != ref {reference:?}")]
+#[derive(Debug, Error)]
+pub enum PageError {
+    #[error("dimensions differed: out {output} != ref {reference}")]
     Dimensions { output: Size, reference: Size },
 
     #[error(
@@ -57,8 +62,18 @@ pub enum PageFailure {
     Structure,
 }
 
+/// A struct representing page size in pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Size {
+    /// The width of the page.
     pub width: u32,
+
+    /// Thenheight of the page.
     pub height: u32,
+}
+
+impl Display for Size {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}x{}", self.width, self.height)
+    }
 }

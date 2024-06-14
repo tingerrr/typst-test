@@ -6,7 +6,7 @@ use id::{Identifier, ParseIdentifierError};
 use thiserror::Error;
 use typst::syntax::{FileId, Source, VirtualPath};
 
-use crate::store::on_disk::{DiskFormat, LoadFailure};
+use crate::store::page::{LoadError, PageFormat};
 use crate::store::{self};
 
 pub mod id;
@@ -58,7 +58,7 @@ impl Test {
 
     /// Loads the test script source of this test.
     pub fn load_test_source<P: AsRef<Path>>(&self, test_root: P) -> io::Result<Source> {
-        let path = self.id.to_path().join("test.typ");
+        let path = self.id.to_path().join(TEST_NAME).with_extension("typ");
         let path = test_root.as_ref().join(path);
         Ok(Source::new(
             FileId::new(None, VirtualPath::new(&path)),
@@ -70,7 +70,7 @@ impl Test {
     pub fn load_ref_source<P: AsRef<Path>>(&self, test_root: P) -> io::Result<Option<Source>> {
         match self.ref_kind {
             Some(ReferenceKind::Ephemeral) => {
-                let path = self.id.to_path().join("ref.typ");
+                let path = self.id.to_path().join(REF_NAME).with_extension("typ");
                 let path = test_root.as_ref().join(path);
                 Ok(Some(Source::new(
                     FileId::new(None, VirtualPath::new(&path)),
@@ -82,15 +82,15 @@ impl Test {
     }
 
     /// Loads the persistent reference pages of this test, if they exist.
-    pub fn load_ref_pages<F: DiskFormat, P: AsRef<Path>>(
+    pub fn load_ref_pages<F: PageFormat, P: AsRef<Path>>(
         &self,
         test_root: P,
-    ) -> Result<Option<Vec<F::Type>>, LoadFailure<F>> {
+    ) -> Result<Option<Vec<F::Type>>, LoadError<F>> {
         match self.ref_kind {
             Some(ReferenceKind::Persistent) => {
                 let path = self.id.to_path().join("ref");
                 let path = test_root.as_ref().join(path);
-                store::on_disk::load_pages(&path).map(Some)
+                store::page::load_pages(&path).map(Some)
             }
             _ => Ok(None),
         }
@@ -159,7 +159,12 @@ pub fn collect<P: AsRef<Path>>(test_root: P) -> Result<BTreeMap<Identifier, Test
             }
         };
 
-        let id = Identifier::from_path(entry.path().strip_prefix(test_root).unwrap())?;
+        let id = Identifier::from_path(
+            entry
+                .path()
+                .strip_prefix(test_root)
+                .expect("must be within test_root"),
+        )?;
 
         tests.insert(
             id.clone(),
@@ -178,13 +183,14 @@ mod tests {
     use typst::eval::Tracer;
 
     use super::*;
+    use crate::_dev::GlobalTestWorld;
     use crate::compile::Metrics;
-    use crate::store::on_disk::Png;
-    use crate::{compare, compile, render, store};
+    use crate::store::page::Png;
+    use crate::{compare, compile, render};
 
     #[test]
     fn test_e2e() {
-        let world = crate::_dev::GlobalTestWorld::default();
+        let world = GlobalTestWorld::default();
         let root = "../../assets/test-assets/collect/";
 
         // taken from typst-cli which generated the persistent ref iamges
@@ -196,7 +202,7 @@ mod tests {
         let tests = collect(root).unwrap();
         for test in tests.values() {
             let source = test.load_test_source(root).unwrap();
-            let output = compile::in_memory::compile(
+            let output = compile::compile(
                 source.clone(),
                 &world,
                 &mut Tracer::new(),
@@ -211,7 +217,7 @@ mod tests {
             let output = render::render_document(&output, strategy);
 
             let reference = if let Some(reference) = test.load_ref_source(root).unwrap() {
-                let reference = compile::in_memory::compile(
+                let reference = compile::compile(
                     reference.clone(),
                     &world,
                     &mut Tracer::new(),

@@ -1,13 +1,13 @@
 use typst::layout::{Frame, FrameItem, Page};
 use typst::model::Document;
 
-use super::{Failure, PageFailure};
+use super::{Error, PageError};
 
 pub fn compare_documents(
     output: &Document,
     reference: &Document,
     fail_fast: bool,
-) -> Result<(), Failure> {
+) -> Result<(), Error> {
     if output.date == reference.date
         && output.title == reference.title
         && output.author == reference.author
@@ -18,7 +18,7 @@ pub fn compare_documents(
     }
 
     if output.pages.len() != reference.pages.len() {
-        return Err(Failure::PageCount {
+        return Err(Error::PageCount {
             output: output.pages.len(),
             reference: reference.pages.len(),
         });
@@ -42,17 +42,17 @@ pub fn compare_documents(
 
     if page_errors.len() != 0 {
         page_errors.shrink_to_fit();
-        return Err(Failure::Page { pages: page_errors });
+        return Err(Error::Page { pages: page_errors });
     }
 
     Ok(())
 }
 
-fn compare_page(a: &Page, b: &Page) -> Result<(), PageFailure> {
+fn compare_page(a: &Page, b: &Page) -> Result<(), PageError> {
     if a.number == b.number && a.numbering == b.numbering && frame_eq(&a.frame, &b.frame) {
         Ok(())
     } else {
-        Err(PageFailure::Structure)
+        Err(PageError::Structure)
     }
 }
 
