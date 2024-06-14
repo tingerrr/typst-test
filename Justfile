@@ -2,9 +2,10 @@
 default:
 	@just --list
 
-# run typst-test with the typst test-scripts
-test root=justfile_directory():
-	cargo run -- run --root {{ root }}
+# run a full test harness
+test:
+	cargo nextest run
+	cargo test --doc
 
 # install typst-test using cargo
 install:
