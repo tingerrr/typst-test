@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::io;
 use std::path::Path;
 
-use id::{Identifier, IdentifierError};
+use id::{Identifier, ParseIdentifierError};
 use thiserror::Error;
 
 pub mod id;
@@ -33,7 +33,7 @@ pub enum CollectError {
     Io(#[from] io::Error),
 
     #[error("an error occured while collecting a test")]
-    Test(#[from] IdentifierError),
+    Test(#[from] ParseIdentifierError),
 }
 
 pub fn collect<P: AsRef<Path>>(test_root: P) -> Result<BTreeMap<Identifier, Test>, CollectError> {

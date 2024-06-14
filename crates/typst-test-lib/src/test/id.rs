@@ -1,31 +1,40 @@
+use std::borrow::{Borrow, Cow};
 use std::fmt::Display;
 use std::ops::Deref;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
 
 use ecow::EcoString;
 
+/// An error returned when parsing of an identifier fails.
 #[derive(Debug, thiserror::Error)]
-pub enum IdentifierError {
+pub enum ParseIdentifierError {
+    /// An identifier contained an invalid fragment.
     #[error("identifier contained an invalid fragment")]
     InvalidFrament,
 
+    /// An identifier was not valid UTF-8.
     #[error("identifier was not valid UTF-8")]
     NotUtf8,
 
+    /// An identifier contained a reserved fragment.
     #[error("identifier contained a reserved fragment {0:?}")]
     Reserved(&'static str),
 
+    /// An identifier contained empty or no fragments.
     #[error("identifier contained empty or no fragments")]
     Empty,
 }
 
+/// A test identifier, this is the full path from the test root directory, down
+/// to the folder containing the test script.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Identifier {
     id: EcoString,
 }
 
 impl Identifier {
+    /// Reserved components, these may not be used for test or module names.
     pub const RESERVED: &'static [&'static str] = &[
         super::REF_NAME,
         super::TEST_NAME,
@@ -33,22 +42,53 @@ impl Identifier {
         super::DIFF_NAME,
     ];
 
+    /// The test component separator.
     pub const SEPARATOR: &'static str = "/";
 
-    pub fn new<S: Into<EcoString>>(id: S) -> Result<Self, IdentifierError> {
+    /// Turns this string into an identifier.
+    ///
+    /// All components must start at least one ascii alphabetic letter and
+    /// contain only ascii alphanumeric characters, underscores and minuses.
+    /// No component can be equal to the values in [`Identifier::RESERVED`].
+    ///
+    /// # Examples
+    /// ```
+    /// # use typst_test_lib::test::id::Identifier;
+    /// let id = Identifier::from_path("a/b/c")?;
+    /// # Ok::<_, Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Errors
+    /// Returns an error if a component wasn't valid.
+    pub fn new<S: Into<EcoString>>(id: S) -> Result<Self, ParseIdentifierError> {
         let id = id.into();
 
         for fragment in id.split(Self::SEPARATOR) {
-            Self::check_fragment(fragment)?;
+            Self::check_component(fragment)?;
         }
 
         Ok(Self { id })
     }
 
-    pub fn from_path<S: AsRef<Path>>(id: S) -> Result<Self, IdentifierError> {
-        fn inner(path: &Path) -> Result<Identifier, IdentifierError> {
+    /// Turns this path into an identifier.
+    ///
+    /// All components must start at least one ascii alphabetic letter and
+    /// contain only ascii alphanumeric characters, underscores and minuses.
+    /// No component can be equal to the values in [`Identifier::RESERVED`].
+    ///
+    /// # Examples
+    /// ```
+    /// # use typst_test_lib::test::id::Identifier;
+    /// let id = Identifier::from_path("a/b/c")?;
+    /// # Ok::<_, Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// # Errors
+    /// Returns an error if a component wasn't valid.
+    pub fn from_path<S: AsRef<Path>>(id: S) -> Result<Self, ParseIdentifierError> {
+        fn inner(path: &Path) -> Result<Identifier, ParseIdentifierError> {
             if path.as_os_str().is_empty() {
-                return Err(IdentifierError::Empty);
+                return Err(ParseIdentifierError::Empty);
             }
 
             let mut id = EcoString::new();
@@ -57,11 +97,11 @@ impl Identifier {
                 match component {
                     Component::RootDir => {}
                     Component::Prefix(_) | Component::CurDir | Component::ParentDir => {
-                        return Err(IdentifierError::InvalidFrament)
+                        return Err(ParseIdentifierError::InvalidFrament)
                     }
-                    Component::Normal(fragment) => {
-                        let fragment = fragment.to_str().ok_or(IdentifierError::NotUtf8)?;
-                        Identifier::check_fragment(fragment)?;
+                    Component::Normal(component) => {
+                        let fragment = component.to_str().ok_or(ParseIdentifierError::NotUtf8)?;
+                        Identifier::check_component(fragment)?;
                         if !id.is_empty() {
                             id.push_str(Identifier::SEPARATOR);
                         }
@@ -76,35 +116,93 @@ impl Identifier {
         inner(id.as_ref())
     }
 
-    fn check_fragment(fragment: &str) -> Result<(), IdentifierError> {
+    fn check_component(fragment: &str) -> Result<(), ParseIdentifierError> {
         if fragment.is_empty() {
-            return Err(IdentifierError::Empty);
+            return Err(ParseIdentifierError::Empty);
         }
 
         if let Some(reserved) = Self::RESERVED.iter().find(|&&r| fragment == r) {
-            return Err(IdentifierError::Reserved(reserved));
+            return Err(ParseIdentifierError::Reserved(reserved));
         }
 
         let mut chars = fragment.chars().peekable();
         if !chars.next().unwrap().is_ascii_alphabetic() {
-            return Err(IdentifierError::InvalidFrament);
+            return Err(ParseIdentifierError::InvalidFrament);
         }
 
         if chars.peek().is_some()
             && !chars.all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
         {
-            return Err(IdentifierError::InvalidFrament);
+            return Err(ParseIdentifierError::InvalidFrament);
         }
 
         Ok(())
     }
 
+    /// Returns a reference to the full identifier.
     pub fn as_str(&self) -> &str {
         self.id.as_str()
     }
 
+    /// Returns the name of this test, the last component of this identifier.
+    /// Is never empty.
+    ///
+    /// # Examples
+    /// ```
+    /// # use typst_test_lib::test::id::Identifier;
+    /// let id = Identifier::from_path("a/b/c")?;
+    /// assert_eq!(id.name(), "c");
+    /// # Ok::<_, Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn name(&self) -> &str {
+        self.components().next_back().expect("is non-empty")
+    }
+
+    /// Returns the module containing the, all but the last component of this
+    /// identifier. May be empty.
+    ///
+    /// # Examples
+    /// ```
+    /// # use typst_test_lib::test::id::Identifier;
+    /// let id = Identifier::from_path("a/b/c")?;
+    /// assert_eq!(id.module(), "a/b");
+    /// # Ok::<_, Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn module(&self) -> &str {
+        let mut c = self.components();
+        _ = c.next_back().expect("is non-empty");
+        c.rest
+    }
+
+    /// The components of this identifier, the corresponds to the path direcotry
+    /// path of the test.
+    ///
+    /// # Examples
+    /// ```
+    /// # use typst_test_lib::test::id::Identifier;
+    /// let id = Identifier::from_path("a/b/c")?;
+    /// let mut components = id.components();
+    /// assert_eq!(components.next(), Some("a"));
+    /// assert_eq!(components.next(), Some("b"));
+    /// assert_eq!(components.next(), Some("c"));
+    /// assert_eq!(components.next(), None);
+    /// # Ok::<_, Box<dyn std::error::Error>>(())
+    /// ```
     pub fn components(&self) -> Components<'_> {
         Components { rest: &self.id }
+    }
+
+    /// Turns this identifier into a path relative to the test directory root.
+    pub fn to_path(&self) -> Cow<'_, Path> {
+        let s = self.id.as_str();
+
+        if Self::SEPARATOR == std::path::MAIN_SEPARATOR_STR {
+            Cow::Borrowed(Path::new(s))
+        } else {
+            Cow::Owned(PathBuf::from(
+                s.replace(Self::SEPARATOR, std::path::MAIN_SEPARATOR_STR),
+            ))
+        }
     }
 }
 
@@ -122,8 +220,14 @@ impl AsRef<str> for Identifier {
     }
 }
 
+impl Borrow<str> for Identifier {
+    fn borrow(&self) -> &str {
+        self.id.as_str()
+    }
+}
+
 impl FromStr for Identifier {
-    type Err = IdentifierError;
+    type Err = ParseIdentifierError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::new(s)
@@ -136,6 +240,8 @@ impl Display for Identifier {
     }
 }
 
+/// An iterator over components of an identifier, returned by
+/// [`Identifier::components`].
 #[derive(Debug)]
 pub struct Components<'id> {
     rest: &'id str,
@@ -206,6 +312,24 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["c", "b", "a"]
         );
+    }
+
+    #[test]
+    fn test_name() {
+        let tests = [("a/b/c", "c"), ("a/b", "b"), ("a", "a")];
+
+        for (id, name) in tests {
+            assert_eq!(Identifier { id: id.into() }.name(), name);
+        }
+    }
+
+    #[test]
+    fn test_module() {
+        let tests = [("a/b/c", "a/b"), ("a/b", "a"), ("a", "")];
+
+        for (id, name) in tests {
+            assert_eq!(Identifier { id: id.into() }.module(), name);
+        }
     }
 
     #[test]
