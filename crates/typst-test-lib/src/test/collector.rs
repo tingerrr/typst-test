@@ -163,7 +163,6 @@ impl<'p, P: Project> Collector<'p, P> {
     fn collect_single_inner(&mut self, id: Identifier) -> Result<(), CollectError> {
         let test_path = self.project.resolve(&id, TestTarget::TestScript);
         if !test_path.try_exists()? {
-            eprintln!("not a test: {id}");
             return Ok(());
         }
 
