@@ -104,22 +104,22 @@ impl<'p, P: Project> Collector<'p, P> {
 
     /// Starts collecting tests recursively.
     pub fn collect(&mut self) {
+        // TODO: filtering is currently very project specific which will require
+        // more than one collector per project structure version
+        // the same applies to collect_single
         for entry in ignore::WalkBuilder::new(self.project.test_root())
             .filter_entry(|entry| {
                 if !entry.file_type().is_some_and(|t| t.is_dir()) {
-                    eprintln!("filtered non dir  {:?}", entry.path());
                     // don't yield files
                     return false;
                 }
 
                 let Some(name) = entry.file_name().to_str() else {
-                    eprintln!("filtered non utf8 {:?}", entry.path());
                     // don't yield non UTF-8 paths
                     return false;
                 };
 
                 if P::RESERVED.contains(&name) {
-                    eprintln!("filtered reserved {:?}", entry.path());
                     // ignore reserved directories
                     return false;
                 }
@@ -127,7 +127,6 @@ impl<'p, P: Project> Collector<'p, P> {
                 // TODO: this will filter out potentially valid test roots if they aren't default
                 // ensure directory is valid component
                 if !Identifier::is_component_valid(name) {
-                    eprintln!("filtered invalid component {:?}", entry.path());
                     return false;
                 }
 
@@ -231,7 +230,7 @@ impl<'p, P: Project> Collector<'p, P> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::project::v1::ProjectV1;
+    use crate::store::project::legacy::ProjectLegacy;
 
     #[test]
     fn test_collect() {
@@ -255,7 +254,7 @@ mod tests {
             is_ignored,
         });
 
-        let project = ProjectV1::new("../../assets/test-assets/collect");
+        let project = ProjectLegacy::new("../../assets/test-assets/collect");
         let mut collector = Collector::new(&project);
         collector.collect();
 

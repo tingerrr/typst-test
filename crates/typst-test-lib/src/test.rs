@@ -187,7 +187,7 @@ pub enum ReferenceKind {
 #[cfg(test)]
 mod tests {
     use collector::Collector;
-    use store::project::v1::ProjectV1;
+    use store::project::legacy::ProjectLegacy;
     use typst::eval::Tracer;
 
     use super::*;
@@ -199,7 +199,7 @@ mod tests {
     #[test]
     fn test_e2e() {
         let world = GlobalTestWorld::default();
-        let project = ProjectV1::new("../../assets/test-assets/collect/");
+        let project = ProjectLegacy::new("../../assets/test-assets/collect/");
 
         // taken from typst-cli which generated the persistent ref iamges
         let ppi = 144.0;
@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn test_load_sources() {
-        let project = ProjectV1::new("../../assets/test-assets/");
+        let project = ProjectLegacy::new("../../assets/test-assets/");
 
         let test = Test {
             id: Identifier::new("collect/compare/ephemeral-no-store").unwrap(),

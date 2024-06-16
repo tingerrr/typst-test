@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::sync::Mutex;
@@ -12,12 +13,15 @@ const REF_NAME: &str = "ref";
 /// The name of the test script.
 const TEST_NAME: &str = "test";
 
-/// The name of the ephemeral output directory.
+/// The name of the temporary output directory.
 const OUT_NAME: &str = "out";
 
-/// The name of the ephemeral diff directory.
+/// The name of the temporary diff directory.
 const DIFF_NAME: &str = "diff";
 
+// We simply leak paths which we have already created and store pointers to them
+// to avoid invalidating references when adding new entries to leaked. When we
+// drop leaked we simply recreate them so they can be dropped.
 #[derive(Default)]
 struct Paths {
     test_dir: Option<NonNull<Path>>,
@@ -31,12 +35,34 @@ struct Paths {
     diff_dir: Option<NonNull<Path>>,
 }
 
-pub struct ProjectV1 {
+impl Debug for Paths {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn map(maybe: &Option<NonNull<Path>>) -> Option<&dyn Debug> {
+            // SAFETY: we ensure these never dangle
+            maybe.as_ref().map(|p| p as _)
+        }
+
+        f.debug_struct("Paths")
+            .field("test_dir", &map(&self.test_dir))
+            .field("test_script", &map(&self.test_script))
+            .field("ref_dir", &map(&self.ref_dir))
+            .field("ref_script", &map(&self.ref_script))
+            .field("out_dir", &map(&self.out_dir))
+            .field("diff_dir", &map(&self.diff_dir))
+            .finish()
+    }
+}
+
+/// An interner for commonly accessed paths following the current project
+/// strucutre.
+#[derive(Debug)]
+pub struct ProjectLegacy {
     test_root: PathBuf,
     leaked: Mutex<BTreeMap<Identifier, Paths>>,
 }
 
-impl ProjectV1 {
+impl ProjectLegacy {
+    /// Creates a new project witht he given test root directory.
     pub fn new<P: Into<PathBuf>>(test_root: P) -> Self {
         Self {
             test_root: test_root.into(),
@@ -54,8 +80,7 @@ impl ProjectV1 {
         let target = select(guard.entry(id.clone()).or_default());
 
         // SAFETY:
-        // - Box::leak contains a non-null ptr
-        // - we know the value was created from a valid initalized ptr and can therefore create a ref
+        // - the result of Box::leak never dangles
         // - we ensure that init doesn't panic below
         unsafe {
             target
@@ -65,23 +90,29 @@ impl ProjectV1 {
     }
 }
 
-impl Drop for ProjectV1 {
+impl Drop for ProjectLegacy {
     fn drop(&mut self) {
+        fn map(p: Option<NonNull<Path>>) {
+            _ = p.map(|p| {
+                // SAFETY: we ensure these never dangle and are constructed only from leaking boxes
+                unsafe { Box::from_raw(p.as_ptr()) }
+            });
+        }
+
         _ = std::mem::take(self.leaked.get_mut().unwrap())
             .into_values()
             .map(|p| {
-                // SAFETY: we know these were constructed from leaking and are thus valid
-                p.test_dir.map(|p| unsafe { Box::from_raw(p.as_ptr()) });
-                p.test_script.map(|p| unsafe { Box::from_raw(p.as_ptr()) });
-                p.ref_dir.map(|p| unsafe { Box::from_raw(p.as_ptr()) });
-                p.ref_script.map(|p| unsafe { Box::from_raw(p.as_ptr()) });
-                p.out_dir.map(|p| unsafe { Box::from_raw(p.as_ptr()) });
-                p.diff_dir.map(|p| unsafe { Box::from_raw(p.as_ptr()) });
+                map(p.test_dir);
+                map(p.test_script);
+                map(p.ref_dir);
+                map(p.ref_script);
+                map(p.out_dir);
+                map(p.diff_dir);
             });
     }
 }
 
-impl Project for ProjectV1 {
+impl Project for ProjectLegacy {
     const RESERVED: &'static [&'static str] = &[REF_NAME, TEST_NAME, OUT_NAME, DIFF_NAME];
 
     fn test_root(&self) -> &Path {
