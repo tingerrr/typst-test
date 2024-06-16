@@ -3,8 +3,8 @@ default:
 	@just --list
 
 # run a full test harness
-test:
-	cargo nextest run
+test *args:
+	cargo nextest run {{ args }}
 	cargo test --doc
 
 # install typst-test using cargo
