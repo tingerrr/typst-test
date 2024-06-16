@@ -3,6 +3,7 @@
 pub mod compare;
 pub mod compile;
 pub mod config;
+pub mod library;
 pub mod render;
 pub mod store;
 pub mod test;

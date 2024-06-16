@@ -194,11 +194,11 @@ mod tests {
     use crate::_dev::GlobalTestWorld;
     use crate::compile::Metrics;
     use crate::store::page::Png;
-    use crate::{compare, compile, render};
+    use crate::{compare, compile, library, render};
 
     #[test]
     fn test_e2e() {
-        let world = GlobalTestWorld::default();
+        let world = GlobalTestWorld::new(library::augmented_default_library());
         let project = ProjectLegacy::new("../../assets/test-assets/collect/");
 
         // taken from typst-cli which generated the persistent ref iamges

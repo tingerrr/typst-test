@@ -38,9 +38,8 @@ fn read(path: &Path) -> FileResult<Cow<'static, [u8]>> {
     }
 }
 
-/// Holds the processed data for a file ID.
-#[derive(Clone)]
-pub struct FileSlot {
+#[derive(Debug, Clone)]
+struct FileSlot {
     id: FileId,
     source: OnceLock<FileResult<Source>>,
     file: OnceLock<FileResult<Bytes>>,
@@ -48,7 +47,7 @@ pub struct FileSlot {
 
 impl FileSlot {
     /// Create a new file slot.
-    pub fn new(id: FileId) -> Self {
+    fn new(id: FileId) -> Self {
         Self {
             id,
             file: OnceLock::new(),
@@ -57,7 +56,7 @@ impl FileSlot {
     }
 
     /// Retrieve the source for this file.
-    pub fn source(&mut self) -> FileResult<Source> {
+    fn source(&mut self) -> FileResult<Source> {
         self.source
             .get_or_init(|| {
                 let buf = read(&system_path(self.id)?)?;
@@ -68,7 +67,7 @@ impl FileSlot {
     }
 
     /// Retrieve the file's bytes.
-    pub fn file(&mut self) -> FileResult<Bytes> {
+    fn file(&mut self) -> FileResult<Bytes> {
         self.file
             .get_or_init(|| {
                 read(&system_path(self.id)?).map(|cow| match cow {
@@ -80,11 +79,34 @@ impl FileSlot {
     }
 }
 
+#[derive(Debug)]
 pub struct GlobalTestWorld {
-    pub lib: Prehashed<Library>,
-    pub book: Prehashed<FontBook>,
-    pub fonts: Vec<Font>,
-    pub slots: Mutex<HashMap<FileId, FileSlot>>,
+    lib: Prehashed<Library>,
+    book: Prehashed<FontBook>,
+    fonts: Vec<Font>,
+    slots: Mutex<HashMap<FileId, FileSlot>>,
+}
+
+impl GlobalTestWorld {
+    pub fn new(library: Library) -> Self {
+        let fonts: Vec<_> = typst_assets::fonts()
+            .chain(typst_dev_assets::fonts())
+            .flat_map(|data| Font::iter(Bytes::from_static(data)))
+            .collect();
+
+        GlobalTestWorld {
+            lib: Prehashed::new(library),
+            book: Prehashed::new(FontBook::from_fonts(&fonts)),
+            fonts,
+            slots: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+impl Default for GlobalTestWorld {
+    fn default() -> Self {
+        Self::new(Library::default())
+    }
 }
 
 impl World for GlobalTestWorld {
@@ -118,21 +140,5 @@ impl World for GlobalTestWorld {
 
     fn today(&self, _offset: Option<i64>) -> Option<Datetime> {
         Some(Datetime::from_ymd(1970, 1, 1).unwrap())
-    }
-}
-
-impl Default for GlobalTestWorld {
-    fn default() -> Self {
-        let fonts: Vec<_> = typst_assets::fonts()
-            .chain(typst_dev_assets::fonts())
-            .flat_map(|data| Font::iter(Bytes::from_static(data)))
-            .collect();
-
-        GlobalTestWorld {
-            lib: Prehashed::new(Library::default()),
-            book: Prehashed::new(FontBook::from_fonts(&fonts)),
-            fonts,
-            slots: Mutex::new(HashMap::new()),
-        }
     }
 }
