@@ -93,6 +93,20 @@ impl TempEnv {
         dir.collect();
         dir.assert();
     }
+
+    pub fn run_no_check(setup: impl FnOnce(&mut Setup) -> &mut Setup, test: impl FnOnce(&Path)) {
+        let dir = Self {
+            root: TempDir::new("typst-test").unwrap(),
+            found: BTreeMap::new(),
+            expected: BTreeMap::new(),
+        };
+
+        let mut s = Setup(dir);
+        setup(&mut s);
+        let Setup(dir) = s;
+
+        test(dir.root.path());
+    }
 }
 
 impl TempEnv {

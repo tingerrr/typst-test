@@ -205,8 +205,11 @@ impl<'p, P: Project> Collector<'p, P> {
     ///
     /// At this moment only the `ignored` annotation is returned.
     pub fn get_test_annotations(&mut self, id: &Identifier) -> io::Result<bool> {
-        let test_script = self.project.resolve(&id, TestTarget::TestScript);
-        let reader = BufReader::new(File::options().read(true).open(test_script)?);
+        let reader = BufReader::new(
+            File::options()
+                .read(true)
+                .open(self.project.resolve(&id, TestTarget::TestScript))?,
+        );
 
         let mut is_ignored = false;
         for line in reader.lines() {
@@ -217,8 +220,15 @@ impl<'p, P: Project> Collector<'p, P> {
 
             line = line.strip_prefix(" ").unwrap_or(line);
 
-            if line.trim() == "[ignore]" {
+            let Some(annotation) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) else {
+                continue;
+            };
+
+            if annotation == "ignore" {
                 is_ignored = true
+            } else {
+                // NOTE: this is implemented in two places and should be unified if more is added
+                todo!("no proper annotation parsing implemented")
             }
         }
 
@@ -229,46 +239,65 @@ impl<'p, P: Project> Collector<'p, P> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::_dev;
     use crate::store::project::legacy::ProjectLegacy;
+
+    const REFERNCE_BYTES: &[u8] = include_bytes!("../../../../../assets/default-test/test.png");
 
     #[test]
     fn test_collect() {
-        let tests = [
-            (
-                "compare/ephemeral-no-store",
-                Some(ReferenceKind::Ephemeral),
-                false,
-            ),
-            (
-                "compare/ephemeral-with-store",
-                Some(ReferenceKind::Ephemeral),
-                false,
-            ),
-            ("compare/persistent", Some(ReferenceKind::Persistent), false),
-            ("compile", None, false),
-        ]
-        .map(|(name, reference, is_ignored)| Test {
-            id: Identifier::new(name).unwrap(),
-            ref_kind: reference,
-            is_ignored,
-        });
+        _dev::fs::TempEnv::run_no_check(
+            |root| {
+                root
+                    // compile only
+                    .setup_file("tests/compile-only/test.typ", "Hello World")
+                    // regular ephemeral
+                    .setup_file("tests/compare/ephemeral/test.typ", "Hello World")
+                    .setup_file("tests/compare/ephemeral/ref.typ", "Hello\nWorld")
+                    // ephemeral despite ref directory
+                    .setup_file("tests/compare/ephemeral-store/test.typ", "Hello World")
+                    .setup_file("tests/compare/ephemeral-store/ref.typ", "Hello\nWorld")
+                    .setup_file("tests/compare/ephemeral-store/ref", REFERNCE_BYTES)
+                    // persistent
+                    .setup_file("tests/compare/persistent/test.typ", "Hello World")
+                    .setup_file("tests/compare/persistent/ref", REFERNCE_BYTES)
+                    // not a test
+                    .setup_file_empty("tests/not-a-test/test.txt")
+                    // ignored test
+                    .setup_file("tests/ignored/test.typ", "/// [ignore]\nHello World")
+            },
+            |root| {
+                let project = ProjectLegacy::new(root, "tests");
+                let mut collector = Collector::new(&project);
+                collector.collect();
 
-        let project = ProjectLegacy::new("../../", "assets/test-assets/collect");
-        let mut collector = Collector::new(&project);
-        collector.collect();
+                let tests = [
+                    ("compile-only", None, false),
+                    ("compare/ephemeral", Some(ReferenceKind::Ephemeral), false),
+                    (
+                        "compare/ephemeral-store",
+                        Some(ReferenceKind::Ephemeral),
+                        false,
+                    ),
+                    ("compare/persistent", Some(ReferenceKind::Persistent), false),
+                ];
 
-        assert!(collector.errors().is_empty());
-        assert_eq!(
-            collector.take_filtered().into_values().collect::<Vec<_>>(),
-            [Test {
-                id: Identifier::new("ignored").unwrap(),
-                ref_kind: None,
-                is_ignored: true,
-            }],
-        );
-        assert_eq!(
-            collector.take_tests().into_values().collect::<Vec<_>>(),
-            tests,
+                let filtered = [("ignored", None, true)];
+
+                for (key, kind, ignored) in tests {
+                    let test = &collector.tests[key];
+                    assert_eq!(test.is_ignored, ignored);
+                    assert_eq!(test.ref_kind, kind);
+                }
+
+                for (key, kind, ignored) in filtered {
+                    let test = &collector.filtered[key];
+                    assert_eq!(test.is_ignored, ignored);
+                    assert_eq!(test.ref_kind, kind);
+                }
+
+                assert!(collector.errors().is_empty());
+            },
         );
     }
 }
