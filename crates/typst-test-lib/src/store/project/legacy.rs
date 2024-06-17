@@ -5,6 +5,7 @@ use std::ptr::NonNull;
 use std::sync::Mutex;
 
 use super::{Project, TestTarget};
+use crate::config::Config;
 use crate::test::id::Identifier;
 
 /// The name of the persistent reference store directory or ephemeral test script.
@@ -57,17 +58,28 @@ impl Debug for Paths {
 /// strucutre.
 #[derive(Debug)]
 pub struct ProjectLegacy {
+    root: PathBuf,
     test_root: PathBuf,
     leaked: Mutex<BTreeMap<Identifier, Paths>>,
 }
 
 impl ProjectLegacy {
-    /// Creates a new project witht he given test root directory.
-    pub fn new<P: Into<PathBuf>>(test_root: P) -> Self {
+    /// Creates a new project with the given root and test root directory, the
+    /// test root must be relative to the project root.
+    pub fn new<P: Into<PathBuf>, Q: AsRef<Path>>(root: P, test_root: Q) -> Self {
+        let root = root.into();
+        let test_root = root.join(test_root);
+
         Self {
-            test_root: test_root.into(),
+            root,
+            test_root,
             leaked: Mutex::new(BTreeMap::new()),
         }
+    }
+
+    /// Creates a new project with the given root and config.
+    pub fn from_config<P: Into<PathBuf>>(root: P, config: Config) -> Self {
+        Self::new(root, &config.tests_root)
     }
 
     fn leak_and_record(
@@ -114,6 +126,10 @@ impl Drop for ProjectLegacy {
 
 impl Project for ProjectLegacy {
     const RESERVED: &'static [&'static str] = &[REF_NAME, TEST_NAME, OUT_NAME, DIFF_NAME];
+
+    fn project_root(&self) -> &Path {
+        &self.root
+    }
 
     fn test_root(&self) -> &Path {
         &self.test_root

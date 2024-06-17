@@ -36,6 +36,9 @@ pub trait Project {
     /// The reserved path names for this project.
     const RESERVED: &'static [&'static str];
 
+    /// Returns the project root.
+    fn project_root(&self) -> &Path;
+
     /// Resolves the test root within a project.
     fn test_root(&self) -> &Path;
 

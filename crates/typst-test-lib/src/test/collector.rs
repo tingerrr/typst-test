@@ -253,7 +253,7 @@ mod tests {
             is_ignored,
         });
 
-        let project = ProjectLegacy::new("../../assets/test-assets/collect");
+        let project = ProjectLegacy::new("../../", "assets/test-assets/collect");
         let mut collector = Collector::new(&project);
         collector.collect();
 
