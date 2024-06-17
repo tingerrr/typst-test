@@ -201,11 +201,7 @@ mod tests {
         let world = GlobalTestWorld::new(library::augmented_default_library());
         let project = ProjectLegacy::new("../../", "assets/test-assets/collect");
 
-        // taken from typst-cli which generated the persistent ref iamges
-        let ppi = 144.0;
-        let strategy = render::Strategy::Raster {
-            pixel_per_pt: ppi / 72.0,
-        };
+        let strategy = render::Strategy::default();
 
         let mut collector = Collector::new(&project);
         collector.collect();

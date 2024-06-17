@@ -1,40 +1,43 @@
-use std::num::{NonZeroU8, NonZeroUsize};
-
 use tiny_skia::Pixmap;
 
 use super::{Error, PageError, Size};
 
+/// The strategy to use for comparison.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Strategy {
+    /// Use a simple pixel channel difference comparison, setting both fields
+    /// to `0` makes an exact comparison.
     Simple {
-        // minimum delta between a channel of two pixels to be considered different
-        min_delta: NonZeroU8,
-        // min amount of pixels that must differ more than min_delta
-        min_deviation: NonZeroUsize,
+        /// The maximum allowed difference between a channel of two pixels
+        /// before they are be considered different.
+        max_delta: u8,
+
+        /// The maximum allowed amount of pixels that can differ per page in
+        /// accordance to `max_delta` before two pages are considered different.
+        max_deviation: usize,
     },
 }
 
 impl Default for Strategy {
     fn default() -> Self {
         Self::Simple {
-            min_delta: NonZeroU8::new(1).unwrap(),
-            min_deviation: NonZeroUsize::new(1).unwrap(),
+            max_delta: 0,
+            max_deviation: 0,
         }
     }
 }
 
+/// Compares the rendered outputs of two documents with the given strategy, if
+/// `fail_fast` is `true`, then the first page failure aborts further
+/// comparisons.
 pub fn compare_pages(
     outputs: impl ExactSizeIterator<Item = Pixmap>,
     references: impl ExactSizeIterator<Item = Pixmap>,
     strategy: Strategy,
     fail_fast: bool,
 ) -> Result<(), Error> {
-    if outputs.len() != references.len() {
-        return Err(Error::PageCount {
-            output: outputs.len(),
-            reference: references.len(),
-        });
-    }
+    let output_len = outputs.len();
+    let reference_len = references.len();
 
     let mut page_errors = if fail_fast {
         vec![]
@@ -52,22 +55,27 @@ pub fn compare_pages(
         }
     }
 
-    if page_errors.len() != 0 {
+    if !page_errors.is_empty() || output_len != reference_len {
         page_errors.shrink_to_fit();
-        return Err(Error::Page { pages: page_errors });
+        return Err(Error {
+            output: output_len,
+            reference: reference_len,
+            pages: page_errors,
+        });
     }
 
     Ok(())
 }
 
+/// Compares two pages individually using the given strategy.
 pub fn compare_page(
     output: Pixmap,
     reference: Pixmap,
     strategy: Strategy,
 ) -> Result<(), PageError> {
     let Strategy::Simple {
-        min_delta,
-        min_deviation,
+        max_delta,
+        max_deviation,
     } = strategy;
 
     if output.width() != reference.width() || output.height() != reference.height() {
@@ -85,15 +93,15 @@ pub fn compare_page(
 
     let deviations = Iterator::zip(output.pixels().iter(), reference.pixels().iter())
         .filter(|(a, b)| {
-            u8::abs_diff(a.red(), b.red()) >= min_delta.get()
-                || u8::abs_diff(a.green(), b.green()) >= min_delta.get()
-                || u8::abs_diff(a.blue(), b.blue()) >= min_delta.get()
-                || u8::abs_diff(a.alpha(), b.alpha()) >= min_delta.get()
+            u8::abs_diff(a.red(), b.red()) > max_delta
+                || u8::abs_diff(a.green(), b.green()) > max_delta
+                || u8::abs_diff(a.blue(), b.blue()) > max_delta
+                || u8::abs_diff(a.alpha(), b.alpha()) > max_delta
         })
         .count();
 
-    if deviations >= min_deviation.get() {
-        return Err(PageError::Content { deviations });
+    if deviations > max_deviation {
+        return Err(PageError::SimpleDeviations { deviations });
     }
 
     Ok(())
@@ -119,46 +127,46 @@ mod tests {
     }
 
     #[test]
-    fn test_compare_page_simple_below_min_delta() {
+    fn test_compare_page_simple_below_max_delta() {
         let [a, b] = images();
         assert!(compare_page(
             a,
             b,
             Strategy::Simple {
-                min_delta: NonZeroU8::new(129).unwrap(),
-                min_deviation: NonZeroUsize::new(1).unwrap(),
+                max_delta: 128,
+                max_deviation: 0,
             },
         )
         .is_ok())
     }
 
     #[test]
-    fn test_compare_page_simple_below_min_devitation() {
+    fn test_compare_page_simple_below_max_devitation() {
         let [a, b] = images();
         assert!(compare_page(
             a,
             b,
             Strategy::Simple {
-                min_delta: NonZeroU8::new(1).unwrap(),
-                min_deviation: NonZeroUsize::new(5).unwrap(),
+                max_delta: 0,
+                max_deviation: 5,
             },
         )
         .is_ok());
     }
 
     #[test]
-    fn test_compare_page_simple_above_min_devitation() {
+    fn test_compare_page_simple_above_max_devitation() {
         let [a, b] = images();
         assert!(matches!(
             compare_page(
                 a,
                 b,
                 Strategy::Simple {
-                    min_delta: NonZeroU8::new(1).unwrap(),
-                    min_deviation: NonZeroUsize::new(1).unwrap(),
+                    max_delta: 0,
+                    max_deviation: 0,
                 },
             ),
-            Err(PageError::Content { deviations: 4 })
+            Err(PageError::SimpleDeviations { deviations: 4 })
         ))
     }
 }

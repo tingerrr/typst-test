@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 pub mod compare;
 pub mod compile;
 pub mod config;
