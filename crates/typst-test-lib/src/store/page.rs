@@ -160,7 +160,11 @@ where
     F: PageFormat,
     F::Type: 'p,
 {
-    for (idx, page) in pages.into_iter().enumerate() {
+    for (idx, page) in pages
+        .into_iter()
+        .enumerate()
+        .map(|(idx, page)| (idx + 1, page))
+    {
         let path = dir.join(idx.to_string()).with_extension(F::EXTENSION);
         F::save_page(page, &path).map_err(SaveError::Format)?;
     }
@@ -170,9 +174,11 @@ where
 
 #[cfg(test)]
 mod tests {
+    use tempdir::TempDir;
     use tiny_skia::PremultipliedColorU8;
 
     use super::*;
+    use crate::_dev;
 
     fn create_pixmap() -> Pixmap {
         let mut page = Pixmap::new(500, 500).unwrap();
@@ -189,16 +195,26 @@ mod tests {
 
     #[test]
     fn test_store_png() {
-        save_pages::<Png>(
-            Path::new("../../assets/test-assets/store/save"),
-            &[create_pixmap()],
-        )
-        .unwrap();
+        let root = TempDir::new("test_store_png").unwrap();
+
+        let pixmaps = [create_pixmap(), create_pixmap(), create_pixmap()];
+        save_pages::<Png>(root.path(), &pixmaps).unwrap();
+
+        _dev::fs::assert_tmp_dir! {root;
+            "1.png" => pixmaps[0].encode_png().unwrap(),
+            "2.png" => pixmaps[1].encode_png().unwrap(),
+            "3.png" => pixmaps[2].encode_png().unwrap(),
+        };
     }
 
     #[test]
     fn test_load_png() {
-        let pages = load_pages::<Png>(Path::new("../../assets/test-assets/store/load")).unwrap();
+        let root = TempDir::new("test_load_png").unwrap();
+
+        let pixmaps = [create_pixmap(), create_pixmap(), create_pixmap()];
+        save_pages::<Png>(root.path(), &pixmaps).unwrap();
+
+        let pages = load_pages::<Png>(root.path()).unwrap();
 
         assert_eq!(pages.len(), 3);
 
@@ -209,9 +225,11 @@ mod tests {
 
     #[test]
     fn test_count_png() {
-        assert_eq!(
-            count_pages::<Png>(Path::new("../../assets/test-assets/store/load")).unwrap(),
-            3
-        );
+        let root = TempDir::new("test_count_png").unwrap();
+
+        let pixmaps = [create_pixmap(), create_pixmap(), create_pixmap()];
+        save_pages::<Png>(root.path(), &pixmaps).unwrap();
+
+        assert_eq!(count_pages::<Png>(root.path()).unwrap(), 3);
     }
 }

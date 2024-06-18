@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::fs;
+use std::fs as stdfs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
@@ -10,6 +10,8 @@ use typst::foundations::{Bytes, Datetime};
 use typst::syntax::{FileId, Source};
 use typst::text::{Font, FontBook};
 use typst::{Library, World};
+
+pub mod fs;
 
 /// The file system path for a file ID.
 fn system_path(id: FileId) -> FileResult<PathBuf> {
@@ -31,10 +33,10 @@ fn read(path: &Path) -> FileResult<Cow<'static, [u8]>> {
     }
 
     let f = |e| FileError::from_io(e, path);
-    if fs::metadata(path).map_err(f)?.is_dir() {
+    if stdfs::metadata(path).map_err(f)?.is_dir() {
         Err(FileError::IsDirectory)
     } else {
-        fs::read(path).map(Cow::Owned).map_err(f)
+        stdfs::read(path).map(Cow::Owned).map_err(f)
     }
 }
 

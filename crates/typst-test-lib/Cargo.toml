@@ -24,6 +24,7 @@ ignore = "0.4.22"
 regex = "1.10.5"
 
 [dev-dependencies]
+tempdir = "0.3.7"
 typst-assets = { version = "0.11.0", features = ["fonts"] }
 typst-dev-assets = { git = "https://github.com/typst/typst-dev-assets", rev = "ee8ae61cca138dc92f9d818fc7f2fc046d0148c5" }
 
