@@ -143,7 +143,6 @@ impl Project for ProjectLegacy {
                 || {
                     let mut path = self.test_root.clone();
                     path.extend(id.components());
-                    path.push(TEST_NAME);
                     path
                 },
             ),
@@ -200,5 +199,41 @@ impl Project for ProjectLegacy {
                 },
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_project_targets() {
+        let project = ProjectLegacy::new("root", "tests");
+
+        let test = Identifier::new("fancy/test").unwrap();
+        assert_eq!(
+            project.resolve(&test, TestTarget::TestDir),
+            Path::new("root/tests/fancy/test"),
+        );
+        assert_eq!(
+            project.resolve(&test, TestTarget::TestScript),
+            Path::new("root/tests/fancy/test/test.typ"),
+        );
+        assert_eq!(
+            project.resolve(&test, TestTarget::RefDir),
+            Path::new("root/tests/fancy/test/ref"),
+        );
+        assert_eq!(
+            project.resolve(&test, TestTarget::RefScript),
+            Path::new("root/tests/fancy/test/ref.typ"),
+        );
+        assert_eq!(
+            project.resolve(&test, TestTarget::OutDir),
+            Path::new("root/tests/fancy/test/out"),
+        );
+        assert_eq!(
+            project.resolve(&test, TestTarget::DiffDir),
+            Path::new("root/tests/fancy/test/diff"),
+        );
     }
 }
