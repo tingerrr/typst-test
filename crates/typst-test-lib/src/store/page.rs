@@ -195,21 +195,24 @@ mod tests {
 
     #[test]
     fn test_store_png() {
-        let root = TempDir::new("test_store_png").unwrap();
-
         let pixmaps = [create_pixmap(), create_pixmap(), create_pixmap()];
-        save_pages::<Png>(root.path(), &pixmaps).unwrap();
 
-        _dev::fs::assert_tmp_dir! {root;
-            "1.png" => pixmaps[0].encode_png().unwrap(),
-            "2.png" => pixmaps[1].encode_png().unwrap(),
-            "3.png" => pixmaps[2].encode_png().unwrap(),
-        };
+        _dev::fs::TempEnv::run(
+            |root| root,
+            |root| {
+                save_pages::<Png>(root, &pixmaps).unwrap();
+            },
+            |root| {
+                root.expect_file("1.png", pixmaps[0].encode_png().unwrap())
+                    .expect_file("2.png", pixmaps[1].encode_png().unwrap())
+                    .expect_file("3.png", pixmaps[2].encode_png().unwrap())
+            },
+        );
     }
 
     #[test]
     fn test_load_png() {
-        let root = TempDir::new("test_load_png").unwrap();
+        let root = TempDir::new("typst-test").unwrap();
 
         let pixmaps = [create_pixmap(), create_pixmap(), create_pixmap()];
         save_pages::<Png>(root.path(), &pixmaps).unwrap();
@@ -225,7 +228,7 @@ mod tests {
 
     #[test]
     fn test_count_png() {
-        let root = TempDir::new("test_count_png").unwrap();
+        let root = TempDir::new("typst-test").unwrap();
 
         let pixmaps = [create_pixmap(), create_pixmap(), create_pixmap()];
         save_pages::<Png>(root.path(), &pixmaps).unwrap();
