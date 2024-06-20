@@ -15,12 +15,12 @@ use std::io;
 use std::path::Path;
 use std::process::{Command, Output};
 
-use crate::store::project::{Project, TestTarget};
+use crate::store::project::{Resolver, TestTarget};
 use crate::test::id::Identifier;
 
 /// Creates a [`Command`] to a hook, if a test is passed it's directory path is resolved
 /// and passed as an argument. The test root is set as the working directory.
-pub fn prepare<P: Project>(path: &Path, test: Option<&Identifier>, project: &P) -> Command {
+pub fn prepare<P: Resolver>(path: &Path, test: Option<&Identifier>, project: &P) -> Command {
     let mut cmd = Command::new(path);
 
     cmd.current_dir(project.test_root());
@@ -33,7 +33,7 @@ pub fn prepare<P: Project>(path: &Path, test: Option<&Identifier>, project: &P) 
 }
 
 /// Runs a hook to completion, collecting it's output.
-pub fn run<P: Project>(path: &Path, test: Option<&Identifier>, project: &P) -> io::Result<Output> {
+pub fn run<P: Resolver>(path: &Path, test: Option<&Identifier>, project: &P) -> io::Result<Output> {
     prepare(path, test, project).output()
 }
 

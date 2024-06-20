@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use super::matcher::Matcher;
 use super::{ReferenceKind, Test};
-use crate::store::project::{Project, TestTarget};
+use crate::store::project::{Resolver, TestTarget};
 use crate::test::id::{Identifier, ParseIdentifierError};
 
 /// An error that can occur during [`Test`] collection using a [`Collector`].
@@ -27,19 +27,19 @@ pub enum CollectError {
 
 /// Recursively collects tests, applying matchers and respecting ignore files.
 #[derive(Debug)]
-pub struct Collector<'p, P> {
-    project: &'p P,
+pub struct Collector<'p, R> {
+    resolver: &'p R,
     matcher: Matcher,
     tests: BTreeMap<Identifier, Test>,
     filtered: BTreeMap<Identifier, Test>,
     errors: Vec<(Option<PathBuf>, CollectError)>,
 }
 
-impl<'p, P: Project> Collector<'p, P> {
+impl<'p, R: Resolver + Sync> Collector<'p, R> {
     /// Creates a new collector for the given test root.
-    pub fn new(project: &'p P) -> Self {
+    pub fn new(project: &'p R) -> Self {
         Self {
-            project,
+            resolver: project,
             matcher: Matcher::default(),
             tests: BTreeMap::new(),
             filtered: BTreeMap::new(),
@@ -47,9 +47,9 @@ impl<'p, P: Project> Collector<'p, P> {
         }
     }
 
-    /// Returns a reference to the [`Project`] used by this collector.
-    pub fn project(&self) -> &'p P {
-        &self.project
+    /// Returns a reference to the [`Resolver`] used by this collector.
+    pub fn resolver(&self) -> &'p R {
+        &self.resolver
     }
 
     /// Returns a reference to the matcher used by this collector.
@@ -107,7 +107,7 @@ impl<'p, P: Project> Collector<'p, P> {
         // TODO: filtering is currently very project specific which will require
         // more than one collector per project structure version
         // the same applies to collect_single
-        for entry in ignore::WalkBuilder::new(self.project.test_root())
+        for entry in ignore::WalkBuilder::new(self.resolver.test_root())
             .filter_entry(|entry| {
                 if !entry.file_type().is_some_and(|t| t.is_dir()) {
                     // don't yield files
@@ -119,7 +119,7 @@ impl<'p, P: Project> Collector<'p, P> {
                     return false;
                 };
 
-                if P::RESERVED.contains(&name) {
+                if R::RESERVED.contains(&name) {
                     // ignore reserved directories
                     return false;
                 }
@@ -139,7 +139,7 @@ impl<'p, P: Project> Collector<'p, P> {
                 Ok(entry) => {
                     let rel = entry
                         .path()
-                        .strip_prefix(self.project.test_root())
+                        .strip_prefix(self.resolver.test_root())
                         .expect("must be within test_root");
 
                     let id = Identifier::new_from_path(rel).expect("all components must be valid");
@@ -155,13 +155,16 @@ impl<'p, P: Project> Collector<'p, P> {
     /// Attempts to collect a single test.
     pub fn collect_single(&mut self, id: Identifier) {
         if let Err(err) = self.collect_single_inner(id.clone()) {
-            let test_dir = self.project.resolve(&id, TestTarget::TestDir).to_path_buf();
+            let test_dir = self
+                .resolver
+                .resolve(&id, TestTarget::TestDir)
+                .to_path_buf();
             self.errors.push((Some(test_dir), err))
         }
     }
 
     fn collect_single_inner(&mut self, id: Identifier) -> Result<(), CollectError> {
-        let test_path = self.project.resolve(&id, TestTarget::TestScript);
+        let test_path = self.resolver.resolve(&id, TestTarget::TestScript);
         if !test_path.try_exists()? {
             return Ok(());
         }
@@ -187,14 +190,14 @@ impl<'p, P: Project> Collector<'p, P> {
     /// Returns the reference kind for a test.
     pub fn get_reference_kind(&mut self, id: &Identifier) -> io::Result<Option<ReferenceKind>> {
         if self
-            .project
+            .resolver
             .resolve(id, TestTarget::RefScript)
             .try_exists()?
         {
             return Ok(Some(ReferenceKind::Ephemeral));
         }
 
-        if self.project.resolve(id, TestTarget::RefDir).try_exists()? {
+        if self.resolver.resolve(id, TestTarget::RefDir).try_exists()? {
             return Ok(Some(ReferenceKind::Persistent));
         }
 
@@ -208,7 +211,7 @@ impl<'p, P: Project> Collector<'p, P> {
         let reader = BufReader::new(
             File::options()
                 .read(true)
-                .open(self.project.resolve(&id, TestTarget::TestScript))?,
+                .open(self.resolver.resolve(&id, TestTarget::TestScript))?,
         );
 
         let mut is_ignored = false;
@@ -240,7 +243,7 @@ impl<'p, P: Project> Collector<'p, P> {
 mod tests {
     use super::*;
     use crate::_dev;
-    use crate::store::project::legacy::ProjectLegacy;
+    use crate::store::project::v1::ResolverV1;
 
     const REFERNCE_BYTES: &[u8] = include_bytes!("../../../../../assets/default-test/test.png");
 
@@ -267,7 +270,7 @@ mod tests {
                     .setup_file("tests/ignored/test.typ", "/// [ignore]\nHello World")
             },
             |root| {
-                let project = ProjectLegacy::new(root, "tests");
+                let project = ResolverV1::new(root, "tests");
                 let mut collector = Collector::new(&project);
                 collector.collect();
 

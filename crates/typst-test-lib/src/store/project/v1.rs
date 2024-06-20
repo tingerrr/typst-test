@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::sync::Mutex;
 
-use super::{Project, TestTarget};
+use super::{Resolver, TestTarget};
 use crate::config::Config;
 use crate::test::id::Identifier;
 
@@ -57,13 +57,13 @@ impl Debug for Paths {
 /// An interner for commonly accessed paths following the current project
 /// strucutre.
 #[derive(Debug)]
-pub struct ProjectLegacy {
+pub struct ResolverV1 {
     root: PathBuf,
     test_root: PathBuf,
     leaked: Mutex<BTreeMap<Identifier, Paths>>,
 }
 
-impl ProjectLegacy {
+impl ResolverV1 {
     /// Creates a new project with the given root and test root directory, the
     /// test root must be relative to the project root.
     pub fn new<P: Into<PathBuf>, Q: AsRef<Path>>(root: P, test_root: Q) -> Self {
@@ -102,7 +102,13 @@ impl ProjectLegacy {
     }
 }
 
-impl Drop for ProjectLegacy {
+// SAFETY: access to internerd stoarge is synchronized and not thread local
+unsafe impl Send for ResolverV1 {}
+
+// SAFETY: access to internerd stoarge is synchronized and not thread local
+unsafe impl Sync for ResolverV1 {}
+
+impl Drop for ResolverV1 {
     fn drop(&mut self) {
         fn map(p: Option<NonNull<Path>>) {
             _ = p.map(|p| {
@@ -124,7 +130,7 @@ impl Drop for ProjectLegacy {
     }
 }
 
-impl Project for ProjectLegacy {
+impl Resolver for ResolverV1 {
     const RESERVED: &'static [&'static str] = &[REF_NAME, TEST_NAME, OUT_NAME, DIFF_NAME];
 
     fn project_root(&self) -> &Path {
@@ -208,7 +214,7 @@ mod tests {
 
     #[test]
     fn test_project_targets() {
-        let project = ProjectLegacy::new("root", "tests");
+        let project = ResolverV1::new("root", "tests");
 
         let test = Identifier::new("fancy/test").unwrap();
         assert_eq!(

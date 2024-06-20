@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use ecow::EcoString;
 use regex::Regex;
@@ -51,13 +52,14 @@ impl IdentifierMatcher {
 }
 
 /// A matcher which is applied to tests when they are collected.
+#[derive(Clone)]
 pub struct Matcher {
     pub filter_ignored: bool,
     pub include_compile_only: bool,
     pub include_ephemeral: bool,
     pub include_persistent: bool,
     pub name: Option<IdentifierMatcher>,
-    pub custom: Option<Box<dyn Fn(&Test) -> bool>>,
+    pub custom: Option<Arc<dyn Fn(&Test) -> bool>>,
 }
 
 impl Debug for Matcher {
@@ -78,6 +80,18 @@ impl Matcher {
     pub fn new() -> Self {
         Self {
             filter_ignored: true,
+            include_compile_only: true,
+            include_ephemeral: true,
+            include_persistent: true,
+            name: None,
+            custom: None,
+        }
+    }
+
+    /// Creates a matcher which matches all tests.
+    pub fn all() -> Self {
+        Self {
+            filter_ignored: false,
             include_compile_only: true,
             include_ephemeral: true,
             include_persistent: true,
@@ -119,7 +133,7 @@ impl Matcher {
     }
 
     /// Sets the custom matcher, defaults to `None`.
-    pub fn custom(&mut self, matcher: Option<Box<dyn Fn(&Test) -> bool>>) -> &mut Self {
+    pub fn custom(&mut self, matcher: Option<Arc<dyn Fn(&Test) -> bool>>) -> &mut Self {
         self.custom = matcher;
         self
     }

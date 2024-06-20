@@ -7,6 +7,7 @@ use std::sync::{Mutex, OnceLock};
 use comemo::Prehashed;
 use typst::diag::{FileError, FileResult};
 use typst::foundations::{Bytes, Datetime};
+use typst::syntax::package::PackageSpec;
 use typst::syntax::{FileId, Source};
 use typst::text::{Font, FontBook};
 use typst::{Library, World};
@@ -14,13 +15,27 @@ use typst::{Library, World};
 pub mod fs;
 
 /// The file system path for a file ID.
-fn system_path(id: FileId) -> FileResult<PathBuf> {
-    let root: PathBuf = match id.package() {
-        Some(_) => panic!("Packages are not currently supported."),
-        None => PathBuf::new(),
+fn system_path(id: FileId, root: &Path) -> FileResult<PathBuf> {
+    let root = match id.package() {
+        Some(spec) => &package_root(spec),
+        None => root,
     };
 
-    id.vpath().resolve(&root).ok_or(FileError::AccessDenied)
+    id.vpath().resolve(root).ok_or(FileError::AccessDenied)
+}
+
+fn package_root(spec: &PackageSpec) -> PathBuf {
+    let subdir = format!(
+        "typst/packages/{}/{}/{}",
+        spec.namespace, spec.name, spec.version
+    );
+    let root = dirs::cache_dir().unwrap().join(subdir);
+
+    if !root.try_exists().unwrap() {
+        panic!("Can't download package: {spec} to {root:?}");
+    }
+
+    root
 }
 
 /// Read a file.
@@ -58,10 +73,10 @@ impl FileSlot {
     }
 
     /// Retrieve the source for this file.
-    fn source(&mut self) -> FileResult<Source> {
+    fn source(&mut self, root: &Path) -> FileResult<Source> {
         self.source
             .get_or_init(|| {
-                let buf = read(&system_path(self.id)?)?;
+                let buf = read(&system_path(self.id, root)?)?;
                 let text = String::from_utf8(buf.into_owned())?;
                 Ok(Source::new(self.id, text))
             })
@@ -69,10 +84,10 @@ impl FileSlot {
     }
 
     /// Retrieve the file's bytes.
-    fn file(&mut self) -> FileResult<Bytes> {
+    fn file(&mut self, root: &Path) -> FileResult<Bytes> {
         self.file
             .get_or_init(|| {
-                read(&system_path(self.id)?).map(|cow| match cow {
+                read(&system_path(self.id, root)?).map(|cow| match cow {
                     Cow::Owned(buf) => buf.into(),
                     Cow::Borrowed(buf) => Bytes::from_static(buf),
                 })
@@ -83,6 +98,7 @@ impl FileSlot {
 
 #[derive(Debug)]
 pub struct GlobalTestWorld {
+    root: PathBuf,
     lib: Prehashed<Library>,
     book: Prehashed<FontBook>,
     fonts: Vec<Font>,
@@ -90,13 +106,14 @@ pub struct GlobalTestWorld {
 }
 
 impl GlobalTestWorld {
-    pub fn new(library: Library) -> Self {
+    pub fn new(root: PathBuf, library: Library) -> Self {
         let fonts: Vec<_> = typst_assets::fonts()
             .chain(typst_dev_assets::fonts())
             .flat_map(|data| Font::iter(Bytes::from_static(data)))
             .collect();
 
         GlobalTestWorld {
+            root,
             lib: Prehashed::new(library),
             book: Prehashed::new(FontBook::from_fonts(&fonts)),
             fonts,
@@ -107,7 +124,7 @@ impl GlobalTestWorld {
 
 impl Default for GlobalTestWorld {
     fn default() -> Self {
-        Self::new(Library::default())
+        Self::new("".into(), Library::default())
     }
 }
 
@@ -128,12 +145,18 @@ impl World for GlobalTestWorld {
 
     fn source(&self, id: FileId) -> FileResult<Source> {
         let mut map = self.slots.lock().unwrap();
-        FileSlot::source(map.entry(id).or_insert_with(|| FileSlot::new(id)))
+        FileSlot::source(
+            map.entry(id).or_insert_with(|| FileSlot::new(id)),
+            &self.root,
+        )
     }
 
     fn file(&self, id: FileId) -> FileResult<Bytes> {
         let mut map = self.slots.lock().unwrap();
-        FileSlot::file(map.entry(id).or_insert_with(|| FileSlot::new(id)))
+        FileSlot::file(
+            map.entry(id).or_insert_with(|| FileSlot::new(id)),
+            &self.root,
+        )
     }
 
     fn font(&self, index: usize) -> Option<Font> {

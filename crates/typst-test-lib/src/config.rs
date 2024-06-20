@@ -4,13 +4,15 @@ use std::path::{Path, PathBuf};
 pub const DEFAULT_TESTS_ROOT: &str = "tests";
 
 /// The default template path relative to the _tests root_.
-pub const DEFAULT_TEMPLATE: &str = "template.typ";
+pub const DEFAULT_TEMPLATE: &str = "tests/template.typ";
 
-fn default_tests_root() -> PathBuf {
+/// The default [`Config::tests_root`].
+pub fn default_tests_root() -> PathBuf {
     DEFAULT_TESTS_ROOT.into()
 }
 
-fn default_template() -> PathBuf {
+/// The default [`Config::template`].
+pub fn default_template() -> PathBuf {
     DEFAULT_TEMPLATE.into()
 }
 
@@ -39,8 +41,8 @@ pub struct Config {
     /// The path pointing to the template test script.
     ///
     /// Defaults to [`DEFAULT_TEMPLATE`].
-    #[serde(default = "default_template")]
-    pub template: PathBuf,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template: Option<PathBuf>,
 
     /// The path to a prepare hook.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -66,7 +68,7 @@ impl Default for Config {
 
         Self {
             tests_root,
-            template,
+            template: Some(template),
             prepare: None,
             prepare_each: None,
             cleanup: None,

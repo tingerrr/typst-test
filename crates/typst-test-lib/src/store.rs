@@ -4,6 +4,8 @@ use std::path::Path;
 use ecow::EcoVec;
 use tiny_skia::Pixmap;
 
+use crate::render::{self, Strategy};
+
 pub mod page;
 pub mod project;
 pub mod test;
@@ -37,9 +39,17 @@ pub struct Document {
 }
 
 impl Document {
+    /// Creates a new document from the given pages.
     pub fn new<P: Into<EcoVec<Pixmap>>>(pages: P) -> Self {
         Self {
             pages: pages.into(),
+        }
+    }
+
+    /// Fully renders a typst [`Document`][typst::model::Document].
+    pub fn render(document: &typst::model::Document, strategy: Strategy) -> Self {
+        Self {
+            pages: render::render_document(document, strategy).collect(),
         }
     }
 

@@ -87,9 +87,8 @@ pub struct Args {
     #[arg(long, global = true)]
     pub root: Option<PathBuf>,
 
-    /// A path to the typst binary to execute the tests with
-    #[arg(long, global = true, default_value = "typst")]
-    pub typst: PathBuf,
+    #[command(flatten, next_help_heading = "Filter Args")]
+    pub filter: TestFilter,
 
     /// Whether to abort after the first test failure
     ///
@@ -138,14 +137,6 @@ pub enum Command {
         /// Do not create a default example test
         #[arg(long)]
         no_example: bool,
-
-        /// Do not create a default .ignore file
-        #[arg(long)]
-        no_ignore: bool,
-
-        /// Do not create a default .gitignore file
-        #[arg(long)]
-        no_gitignore: bool,
     },
 
     /// Remove the test directory from the current project
@@ -173,15 +164,12 @@ pub enum Command {
     /// Update tests
     #[command(alias = "u")]
     Update {
-        /// Whether reference images should not be optimized for size
-        ///
-        /// This will significantly speed up the updating process, but images
-        /// may be much larger than needed, increasing repository bloat.
-        #[arg(long)]
-        no_optimize: bool,
-
         #[command(flatten)]
         runner_args: RunnerArgs,
+
+        /// Allow operating on more than one test if multiple tests match
+        #[arg(long, short)]
+        all: bool,
     },
 
     /// Add a new test
@@ -197,27 +185,25 @@ pub enum Command {
         #[arg(long, short)]
         ephemeral: bool,
 
-        /// Whether to open the test script
-        #[arg(long, short)]
-        open: bool,
+        /// Whether this test has no references at all
+        #[arg(long, short, conflicts_with = "ephemeral")]
+        compile_only: bool,
+
+        /// Ignore the test template for this test
+        #[arg(long)]
+        no_template: bool,
 
         /// The name of the test to add
         test: String,
     },
 
-    /// Edit an existing new test
+    /// Edit existing tests
     #[command(alias = "e")]
-    Edit {
-        /// The name of the test to edit
-        test: String,
-    },
+    Edit,
 
-    /// Remove a test
+    /// Remove tests
     #[command(alias = "rm")]
-    Remove {
-        /// The name of the test to remove
-        test: String,
-    },
+    Remove,
 }
 
 #[derive(clap::Parser, Debug, Clone)]
@@ -225,20 +211,22 @@ pub struct RunnerArgs {
     /// Show a summary of the test run instread of the individual test results
     #[arg(long, global = true)]
     pub summary: bool,
-
-    #[command(flatten)]
-    pub filter: TestFilter,
 }
 
 #[derive(clap::Parser, Debug, Clone)]
 pub struct TestFilter {
-    /// Whether the test filter should be an exact match
-    #[arg(long, short)]
-    pub exact: bool,
-
     /// A filter for which tests to run, any test matching this filter is
     /// run
+    #[arg(long, global = true)]
     pub filter: Option<String>,
+
+    /// Whether the test filter should be an exact match
+    #[arg(long, global = true)]
+    pub exact: bool,
+
+    /// Allow operating on more than one test if multiple tests match
+    #[arg(long, global = true)]
+    pub all: bool,
 }
 
 // TODO: add json

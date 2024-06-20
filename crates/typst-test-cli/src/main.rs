@@ -2,20 +2,20 @@ use std::io::{ErrorKind, Write};
 use std::process::ExitCode;
 
 use clap::{ColorChoice, Parser};
-use config::Config;
-use project::test::Filter;
 use termcolor::{Color, WriteColor};
 use tracing::Level;
 use tracing_subscriber::filter::Targets;
 use tracing_subscriber::prelude::*;
 use tracing_tree::HierarchicalLayer;
+use typst_test_lib::compare;
+use typst_test_lib::config::Config;
+use typst_test_lib::store::test::matcher::{IdentifierMatcher, Matcher};
 
 use self::cli::CliResult;
 use self::project::Project;
 use self::report::Reporter;
 
 mod cli;
-mod config;
 mod project;
 mod report;
 mod util;
@@ -164,88 +164,74 @@ fn main_impl(args: cli::Args, reporter: &mut Reporter) -> anyhow::Result<CliResu
         manifest,
     );
 
+    // TODO: report ignored or make sure we include them in listing
+    let mut matcher = Matcher::default();
+    if let Some(term) = args.filter.filter {
+        matcher.name(Some(IdentifierMatcher::Simple {
+            term: term.into(),
+            exact: args.filter.exact,
+        }));
+    }
+
+    let mut ctx = cmd::Context {
+        project: &mut project,
+        reporter,
+        matcher,
+    };
+
     let (runner_args, compare) = match args.cmd {
-        cli::Command::Init {
-            no_example,
-            no_ignore,
-            no_gitignore,
-        } => return cmd::init(&mut project, reporter, no_example, no_ignore, no_gitignore),
-        cli::Command::Uninit => return cmd::uninit(&mut project, reporter),
-        cli::Command::Clean => return cmd::clean(&mut project, reporter),
+        cli::Command::Init { no_example } => return cmd::init(&mut ctx, no_example),
+        cli::Command::Uninit => return cmd::uninit(&mut ctx),
+        cli::Command::Clean => return cmd::clean(&mut ctx),
         cli::Command::Add {
-            ephemeral,
-            open,
             test,
-        } => return cmd::add(&mut project, reporter, test, ephemeral, open),
-        cli::Command::Edit { test } => return cmd::edit(&mut project, reporter, test),
-        cli::Command::Remove { test } => return cmd::remove(&mut project, reporter, test),
-        cli::Command::Status => return cmd::status(&mut project, reporter, args.typst),
-        cli::Command::List => return cmd::list(&mut project, reporter),
+            ephemeral,
+            compile_only,
+            no_template,
+        } => return cmd::add(&mut ctx, test, ephemeral, compile_only, no_template),
+        cli::Command::Edit => return cmd::edit(&mut ctx, args.filter.all),
+        cli::Command::Remove => return cmd::remove(&mut ctx, args.filter.all),
+        cli::Command::Status => return cmd::status(&mut ctx),
+        cli::Command::List => return cmd::list(&mut ctx),
         cli::Command::Update {
             runner_args,
-            no_optimize,
-        } => {
-            return cmd::update(
-                &mut project,
-                reporter,
-                runner_args.summary,
-                args.typst,
-                runner_args
-                    .filter
-                    .filter
-                    .map(|f| Filter::new(f, runner_args.filter.exact)),
-                util::term::color(args.color, IS_OUTPUT_STDERR),
-                args.fail_fast,
-                !no_optimize,
-            )
-        }
+            all: _,
+        } => return cmd::update(&mut ctx, runner_args.summary, args.fail_fast),
         cli::Command::Compile(runner_args) => (runner_args, false),
         cli::Command::Run(runner_args) => (runner_args, true),
     };
 
-    cmd::run(
-        &mut project,
-        reporter,
-        runner_args.summary,
-        args.typst,
-        runner_args
-            .filter
-            .filter
-            .map(|f| Filter::new(f, runner_args.filter.exact)),
-        util::term::color(args.color, IS_OUTPUT_STDERR),
-        args.fail_fast,
-        compare,
-    )
+    let compare = compare.then_some(compare::Strategy::default());
+
+    cmd::run(&mut ctx, runner_args.summary, args.fail_fast, compare)
 }
 
 mod cmd {
     use std::io::Write;
-    use std::path::PathBuf;
-    use std::str::FromStr;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
     use std::time::Instant;
 
-    use anyhow::Context as _;
     use rayon::prelude::*;
-    use semver::Version;
+    use typst_test_lib::compare;
+    use typst_test_lib::store::test::matcher::Matcher;
+    use typst_test_lib::test::id::Identifier;
+    use typst_test_lib::test::ReferenceKind;
 
     use crate::cli::CliResult;
-    use crate::project::test::context::Context;
-    use crate::project::test::{Filter, Stage};
+    use crate::project::test::runner::Runner;
+    use crate::project::test::Stage;
     use crate::project::{Project, ScaffoldOptions};
     use crate::report::{Reporter, Summary};
     use crate::util;
 
+    pub struct Context<'a> {
+        pub project: &'a mut Project,
+        pub reporter: &'a mut Reporter,
+        pub matcher: Matcher,
+    }
+
     macro_rules! bail_gracefully {
-        (if_no_typst; $project:expr; $typst:expr) => {
-            if let Err(which::Error::CannotFindBinaryPath) = which::which($typst) {
-                return Ok(CliResult::hinted_operation_failure(
-                    format!("No typst binary '{}' found in PATH", $typst.display()),
-                    "You can pass the correct typst binary using '--typst <path or name>'",
-                ));
-            }
-        };
         (if_uninit; $project:expr) => {
             if !$project.is_init()? {
                 return Ok(CliResult::operation_failure(format!(
@@ -254,6 +240,17 @@ mod cmd {
                 )));
             }
         };
+        (if_test_not_unique; $project:expr; $name:ident) => {
+            let $name = match $project.tests().len() {
+                0 => return Ok(CliResult::operation_failure("No test matched")),
+                1 => $project.tests().first_key_value().map(|(_, test)| test).unwrap(),
+                _ => {
+                    return Ok(CliResult::operation_failure(
+                        "Multiple tests matched, this operation can only be performed on a single test",
+                    ));
+                }
+            };
+        };
         (if_test_not_found; $project:expr; $test:expr => $name:ident) => {
             let Some($name) = $project.get_test($test) else {
                 return Ok(CliResult::operation_failure(format!(
@@ -261,22 +258,6 @@ mod cmd {
                     $test,
                 )));
             };
-        };
-        (if_test_not_new; $project:expr; $name:expr) => {
-            if $project.get_test($name).is_some() {
-                return Ok(CliResult::operation_failure(format!(
-                    "Test '{}' already exists",
-                    $name,
-                )));
-            }
-        };
-        (if_no_tests_found; $project:expr) => {
-            if $project.tests().is_empty() {
-                return Ok(CliResult::operation_failure(format!(
-                    "Project '{}' did not contain any tests",
-                    $project.name(),
-                )));
-            }
         };
         (if_no_tests_match; $project:expr; $filter:expr) => {
             if let Some(filter) = $filter {
@@ -299,40 +280,32 @@ mod cmd {
         };
     }
 
-    pub fn init(
-        project: &mut Project,
-        reporter: &mut Reporter,
-        no_example: bool,
-        no_ignore: bool,
-        no_gitignore: bool,
-    ) -> anyhow::Result<CliResult> {
-        if project.is_init()? {
+    pub fn init(ctx: &mut Context, no_example: bool) -> anyhow::Result<CliResult> {
+        if ctx.project.is_init()? {
             return Ok(CliResult::operation_failure(format!(
                 "Project '{}' was already initialized",
-                project.name(),
+                ctx.project.name(),
             )));
         }
 
         let mut options = ScaffoldOptions::empty();
         options.set(ScaffoldOptions::EXAMPLE, !no_example);
-        options.set(ScaffoldOptions::IGNORE, !no_ignore);
-        options.set(ScaffoldOptions::GITIGNORE, !no_gitignore);
 
-        project.init(options)?;
-        writeln!(reporter, "Initialized project '{}'", project.name())?;
+        ctx.project.init(options)?;
+        writeln!(ctx.reporter, "Initialized project '{}'", ctx.project.name())?;
 
         Ok(CliResult::Ok)
     }
 
-    pub fn uninit(project: &mut Project, reporter: &mut Reporter) -> anyhow::Result<CliResult> {
-        bail_gracefully!(if_uninit; project);
+    pub fn uninit(ctx: &mut Context) -> anyhow::Result<CliResult> {
+        bail_gracefully!(if_uninit; ctx.project);
 
-        project.discover_tests()?;
-        let count = project.tests().len();
+        ctx.project.collect_tests(ctx.matcher.clone())?;
+        let count = ctx.project.matched().len();
 
-        project.uninit()?;
+        ctx.project.uninit()?;
         writeln!(
-            reporter,
+            ctx.reporter,
             "Removed {} {}",
             count,
             util::fmt::plural(count, "test"),
@@ -341,202 +314,186 @@ mod cmd {
         Ok(CliResult::Ok)
     }
 
-    pub fn clean(project: &mut Project, reporter: &mut Reporter) -> anyhow::Result<CliResult> {
-        bail_gracefully!(if_uninit; project);
+    pub fn clean(ctx: &mut Context) -> anyhow::Result<CliResult> {
+        bail_gracefully!(if_uninit; ctx.project);
 
-        project.discover_tests()?;
+        ctx.project.collect_tests(ctx.matcher.clone())?;
 
-        project.clean_artifacts()?;
-        writeln!(reporter, "Removed test artifacts")?;
+        ctx.project.clean_artifacts()?;
+        writeln!(ctx.reporter, "Removed test artifacts")?;
 
         Ok(CliResult::Ok)
     }
 
     pub fn add(
-        project: &mut Project,
-        reporter: &mut Reporter,
+        ctx: &mut Context,
         name: String,
         ephemeral: bool,
-        open: bool,
+        compile_only: bool,
+        no_template: bool,
     ) -> anyhow::Result<CliResult> {
-        bail_gracefully!(if_uninit; project);
+        bail_gracefully!(if_uninit; ctx.project);
 
-        project.discover_tests()?;
-        project.load_template()?;
+        let Ok(id) = Identifier::new(name) else {
+            return Ok(CliResult::operation_failure(""));
+        };
 
-        bail_gracefully!(if_test_not_new; project; &name);
+        ctx.project.collect_tests(ctx.matcher.clone())?;
+        ctx.project.load_template()?;
 
-        let (test, has_ref) = project.create_test(&name, ephemeral)?;
-        reporter.test_added(test, !has_ref)?;
+        if ctx.project.matched().contains_key(&id) {
+            return Ok(CliResult::operation_failure(format!(
+                "Test '{}' already exists",
+                id,
+            )));
+        }
 
-        if open {
-            // NOTE: because test from create_test extends the mutable borrow
-            // we must end it early
-            let test = project.find_test(&name)?;
+        let kind = if ephemeral {
+            Some(ReferenceKind::Ephemeral)
+        } else if compile_only {
+            None
+        } else {
+            Some(ReferenceKind::Persistent)
+        };
 
-            // BUG: this may fail silently if the path doesn't exist
-            open::that_detached(test.test_file(project))?;
+        ctx.project.create_test(id.clone(), kind, !no_template)?;
+        let test = &ctx.project.matched()[&id];
+        ctx.reporter.test_added(test)?;
 
-            // NOTE: this may run two editors for people who don't use GUIs
-            if let Some(path) = test.ref_file(project) {
-                open::that_detached(path)?;
+        Ok(CliResult::Ok)
+    }
+
+    pub fn remove(ctx: &mut Context, all: bool) -> anyhow::Result<CliResult> {
+        bail_gracefully!(if_uninit; ctx.project);
+
+        ctx.project.collect_tests(ctx.matcher.clone())?;
+
+        match ctx.project.matched().len() {
+            0 => return Ok(CliResult::operation_failure("")),
+            1 => {}
+            _ if all => {}
+            _ => {
+                return Ok(CliResult::hinted_operation_failure(
+                    "Matched more than one test",
+                    "Pass `--all` to remove more than one test at a time",
+                ))
             }
         }
 
-        Ok(CliResult::Ok)
-    }
-
-    pub fn remove(
-        project: &mut Project,
-        reporter: &mut Reporter,
-        name: String,
-    ) -> anyhow::Result<CliResult> {
-        bail_gracefully!(if_uninit; project);
-
-        project.discover_tests()?;
-        bail_gracefully!(if_test_not_found; project; &name => test);
-
-        project.remove_test(test.name())?;
-        reporter.test_success(test, "removed")?;
+        ctx.project.delete_tests()?;
+        ctx.reporter.tests_success(&ctx.project, "removed")?;
 
         Ok(CliResult::Ok)
     }
 
-    pub fn edit(
-        project: &mut Project,
-        reporter: &mut Reporter,
-        name: String,
-    ) -> anyhow::Result<CliResult> {
-        bail_gracefully!(if_uninit; project);
+    pub fn edit(ctx: &mut Context, all: bool) -> anyhow::Result<CliResult> {
+        bail_gracefully!(if_uninit; ctx.project);
 
-        project.discover_tests()?;
-        bail_gracefully!(if_test_not_found; project; &name => test);
+        ctx.project.collect_tests(ctx.matcher.clone())?;
 
-        open::that_detached(test.test_file(project))?;
-        reporter.test_success(test, "opened")?;
+        match ctx.project.matched().len() {
+            0 => return Ok(CliResult::operation_failure("")),
+            1 => {}
+            _ if all => {}
+            _ => {
+                return Ok(CliResult::hinted_operation_failure(
+                    "Matched more than one test",
+                    "Pass `--all` to edit more than one test at a time",
+                ))
+            }
+        }
+
+        // TODO: changing test kind
 
         Ok(CliResult::Ok)
     }
 
-    pub fn update(
-        project: &mut Project,
-        reporter: &mut Reporter,
-        summary: bool,
-        typst: PathBuf,
-        filter: Option<Filter>,
-        color: bool,
-        fail_fast: bool,
-        optimize: bool,
-    ) -> anyhow::Result<CliResult> {
+    pub fn update(ctx: &mut Context, summary: bool, fail_fast: bool) -> anyhow::Result<CliResult> {
         run_tests(
-            project,
-            reporter,
+            ctx,
             summary,
-            filter,
             false,
             true,
-            |project| {
-                let mut ctx = Context::new(project, typst);
-                ctx.with_color(color)
-                    .with_fail_fast(fail_fast)
-                    .with_compare(false)
+            |ctx| {
+                ctx.with_fail_fast(fail_fast)
+                    .with_compare(None)
                     .with_update(true)
-                    .with_optimize(optimize);
-                ctx
             },
             "updated",
         )
     }
 
-    pub fn status(
-        project: &mut Project,
-        reporter: &mut Reporter,
-        typst: PathBuf,
-    ) -> anyhow::Result<CliResult> {
-        bail_gracefully!(if_uninit; project);
+    pub fn status(ctx: &mut Context) -> anyhow::Result<CliResult> {
+        bail_gracefully!(if_uninit; ctx.project);
 
-        project.discover_tests()?;
-        project.load_template()?;
+        ctx.project.collect_tests(ctx.matcher.clone())?;
+        ctx.project.load_template()?;
 
-        let path = which::which(&typst).ok();
-        reporter.project(project, typst, path)?;
+        ctx.reporter.project(ctx.project)?;
 
         Ok(CliResult::Ok)
     }
 
-    pub fn list(project: &mut Project, reporter: &mut Reporter) -> anyhow::Result<CliResult> {
-        bail_gracefully!(if_uninit; project);
+    pub fn list(ctx: &mut Context) -> anyhow::Result<CliResult> {
+        bail_gracefully!(if_uninit; ctx.project);
 
-        project.discover_tests()?;
-        reporter.tests(project)?;
+        ctx.project.collect_tests(ctx.matcher.clone())?;
+        ctx.reporter.tests(ctx.project)?;
 
         Ok(CliResult::Ok)
     }
 
     pub fn run(
-        project: &mut Project,
-        reporter: &mut Reporter,
+        ctx: &mut Context,
         summary: bool,
-        typst: PathBuf,
-        filter: Option<Filter>,
-        color: bool,
         fail_fast: bool,
-        compare: bool,
+        compare: Option<compare::Strategy>,
     ) -> anyhow::Result<CliResult> {
         run_tests(
-            project,
-            reporter,
+            ctx,
             summary,
-            filter,
-            compare,
+            compare.is_some(),
             false,
-            |project| {
-                let mut ctx = Context::new(project, typst);
-                ctx.with_color(color)
-                    .with_fail_fast(fail_fast)
+            |ctx| {
+                ctx.with_fail_fast(fail_fast)
                     .with_compare(compare)
-                    .with_update(false);
-                ctx
+                    .with_update(false)
             },
-            if compare { "ok" } else { "compiled" },
+            if compare.is_some() { "ok" } else { "compiled" },
         )
     }
 
-    fn run_tests(
-        project: &mut Project,
-        reporter: &mut Reporter,
+    fn run_tests<F>(
+        ctx: &mut Context,
         summary_only: bool,
-        filter: Option<Filter>,
         compare: bool,
         update: bool,
-        prepare_ctx: impl FnOnce(&Project) -> Context,
+        f: F,
         done_annot: &str,
-    ) -> anyhow::Result<CliResult> {
-        bail_gracefully!(if_uninit; project);
+    ) -> anyhow::Result<CliResult>
+    where
+        F: for<'a, 'p> FnOnce(&'a mut Runner<'p>) -> &'a mut Runner<'p>,
+    {
+        bail_gracefully!(if_uninit; ctx.project);
 
-        project.discover_tests()?;
-        let pre_filter = project.tests().len();
-        bail_gracefully!(if_no_tests_found; project);
-        bail_gracefully!(if_no_tests_match; project; &filter);
-        let post_filter = project.tests().len();
+        ctx.project.collect_tests(ctx.matcher.clone())?;
 
-        let mut ctx = prepare_ctx(project);
-        bail_gracefully!(if_no_typst; project; ctx.typst());
+        if ctx.project.matched().is_empty() {
+            return Ok(CliResult::operation_failure(format!(
+                "Project '{}' did not contain any tests",
+                ctx.project.name(),
+            )));
+        }
 
-        let version = util::command::parse_stdout(
-            ctx.typst(),
-            &["--version"],
-            |stdout| -> anyhow::Result<Version> {
-                // "typst <x>.<y>.<z> (<hash>)"
-                Ok(Version::from_str(
-                    stdout.split(' ').nth(1).context("version wasn't given")?,
-                )?)
-            },
-        )??;
+        let world = typst_test_lib::_dev::GlobalTestWorld::new(
+            ctx.project.root().to_path_buf(),
+            typst_test_lib::library::augmented_default_library(),
+        );
 
-        ctx.with_typst_version(Some(version));
+        let mut runner = Runner::new(ctx.project, &world);
+        f(&mut runner);
 
-        reporter.test_start(update)?;
+        ctx.reporter.test_start(update)?;
 
         let compiled = AtomicUsize::new(0);
         let compared = compare.then_some(AtomicUsize::new(0));
@@ -548,14 +505,14 @@ mod cmd {
             }
         };
 
-        let time = reporter.with_indent(2, |reporter| {
+        let time = ctx.reporter.with_indent(2, |reporter| {
             let start = Instant::now();
-            ctx.prepare()?;
+            runner.prepare()?;
 
             let reporter = Mutex::new(reporter);
-            let res = project.tests().par_iter().try_for_each(
+            let res = ctx.project.matched().par_iter().try_for_each(
                 |(_, test)| -> Result<(), Option<anyhow::Error>> {
-                    match ctx.test(test).run() {
+                    match runner.test(test).run() {
                         Ok(Ok(_)) => {
                             compiled.fetch_add(1, Ordering::SeqCst);
                             maybe_increment(&compared);
@@ -590,7 +547,7 @@ mod cmd {
                                     .test_failure(test, err)
                                     .map_err(|e| Some(e.into()))?;
                             }
-                            if ctx.fail_fast() {
+                            if runner.fail_fast() {
                                 Err(None)
                             } else {
                                 Ok(())
@@ -605,17 +562,17 @@ mod cmd {
                 return Err(err);
             }
 
-            ctx.cleanup()?;
+            runner.cleanup()?;
             Ok(start.elapsed())
         })?;
 
         if !summary_only {
-            writeln!(reporter)?;
+            writeln!(ctx.reporter)?;
         }
 
         let summary = Summary {
-            total: pre_filter,
-            filtered: pre_filter - post_filter,
+            total: ctx.project.matched().len() + ctx.project.filtered().len(),
+            filtered: ctx.project.filtered().len(),
             compiled: compiled.into_inner(),
             compared: compared.map(AtomicUsize::into_inner),
             updated: updated.map(AtomicUsize::into_inner),
@@ -623,7 +580,7 @@ mod cmd {
         };
 
         let is_ok = summary.is_ok();
-        reporter.test_summary(summary, update, summary_only)?;
+        ctx.reporter.test_summary(summary, update, summary_only)?;
 
         Ok(if is_ok {
             CliResult::Ok

@@ -6,7 +6,7 @@ use ecow::EcoString;
 use typst::syntax::{FileId, Source, VirtualPath};
 
 use super::vcs::Vcs;
-use crate::store::project::{Project, TestTarget};
+use crate::store::project::{Resolver, TestTarget};
 use crate::store::{Document, LoadError, SaveError};
 use crate::test::id::Identifier;
 use crate::test::ReferenceKind;
@@ -75,20 +75,20 @@ impl Test {
     }
 
     /// Creates a new test directly on disk.
-    pub fn create<P: Project, V: Vcs>(
-        id: Identifier,
-        project: &P,
+    pub fn create<R: Resolver, V: Vcs>(
+        resolver: &R,
         vcs: &V,
+        id: Identifier,
         source: &str,
         references: Option<References>,
     ) -> Result<Self, SaveError> {
-        let test_dir = project.resolve(&id, TestTarget::TestDir);
+        let test_dir = resolver.resolve(&id, TestTarget::TestDir);
         util::fs::create_dir(test_dir, true)?;
 
         let mut file = File::options()
             .write(true)
             .create_new(true)
-            .open(project.resolve(&id, TestTarget::TestScript))?;
+            .open(resolver.resolve(&id, TestTarget::TestScript))?;
 
         file.write_all(source.as_bytes())?;
 
@@ -116,132 +116,132 @@ impl Test {
 
         match references {
             Some(References::Ephemeral(reference)) => {
-                test.create_reference_script(project, reference.as_str())?;
+                test.create_reference_script(resolver, reference.as_str())?;
             }
             Some(References::Persistent(reference)) => {
-                test.create_reference_document(project, &reference)?;
+                test.create_reference_document(resolver, &reference)?;
             }
             None => {}
         }
 
-        test.ignore_temporary_directories(project, vcs)?;
+        test.ignore_temporary_directories(resolver, vcs)?;
 
         Ok(test)
     }
 
     /// Creates this test's temporary directories.
-    pub fn create_temporary_directories<P: Project>(&self, project: &P) -> io::Result<()> {
+    pub fn create_temporary_directories<R: Resolver>(&self, resolver: &R) -> io::Result<()> {
         if self.is_ephemeral() {
-            util::fs::create_dir(project.resolve(&self.id, TestTarget::RefDir), true)?;
+            util::fs::create_dir(resolver.resolve(&self.id, TestTarget::RefDir), true)?;
         }
 
-        util::fs::create_dir(project.resolve(&self.id, TestTarget::OutDir), true)?;
-        util::fs::create_dir(project.resolve(&self.id, TestTarget::DiffDir), true)?;
+        util::fs::create_dir(resolver.resolve(&self.id, TestTarget::OutDir), true)?;
+        util::fs::create_dir(resolver.resolve(&self.id, TestTarget::DiffDir), true)?;
         Ok(())
     }
 
     /// Creates this test's reference script.
-    pub fn create_reference_script<P: Project>(
+    pub fn create_reference_script<R: Resolver>(
         &self,
-        project: &P,
+        resolver: &R,
         reference: &str,
     ) -> io::Result<()> {
-        std::fs::write(project.resolve(&self.id, TestTarget::RefScript), reference)?;
+        std::fs::write(resolver.resolve(&self.id, TestTarget::RefScript), reference)?;
         Ok(())
     }
 
     /// Creates this test's persistent references.
-    pub fn create_reference_document<P: Project>(
+    pub fn create_reference_document<R: Resolver>(
         &self,
-        project: &P,
+        resolver: &R,
         reference: &Document,
     ) -> Result<(), SaveError> {
-        let ref_dir = project.resolve(&self.id, TestTarget::RefDir);
+        let ref_dir = resolver.resolve(&self.id, TestTarget::RefDir);
         util::fs::create_dir(ref_dir, true)?;
         reference.save(ref_dir)?;
         Ok(())
     }
 
     /// Deletes this test's directories and scripts.
-    pub fn delete<P: Project>(self, project: &P) -> io::Result<()> {
-        self.delete_reference_documents(project)?;
-        self.delete_reference_script(project)?;
-        self.delete_temporary_directories(project)?;
+    pub fn delete<R: Resolver>(&self, resolver: &R) -> io::Result<()> {
+        self.delete_reference_documents(resolver)?;
+        self.delete_reference_script(resolver)?;
+        self.delete_temporary_directories(resolver)?;
 
-        util::fs::remove_file(project.resolve(&self.id, TestTarget::TestScript))?;
-        util::fs::remove_dir(project.resolve(&self.id, TestTarget::TestDir), true)?;
+        util::fs::remove_file(resolver.resolve(&self.id, TestTarget::TestScript))?;
+        util::fs::remove_dir(resolver.resolve(&self.id, TestTarget::TestDir), true)?;
 
         Ok(())
     }
 
     /// Deletes this test's temporary directories.
-    pub fn delete_temporary_directories<P: Project>(&self, project: &P) -> io::Result<()> {
+    pub fn delete_temporary_directories<R: Resolver>(&self, resolver: &R) -> io::Result<()> {
         if self.is_ephemeral() {
-            util::fs::remove_dir(project.resolve(&self.id, TestTarget::RefDir), true)?;
+            util::fs::remove_dir(resolver.resolve(&self.id, TestTarget::RefDir), true)?;
         }
 
-        util::fs::remove_dir(project.resolve(&self.id, TestTarget::OutDir), true)?;
-        util::fs::remove_dir(project.resolve(&self.id, TestTarget::DiffDir), true)?;
+        util::fs::remove_dir(resolver.resolve(&self.id, TestTarget::OutDir), true)?;
+        util::fs::remove_dir(resolver.resolve(&self.id, TestTarget::DiffDir), true)?;
         Ok(())
     }
 
     /// Deletes this test's reference script.
-    pub fn delete_reference_script<P: Project>(&self, project: &P) -> io::Result<()> {
-        util::fs::remove_file(project.resolve(&self.id, TestTarget::RefScript))?;
+    pub fn delete_reference_script<R: Resolver>(&self, resolver: &R) -> io::Result<()> {
+        util::fs::remove_file(resolver.resolve(&self.id, TestTarget::RefScript))?;
         Ok(())
     }
 
     /// Deletes this test's persistent reference documents.
-    pub fn delete_reference_documents<P: Project>(&self, project: &P) -> io::Result<()> {
-        util::fs::remove_dir(project.resolve(&self.id, TestTarget::RefDir), true)?;
+    pub fn delete_reference_documents<R: Resolver>(&self, resolver: &R) -> io::Result<()> {
+        util::fs::remove_dir(resolver.resolve(&self.id, TestTarget::RefDir), true)?;
         Ok(())
     }
 
     /// Ignores this test's temporary directories in the vcs.
-    pub fn ignore_temporary_directories<P: Project, V: Vcs>(
+    pub fn ignore_temporary_directories<R: Resolver, V: Vcs>(
         &self,
-        project: &P,
+        resolver: &R,
         vcs: &V,
     ) -> io::Result<()> {
         if self.is_ephemeral() {
-            vcs.ignore_target(project, &self.id, TestTarget::RefDir)?;
+            vcs.ignore_target(resolver, &self.id, TestTarget::RefDir)?;
         }
 
-        vcs.ignore_target(project, &self.id, TestTarget::OutDir)?;
-        vcs.ignore_target(project, &self.id, TestTarget::DiffDir)?;
+        vcs.ignore_target(resolver, &self.id, TestTarget::OutDir)?;
+        vcs.ignore_target(resolver, &self.id, TestTarget::DiffDir)?;
         Ok(())
     }
 
     /// Ignores this test's persistent reference documents in the vcs.
-    pub fn ignore_reference_documents<P: Project, V: Vcs>(
+    pub fn ignore_reference_documents<R: Resolver, V: Vcs>(
         &self,
-        project: &P,
+        resolver: &R,
         vcs: &V,
     ) -> io::Result<()> {
-        vcs.ignore_target(project, &self.id, TestTarget::RefDir)?;
+        vcs.ignore_target(resolver, &self.id, TestTarget::RefDir)?;
         Ok(())
     }
 
     /// Ignores this test's persistent reference documents in the vcs.
-    pub fn unignore_reference_documents<P: Project, V: Vcs>(
+    pub fn unignore_reference_documents<R: Resolver, V: Vcs>(
         &self,
-        project: &P,
+        resolver: &R,
         vcs: &V,
     ) -> io::Result<()> {
-        vcs.unignore_target(project, &self.id, TestTarget::RefDir)?;
+        vcs.unignore_target(resolver, &self.id, TestTarget::RefDir)?;
         Ok(())
     }
 
     /// Removes any previous references and creates a reference script by
     /// copying the test script.
-    pub fn make_ephemeral<P: Project, V: Vcs>(&mut self, project: &P, vcs: &V) -> io::Result<()> {
-        self.delete_reference_script(project)?;
-        self.delete_reference_documents(project)?;
-        self.ignore_reference_documents(project, vcs)?;
+    pub fn make_ephemeral<R: Resolver, V: Vcs>(&mut self, resolver: &R, vcs: &V) -> io::Result<()> {
+        self.delete_reference_script(resolver)?;
+        self.delete_reference_documents(resolver)?;
+        self.ignore_reference_documents(resolver, vcs)?;
 
         std::fs::copy(
-            project.resolve(&self.id, TestTarget::TestScript),
-            project.resolve(&self.id, TestTarget::RefScript),
+            resolver.resolve(&self.id, TestTarget::TestScript),
+            resolver.resolve(&self.id, TestTarget::RefScript),
         )?;
 
         self.ref_kind = Some(ReferenceKind::Ephemeral);
@@ -250,37 +250,37 @@ impl Test {
 
     /// Removes any previous references and creates a persistent references from the
     /// given pages.
-    pub fn make_persistent<P: Project, V: Vcs>(
+    pub fn make_persistent<R: Resolver, V: Vcs>(
         &mut self,
-        project: &P,
+        resolver: &R,
         vcs: &V,
         reference: &Document,
     ) -> Result<(), SaveError> {
-        self.delete_reference_script(project)?;
-        self.delete_reference_documents(project)?;
-        self.create_reference_document(project, reference)?;
-        self.unignore_reference_documents(project, vcs)?;
+        self.delete_reference_script(resolver)?;
+        self.delete_reference_documents(resolver)?;
+        self.create_reference_document(resolver, reference)?;
+        self.unignore_reference_documents(resolver, vcs)?;
 
         self.ref_kind = Some(ReferenceKind::Persistent);
         Ok(())
     }
 
     /// Removes any previous references.
-    pub fn make_compile_only<P: Project, V: Vcs>(
+    pub fn make_compile_only<R: Resolver, V: Vcs>(
         &mut self,
-        project: &P,
+        resolver: &R,
         _vcs: &V,
     ) -> io::Result<()> {
-        self.delete_reference_documents(project)?;
-        self.delete_reference_script(project)?;
+        self.delete_reference_documents(resolver)?;
+        self.delete_reference_script(resolver)?;
 
         self.ref_kind = None;
         Ok(())
     }
 
     /// Loads the test script source of this test.
-    pub fn load_test_source<P: Project>(&self, project: &P) -> io::Result<Source> {
-        let test_script = project.resolve(&self.id, TestTarget::TestScript);
+    pub fn load_source<R: Resolver>(&self, resolver: &R) -> io::Result<Source> {
+        let test_script = resolver.resolve(&self.id, TestTarget::TestScript);
         Ok(Source::new(
             FileId::new(None, VirtualPath::new(test_script)),
             std::fs::read_to_string(test_script)?,
@@ -288,10 +288,10 @@ impl Test {
     }
 
     /// Loads the reference test script source of this test, if one exists.
-    pub fn load_reference_source<P: Project>(&self, project: &P) -> io::Result<Option<Source>> {
+    pub fn load_reference_source<R: Resolver>(&self, resolver: &R) -> io::Result<Option<Source>> {
         match self.ref_kind {
             Some(ReferenceKind::Ephemeral) => {
-                let ref_script = project.resolve(&self.id, TestTarget::RefScript);
+                let ref_script = resolver.resolve(&self.id, TestTarget::RefScript);
                 Ok(Some(Source::new(
                     FileId::new(None, VirtualPath::new(ref_script)),
                     std::fs::read_to_string(ref_script)?,
@@ -302,13 +302,13 @@ impl Test {
     }
 
     /// Loads the persistent reference pages of this test, if they exist.
-    pub fn load_reference_document<P: Project>(
+    pub fn load_reference_document<R: Resolver>(
         &self,
-        project: &P,
+        resolver: &R,
     ) -> Result<Option<Document>, LoadError> {
         match self.ref_kind {
             Some(ReferenceKind::Persistent) => {
-                Document::load(project.resolve(&self.id, TestTarget::RefDir)).map(Some)
+                Document::load(resolver.resolve(&self.id, TestTarget::RefDir)).map(Some)
             }
             _ => Ok(None),
         }
@@ -320,7 +320,7 @@ mod tests {
     use super::*;
     use crate::_dev;
     use crate::_dev::fs::Setup;
-    use crate::store::project::legacy::ProjectLegacy;
+    use crate::store::project::v1::ResolverV1;
     use crate::store::vcs::NoVcs;
 
     fn setup_all(root: &mut Setup) -> &mut Setup {
@@ -336,29 +336,29 @@ mod tests {
         _dev::fs::TempEnv::run(
             |root| root.setup_dir("tests"),
             |root| {
-                let project = ProjectLegacy::new(root, "tests");
+                let project = ResolverV1::new(root, "tests");
                 Test::create(
-                    Identifier::new("compile-only").unwrap(),
                     &project,
                     &NoVcs,
+                    Identifier::new("compile-only").unwrap(),
                     "Hello World",
                     None,
                 )
                 .unwrap();
 
                 Test::create(
-                    Identifier::new("ephemeral").unwrap(),
                     &project,
                     &NoVcs,
+                    Identifier::new("ephemeral").unwrap(),
                     "Hello World",
                     Some(References::Ephemeral("Hello\nWorld".into())),
                 )
                 .unwrap();
 
                 Test::create(
-                    Identifier::new("persistent").unwrap(),
                     &project,
                     &NoVcs,
+                    Identifier::new("persistent").unwrap(),
                     "Hello World",
                     Some(References::Persistent(Document::new(vec![]))),
                 )
@@ -379,7 +379,7 @@ mod tests {
         _dev::fs::TempEnv::run(
             setup_all,
             |root| {
-                let project = ProjectLegacy::new(root, "tests");
+                let project = ResolverV1::new(root, "tests");
                 Test::new(Identifier::new("compile-only").unwrap())
                     .make_ephemeral(&project, &NoVcs)
                     .unwrap();
@@ -408,7 +408,7 @@ mod tests {
         _dev::fs::TempEnv::run(
             setup_all,
             |root| {
-                let project = ProjectLegacy::new(root, "tests");
+                let project = ResolverV1::new(root, "tests");
                 Test::new(Identifier::new("compile-only").unwrap())
                     .make_persistent(&project, &NoVcs, &Document::new(vec![]))
                     .unwrap();
@@ -437,7 +437,7 @@ mod tests {
         _dev::fs::TempEnv::run(
             setup_all,
             |root| {
-                let project = ProjectLegacy::new(root, "tests");
+                let project = ResolverV1::new(root, "tests");
                 Test::new(Identifier::new("compile-only").unwrap())
                     .make_compile_only(&project, &NoVcs)
                     .unwrap();
@@ -466,7 +466,7 @@ mod tests {
                     .setup_file("tests/fancy/ref.typ", "Hello\nWorld")
             },
             |root| {
-                let project = ProjectLegacy::new(root, "tests");
+                let project = ResolverV1::new(root, "tests");
 
                 let test = Test {
                     id: Identifier::new("fancy").unwrap(),
@@ -474,7 +474,7 @@ mod tests {
                     is_ignored: false,
                 };
 
-                test.load_test_source(&project).unwrap();
+                test.load_source(&project).unwrap();
                 test.load_reference_source(&project).unwrap().unwrap();
             },
             |root| {

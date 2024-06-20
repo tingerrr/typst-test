@@ -37,9 +37,14 @@ pub fn compare_pages<'p, O, R>(
     fail_fast: bool,
 ) -> Result<(), Error>
 where
-    O: ExactSizeIterator<Item = &'p Pixmap>,
-    R: ExactSizeIterator<Item = &'p Pixmap>,
+    O: IntoIterator,
+    R: IntoIterator,
+    O::IntoIter: ExactSizeIterator<Item = &'p Pixmap>,
+    R::IntoIter: ExactSizeIterator<Item = &'p Pixmap>,
 {
+    let outputs = outputs.into_iter();
+    let references = references.into_iter();
+
     let output_len = outputs.len();
     let reference_len = references.len();
 

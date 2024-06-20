@@ -33,9 +33,9 @@ impl Metrics {
 pub struct Error(pub EcoVec<SourceDiagnostic>);
 
 /// Compiles a source with the given world, recording the compilation time.
-pub fn compile<W: World>(
+pub fn compile(
     source: Source,
-    world: &W,
+    world: &dyn World,
     tracer: &mut Tracer,
     metrics: &mut Metrics,
 ) -> Result<Document, Error> {
@@ -50,16 +50,13 @@ pub fn compile<W: World>(
 
 /// Provides a [`World`] implementation which treats a [`Test`] as main, but otherwise delegates to
 /// a global world.
-struct TestWorld<'s, 'w, W> {
+struct TestWorld<'s, 'w> {
     source: &'s Source,
-    global: &'w W,
+    global: &'w dyn World,
 }
 
-impl<'s, 'w, W> TestWorld<'s, 'w, W>
-where
-    W: World,
-{
-    fn new(source: &'s Source, world: &'w W) -> Self {
+impl<'s, 'w> TestWorld<'s, 'w> {
+    fn new(source: &'s Source, world: &'w dyn World) -> Self {
         // if let Err(err) = world.source(source.id()) {
         //     panic!("world did not know test source {err:?}");
         // }
@@ -71,10 +68,7 @@ where
     }
 }
 
-impl<W> World for TestWorld<'_, '_, W>
-where
-    W: World,
-{
+impl World for TestWorld<'_, '_> {
     fn library(&self) -> &Prehashed<Library> {
         self.global.library()
     }

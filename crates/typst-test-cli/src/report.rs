@@ -1,15 +1,16 @@
 use std::borrow::Cow;
 use std::fmt::{Debug, Display};
 use std::io::Write;
-use std::path::PathBuf;
 use std::time::Duration;
 use std::{fmt, io};
 
 use semver::Version;
 use termcolor::{Color, ColorSpec, HyperlinkSpec, WriteColor};
+use typst_test_lib::compare;
+use typst_test_lib::store::test::Test;
 
 use crate::cli::OutputFormat;
-use crate::project::test::{CompareFailure, ComparePageFailure, Test, TestFailure, UpdateFailure};
+use crate::project::test::{CompareFailure, TestFailure};
 use crate::project::Project;
 use crate::util;
 
@@ -176,75 +177,91 @@ impl Reporter {
 
     pub fn test_result(
         &mut self,
-        name: &str,
+        test: &Test,
         annot: &str,
         color: Color,
         f: impl FnOnce(&mut Self) -> io::Result<()>,
     ) -> io::Result<()> {
         self.write_annotated(annot, color, |this| {
-            write_bold(this, |w| writeln!(w, "{name}"))?;
+            write_bold(this, |w| writeln!(w, "{}", test.id()))?;
             f(this)
         })
     }
 
     pub fn test_success(&mut self, test: &Test, annot: &str) -> io::Result<()> {
-        self.test_result(test.name(), annot, Color::Green, |_| Ok(()))
+        self.test_result(test, annot, Color::Green, |_| Ok(()))?;
+        Ok(())
     }
 
-    pub fn test_added(&mut self, test: &Test, no_ref: bool) -> io::Result<()> {
-        self.test_result(test.name(), "added", Color::Green, |this| {
-            if no_ref && !test.is_ephemeral() {
-                let hint = format!(
-                    "Test template used, no default reference generated\nrun 'typst-test update \
-                    --exact {}' to accept test",
-                    test.name(),
-                );
-                this.hint(&hint)?;
-            }
+    pub fn tests_success(&mut self, project: &Project, annot: &str) -> io::Result<()> {
+        for test in project.matched().values() {
+            self.test_success(test, annot)?;
+        }
 
-            Ok(())
-        })
+        Ok(())
+    }
+
+    pub fn tests_added(&mut self, project: &Project) -> io::Result<()> {
+        self.tests_success(project, "added")?;
+        Ok(())
+    }
+
+    pub fn test_added(&mut self, test: &Test) -> io::Result<()> {
+        self.test_success(test, "added")?;
+        Ok(())
     }
 
     pub fn test_failure(&mut self, test: &Test, error: TestFailure) -> io::Result<()> {
-        self.test_result(test.name(), "failed", Color::Red, |this| {
+        self.test_result(test, "failed", Color::Red, |this| {
             if !this.format.is_pretty() {
                 return Ok(());
             }
 
             match error {
-                TestFailure::Preparation(e) => writeln!(this, "{e}")?,
-                TestFailure::Cleanup(e) => writeln!(this, "{e}")?,
                 TestFailure::Compilation(e) => {
                     writeln!(
                         this,
-                        "Compilation of {} failed ({})",
+                        "Compilation of {} failed",
                         if e.is_ref { "references" } else { "test" },
-                        e.output.status
                     )?;
-                    write_program_buffer(this, "stdout", &e.output.stdout)?;
-                    write_program_buffer(this, "stderr", &e.output.stderr)?;
+
+                    // TODO: proper span reporting reporting
+                    writeln!(this, "{:#?}", e.error)?;
                 }
-                TestFailure::Comparison(CompareFailure::PageCount { output, reference }) => {
-                    writeln!(
-                        this,
-                        "Expected {reference} {}, got {output} {}",
-                        util::fmt::plural(reference, "page"),
-                        util::fmt::plural(output, "page"),
-                    )?;
-                }
-                TestFailure::Comparison(CompareFailure::Page { pages, diff_dir }) => {
+                TestFailure::Comparison(CompareFailure::Visual {
+                    error:
+                        compare::Error {
+                            output,
+                            reference,
+                            pages,
+                        },
+                    diff_dir,
+                }) => {
+                    if output != reference {
+                        writeln!(
+                            this,
+                            "Expected {reference} {}, got {output} {}",
+                            util::fmt::plural(reference, "page"),
+                            util::fmt::plural(output, "page"),
+                        )?;
+                    }
+
                     for (p, e) in pages {
+                        let p = p + 1;
                         match e {
-                            ComparePageFailure::Dimensions { output, reference } => {
+                            compare::PageError::Dimensions { output, reference } => {
                                 writeln!(this, "Page {p} had different dimensions")?;
                                 this.with_indent(2, |this| {
-                                    writeln!(this, "Output: {}x{}", output.0, output.1)?;
-                                    writeln!(this, "Reference: {}x{}", reference.0, reference.1)
+                                    writeln!(this, "Output: {}", output)?;
+                                    writeln!(this, "Reference: {}", reference)
                                 })?;
                             }
-                            ComparePageFailure::Content => {
-                                writeln!(this, "Page {p} did not match")?;
+                            compare::PageError::SimpleDeviations { deviations } => {
+                                writeln!(
+                                    this,
+                                    "Page {p} had {deviations} {}",
+                                    util::fmt::plural(deviations, "deviation",)
+                                )?;
                             }
                         }
                     }
@@ -255,20 +272,6 @@ impl Reporter {
                             diff_dir.display()
                         ))?;
                     }
-                }
-                TestFailure::Comparison(CompareFailure::MissingOutput) => {
-                    writeln!(this, "No output was generated")?;
-                }
-                TestFailure::Comparison(CompareFailure::MissingReferences) => {
-                    writeln!(this, "No references were found")?;
-                    this.hint(&format!(
-                        "Use 'typst-test update --exact {}' to accept the test output",
-                        test.name(),
-                    ))?;
-                }
-                TestFailure::Update(UpdateFailure::Optimize { error }) => {
-                    writeln!(this, "Failed to optimize image")?;
-                    writeln!(this, "{error}")?;
                 }
             }
 
@@ -286,12 +289,7 @@ impl Reporter {
         Ok(())
     }
 
-    pub fn project(
-        &mut self,
-        project: &Project,
-        typst: PathBuf,
-        typst_path: Option<PathBuf>,
-    ) -> io::Result<()> {
+    pub fn project(&mut self, project: &Project) -> io::Result<()> {
         struct Delims {
             open: &'static str,
             middle: &'static str,
@@ -305,7 +303,7 @@ impl Reporter {
                     middle: " ├ ",
                     close: " └ ",
                 },
-                ["Template", "Project", "Tests", "Typst"]
+                ["Template", "Project", "Tests"]
                     .map(str::len)
                     .into_iter()
                     .max()
@@ -338,15 +336,11 @@ impl Reporter {
             writeln!(self)?;
         }
 
-        let tests = project.tests();
+        let tests = project.matched();
         write!(self, "{:>align$}{}", "Tests", delims.middle)?;
         if tests.is_empty() {
             write_bold_colored(self, "none", Color::Cyan)?;
-            write!(
-                self,
-                " (searched at '{}')",
-                project.tests_root_dir().display()
-            )?;
+            write!(self, " (searched at '{}')", project.tests_root().display())?;
         } else {
             write_bold_colored(self, tests.len(), Color::Cyan)?;
             write!(self, " (")?;
@@ -374,15 +368,6 @@ impl Reporter {
             (Some(_), Some(_)) => {
                 write_bold_colored(self, "found", Color::Green)?;
             }
-        }
-        writeln!(self)?;
-
-        write!(self, "{:>align$}{}", "Typst", delims.close)?;
-        if let Some(path) = typst_path {
-            write_bold_colored(self, path.display(), Color::Green)?;
-        } else {
-            write_bold_colored(self, "not found", Color::Red)?;
-            write!(self, " (searched for '{}')", typst.display())?;
         }
         writeln!(self)?;
 
@@ -459,7 +444,7 @@ impl Reporter {
         }
 
         self.with_indent(2, |this| {
-            for (name, test) in project.tests() {
+            for (name, test) in project.matched() {
                 write!(this, "{name} ")?;
                 if test.is_ephemeral() {
                     write_bold_colored(this, "ephemeral", Color::Yellow)?;

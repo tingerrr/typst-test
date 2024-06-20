@@ -8,7 +8,7 @@ pub mod store;
 pub mod test;
 pub mod util;
 
-#[cfg(test)]
+// #[cfg(test)]
 pub mod _dev;
 
 #[cfg(test)]
@@ -18,14 +18,14 @@ mod tests {
 
     use crate::_dev::GlobalTestWorld;
     use crate::compile::Metrics;
-    use crate::store::project::legacy::ProjectLegacy;
+    use crate::store::project::v1::ResolverV1;
     use crate::store::test::collector::Collector;
     use crate::{compare, compile, library, render};
 
     #[test]
     fn test_e2e() {
         let world = GlobalTestWorld::new(library::augmented_default_library());
-        let project = ProjectLegacy::new("../../", "assets/test-assets/collect");
+        let project = ResolverV1::new("../../", "assets/test-assets/collect");
 
         let strategy = render::Strategy::default();
 
@@ -33,7 +33,7 @@ mod tests {
         collector.collect();
 
         for test in collector.tests().values() {
-            let source = test.load_test_source(&project).unwrap();
+            let source = test.load_source(&project).unwrap();
             let output = compile::compile(
                 source.clone(),
                 &world,

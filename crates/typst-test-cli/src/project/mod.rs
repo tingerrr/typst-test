@@ -1,28 +1,29 @@
 use std::collections::BTreeMap;
 use std::fmt::Debug;
-use std::fs::{self, File};
-use std::io;
-use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::{fs, io};
 
 use rayon::prelude::*;
+use tiny_skia::Pixmap;
 use typst_project::manifest::Manifest;
-use walkdir::WalkDir;
+use typst_test_lib::config::Config;
+use typst_test_lib::store::project::v1::ResolverV1;
+use typst_test_lib::store::project::Resolver;
+use typst_test_lib::store::test::collector::Collector;
+use typst_test_lib::store::test::matcher::Matcher;
+use typst_test_lib::store::test::{References, Test};
+use typst_test_lib::store::vcs::{Git, NoVcs};
+use typst_test_lib::store::Document;
+use typst_test_lib::test::id::Identifier;
+use typst_test_lib::test::ReferenceKind;
 
-use self::test::Test;
-use crate::config::Config;
 use crate::util;
 
 pub mod test;
 
 const DEFAULT_TEST_INPUT: &str = include_str!("../../../../assets/default-test/test.typ");
 const DEFAULT_TEST_OUTPUT: &[u8] = include_bytes!("../../../../assets/default-test/test.png");
-const DEFAULT_IGNORE_LINES: &[&str] = &["**.png", "**.svg", "**.pdf"];
-const DEFAULT_GIT_IGNORE_LINES: &[&str] = &["out/**", "diff/**\n"];
-const DEFAULT_GIT_IGNORE_LINES_PERSISTENT: &[&str] = &[];
-const DEFAULT_GIT_IGNORE_LINES_EPHEMERAL: &[&str] = &["ref/**"];
 
-#[tracing::instrument]
 pub fn try_open_manifest(root: &Path) -> Result<Option<Manifest>, Error> {
     if is_project_root(root)? {
         let content = std::fs::read_to_string(root.join(typst_project::heuristics::MANIFEST_FILE))?;
@@ -33,12 +34,10 @@ pub fn try_open_manifest(root: &Path) -> Result<Option<Manifest>, Error> {
     }
 }
 
-#[tracing::instrument]
 pub fn is_project_root(path: &Path) -> io::Result<bool> {
     typst_project::is_project_root(path)
 }
 
-#[tracing::instrument]
 pub fn try_find_project_root(path: &Path) -> io::Result<Option<&Path>> {
     typst_project::try_find_project_root(path)
 }
@@ -48,12 +47,6 @@ bitflags::bitflags! {
     pub struct ScaffoldOptions: u32 {
         /// Create a default example test.
         const EXAMPLE = 0;
-
-        /// Create a default .ignore file.
-        const IGNORE = 1 << 0;
-
-        /// Create a default .gitignore file.
-        const GITIGNORE = 1 << 1;
     }
 }
 
@@ -61,18 +54,24 @@ bitflags::bitflags! {
 pub struct Project {
     config: Config,
     manifest: Option<Manifest>,
-    root: PathBuf,
-    tests: BTreeMap<String, Test>,
+    resovler: ResolverV1,
+    vcs: Option<Git>,
+    tests: BTreeMap<Identifier, Test>,
+    filtered: BTreeMap<Identifier, Test>,
     template: Option<String>,
 }
 
 impl Project {
     pub fn new(root: PathBuf, config: Config, manifest: Option<Manifest>) -> Self {
+        let resovler = ResolverV1::new(root, &config.tests_root);
         Self {
             config,
             manifest,
+            resovler,
+            // TODO: vcs support
+            vcs: None,
             tests: BTreeMap::new(),
-            root,
+            filtered: BTreeMap::new(),
             template: None,
         }
     }
@@ -84,10 +83,6 @@ impl Project {
             .unwrap_or("<unknown package>")
     }
 
-    pub fn root(&self) -> &Path {
-        &self.root
-    }
-
     pub fn config(&self) -> &Config {
         &self.config
     }
@@ -96,61 +91,94 @@ impl Project {
         self.manifest.as_ref()
     }
 
-    pub fn tests(&self) -> &BTreeMap<String, Test> {
+    pub fn matched(&self) -> &BTreeMap<Identifier, Test> {
         &self.tests
     }
 
-    pub fn tests_mut(&mut self) -> &mut BTreeMap<String, Test> {
+    pub fn tests_mut(&mut self) -> &mut BTreeMap<Identifier, Test> {
         &mut self.tests
     }
 
+    pub fn filtered(&self) -> &BTreeMap<Identifier, Test> {
+        &self.filtered
+    }
+
+    pub fn filtered_mut(&mut self) -> &mut BTreeMap<Identifier, Test> {
+        &mut self.filtered
+    }
+
     pub fn template_path(&self) -> Option<PathBuf> {
-        self.config.template.as_ref().map(|t| self.root.join(t))
+        self.config
+            .template
+            .as_ref()
+            .map(|t| self.resovler.project_root().join(t))
     }
 
     pub fn template(&self) -> Option<&str> {
         self.template.as_deref()
     }
 
-    pub fn tests_root_dir(&self) -> PathBuf {
-        self.root.join(&self.config.tests)
+    pub fn resolver(&self) -> &ResolverV1 {
+        &self.resovler
+    }
+
+    pub fn root(&self) -> &Path {
+        self.resovler.project_root()
+    }
+
+    pub fn tests_root(&self) -> &Path {
+        self.resovler.test_root()
     }
 
     pub fn root_exists(&self) -> io::Result<bool> {
-        self.root.try_exists()
+        self.resovler.project_root().try_exists()
     }
 
-    #[tracing::instrument(skip(self))]
+    pub fn test_root_exists(&self) -> io::Result<bool> {
+        self.resovler.test_root().try_exists()
+    }
+
+    pub fn unique_test(&self) -> Result<&Test, ()> {
+        if self.tests.len() != 1 {
+            return Err(());
+        }
+
+        let (_, test) = self.tests.first_key_value().ok_or(())?;
+
+        Ok(test)
+    }
+
     fn ensure_root(&self) -> Result<(), Error> {
         if self.root_exists()? {
             Ok(())
         } else {
-            Err(Error::RootNotFound(self.root.clone()))
+            Err(Error::RootNotFound(
+                self.resovler.project_root().to_path_buf(),
+            ))
         }
     }
 
     pub fn is_init(&self) -> io::Result<bool> {
-        self.tests_root_dir().try_exists()
+        self.test_root_exists()
     }
 
-    #[tracing::instrument(skip(self))]
     fn ensure_init(&self) -> Result<(), Error> {
         self.ensure_root()?;
 
-        if self.is_init()? {
+        if self.test_root_exists()? {
             Ok(())
         } else {
-            Err(Error::InitNeeded)
+            Err(Error::NotInitialized)
         }
     }
 
-    #[tracing::instrument(skip(self))]
-    pub fn init(&mut self, options: ScaffoldOptions) -> Result<Option<&Test>, Error> {
+    pub fn init(&mut self, options: ScaffoldOptions) -> Result<(), Error> {
         #[cfg(debug_assertions)]
         self.ensure_root()?;
 
-        let tests_root_dir = self.tests_root_dir();
-        if tests_root_dir.try_exists()? {
+        let tests_root_dir = self.tests_root();
+        #[cfg(debug_assertions)]
+        if self.is_init()? {
             tracing::warn!(path = ?tests_root_dir, "test dir already exists");
             return Err(Error::DoubleInit);
         }
@@ -158,235 +186,122 @@ impl Project {
         tracing::trace!(path = ?tests_root_dir, "creating tests root dir");
         util::fs::create_dir(&tests_root_dir, false)?;
 
-        let create_ignore = |file, option, lines: &[&str]| -> Result<(), Error> {
-            if options.contains(option) {
-                let gitignore = tests_root_dir.join(file);
-                tracing::debug!(path = ?gitignore, "writing {file}");
-                let mut gitignore = File::options()
-                    .write(true)
-                    .create_new(true)
-                    .open(gitignore)?;
-
-                gitignore.write_all(b"# added by typst-test\n")?;
-                for pattern in lines {
-                    gitignore.write_all(pattern.as_bytes())?;
-                    gitignore.write_all(b"\n")?;
-                }
-            } else {
-                tracing::debug!("skipping default {file}");
-            }
-
-            Ok(())
-        };
-
-        create_ignore(".ignore", ScaffoldOptions::IGNORE, DEFAULT_IGNORE_LINES)?;
-        create_ignore(
-            ".gitignore",
-            ScaffoldOptions::GITIGNORE,
-            DEFAULT_GIT_IGNORE_LINES,
-        )?;
-
         if options.contains(ScaffoldOptions::EXAMPLE) {
             tracing::debug!("adding default test");
-            let (test, _) = self.create_test("example", false)?;
-            Ok(Some(test))
+            self.create_test(
+                Identifier::new("example").unwrap(),
+                Some(ReferenceKind::Persistent),
+                false,
+            )?;
+            Ok(())
         } else {
             tracing::debug!("skipping default test");
-            Ok(None)
+            Ok(())
         }
     }
 
-    #[tracing::instrument(skip(self))]
     pub fn uninit(&self) -> Result<(), Error> {
         #[cfg(debug_assertions)]
         self.ensure_init()?;
 
-        util::fs::remove_dir(self.tests_root_dir(), true)?;
+        util::fs::remove_dir(self.tests_root(), true)?;
         Ok(())
     }
 
-    #[tracing::instrument(skip(self))]
     pub fn clean_artifacts(&self) -> Result<(), Error> {
         #[cfg(debug_assertions)]
         self.ensure_init()?;
 
-        self.tests.par_iter().try_for_each(|(_, test)| {
-            util::fs::remove_dir(test.out_dir(self), true)?;
-            util::fs::remove_dir(test.diff_dir(self), true)?;
-            Ok(())
-        })
+        self.tests
+            .par_iter()
+            .try_for_each(|(_, test)| test.delete_temporary_directories(&self.resovler))?;
+
+        Ok(())
     }
 
-    #[tracing::instrument(skip(self))]
     pub fn load_template(&mut self) -> Result<(), Error> {
         #[cfg(debug_assertions)]
         self.ensure_init()?;
 
-        match fs::read_to_string(self.tests_root_dir().join("template.typ")) {
-            Ok(template) => self.template = Some(template),
-            Err(err) if err.kind() == io::ErrorKind::NotFound => {}
-            Err(err) => return Err(Error::Io(err)),
+        if let Some(template) = self.template_path() {
+            match fs::read_to_string(template) {
+                Ok(template) => self.template = Some(template),
+                Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+                Err(err) => return Err(Error::Io(err)),
+            }
         }
 
         Ok(())
     }
 
-    pub fn get_test(&self, test: &str) -> Option<&Test> {
-        self.tests.get(test)
-    }
-
-    pub fn find_test(&self, test: &str) -> Result<&Test, Error> {
-        self.get_test(test)
-            .ok_or_else(|| Error::TestUnknown(test.to_owned()))
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub fn create_test(&mut self, test: &str, ephemeral: bool) -> Result<(&Test, bool), Error> {
+    pub fn create_test(
+        &mut self,
+        id: Identifier,
+        kind: Option<ReferenceKind>,
+        use_template: bool,
+    ) -> Result<(), Error> {
         #[cfg(debug_assertions)]
         self.ensure_init()?;
 
-        if self.get_test(test).is_some() {
-            return Err(Error::TestsAlreadyExists(test.to_owned()));
+        if self.tests.contains_key(&id) {
+            return Err(Error::TestAlreadyExists(id));
         }
 
-        let test = Test::new(test.to_owned(), ephemeral);
-
-        let test_dir = test.test_dir(self);
-        tracing::trace!(path = ?test_dir, "creating test dir");
-        util::fs::create_dir(&test_dir, true)?;
-
-        let create_ignore = |file, lines: &[&str]| -> Result<(), Error> {
-            let gitignore = test_dir.join(file);
-            tracing::debug!(path = ?gitignore, "writing {file}");
-            let mut gitignore = File::options()
-                .write(true)
-                .create_new(true)
-                .open(gitignore)?;
-
-            gitignore.write_all(b"# added by typst-test\n")?;
-            for pattern in lines {
-                gitignore.write_all(pattern.as_bytes())?;
-                gitignore.write_all(b"\n")?;
-            }
-
-            Ok(())
-        };
-
-        create_ignore(
-            ".gitignore",
-            if ephemeral {
-                DEFAULT_GIT_IGNORE_LINES_EPHEMERAL
-            } else {
-                DEFAULT_GIT_IGNORE_LINES_PERSISTENT
-            },
-        )?;
-
-        let test_script = test.test_file(self);
-        tracing::trace!(path = ?test_script , "creating test script");
-        let mut test_script = File::options()
-            .write(true)
-            .create_new(true)
-            .open(test_script)?;
-        test_script.write_all(
-            self.template
-                .as_deref()
-                .unwrap_or(DEFAULT_TEST_INPUT)
-                .as_bytes(),
-        )?;
-
-        if let Some(ref_script) = test.ref_file(self) {
-            tracing::trace!(path = ?test_script , "creating ref script");
-            let mut test_script = File::options()
-                .write(true)
-                .create_new(true)
-                .open(ref_script)?;
-            test_script.write_all(
-                self.template
-                    .as_deref()
-                    .unwrap_or(DEFAULT_TEST_INPUT)
-                    .as_bytes(),
-            )?;
-        }
-
-        if self.template.is_none() && !test.is_ephemeral() {
-            let ref_dir = test.ref_dir(self);
-            tracing::trace!(path = ?ref_dir, "creating ref dir");
-            util::fs::create_empty_dir(&ref_dir, false)?;
-
-            let test_ref = ref_dir.join("1").with_extension("png");
-            tracing::trace!(path = ?test_ref, "creating ref image");
-            let mut test_ref = File::options()
-                .write(true)
-                .create_new(true)
-                .open(test_ref)?;
-            test_ref.write_all(DEFAULT_TEST_OUTPUT)?;
-            let test = self.tests.entry(test.name().to_owned()).or_insert(test);
-            Ok((test, true))
+        let source = if !use_template {
+            DEFAULT_TEST_INPUT
+        } else if let Some(template) = &self.template {
+            template
         } else {
-            let test = self.tests.entry(test.name().to_owned()).or_insert(test);
-            Ok((test, false))
-        }
-    }
-
-    #[tracing::instrument(skip(self))]
-    pub fn remove_test(&self, test: &str) -> Result<(), Error> {
-        #[cfg(debug_assertions)]
-        self.ensure_init()?;
-
-        let Some(test) = self.get_test(test) else {
-            return Err(Error::TestUnknown(test.to_owned()));
+            DEFAULT_TEST_INPUT
         };
 
-        let test_dir = test.test_dir(self);
-        tracing::trace!(path = ?test_dir, "removing test dir");
-        util::fs::remove_dir(test_dir, true)?;
+        let reference = match kind {
+            Some(ReferenceKind::Ephemeral) => Some(References::Ephemeral(source.into())),
+            Some(ReferenceKind::Persistent) if use_template && self.template.is_some() => {
+                Some(References::Persistent(Document::new(vec![
+                    Pixmap::decode_png(DEFAULT_TEST_OUTPUT).unwrap(),
+                ])))
+            }
+            Some(ReferenceKind::Persistent) => {
+                todo!("compile ")
+            }
+            None => None,
+        };
+
+        // TODO: error handling
+        let test = if let Some(git) = &self.vcs {
+            Test::create(&self.resovler, git, id, source, reference)
+        } else {
+            Test::create(&self.resovler, &NoVcs, id, source, reference)
+        }
+        .unwrap();
+
+        self.tests.insert(test.id().clone(), test);
 
         Ok(())
     }
 
-    #[tracing::instrument(skip(self))]
-    pub fn discover_tests(&mut self) -> Result<(), Error> {
+    pub fn delete_tests(&mut self) -> Result<(), Error> {
         #[cfg(debug_assertions)]
         self.ensure_init()?;
 
-        let root = self.tests_root_dir();
-        for entry in WalkDir::new(&root).min_depth(1) {
-            let entry = entry?;
-            let typ = entry.file_type();
-            let name = entry.file_name();
+        self.tests
+            .par_iter()
+            .try_for_each(|(_, test)| test.delete(&self.resovler))?;
 
-            if !typ.is_file() {
-                continue;
-            }
+        self.tests.clear();
+        Ok(())
+    }
 
-            if name != "test.typ" {
-                tracing::debug!(?name, "skipping file");
-                continue;
-            }
+    pub fn collect_tests(&mut self, matcher: Matcher) -> Result<(), Error> {
+        #[cfg(debug_assertions)]
+        self.ensure_init()?;
 
-            // isolate the dir path of the test script relative to the tests root dir
-            let relative = entry
-                .path()
-                .parent()
-                .and_then(|p| p.strip_prefix(&root).ok())
-                .expect("we have at least one depth of directories (./tests/<x>/test.typ)");
-
-            let Some(name) = relative.to_str() else {
-                tracing::error!(?name, "couldn't convert path into UTF-8, skipping");
-                continue;
-            };
-
-            let is_ephemeral = entry
-                .path()
-                .parent()
-                .expect("we have at least one parent")
-                .join("ref.typ")
-                .try_exists()?;
-
-            let test = Test::new(name.to_owned(), is_ephemeral);
-            tracing::debug!(name = ?test.name(), "loaded test");
-            self.tests.insert(test.name().to_owned(), test);
-        }
+        // TODO: error handling
+        let mut collector = Collector::new(&self.resovler);
+        collector.with_matcher(matcher);
+        collector.collect();
+        self.tests = collector.take_tests();
 
         Ok(())
     }
@@ -401,19 +316,13 @@ pub enum Error {
     InvalidManifest(#[from] toml::de::Error),
 
     #[error("project is not initalized")]
-    InitNeeded,
+    NotInitialized,
 
     #[error("project is already initialized")]
     DoubleInit,
 
-    #[error("unknown test: {0:?}")]
-    TestUnknown(String),
-
     #[error("test already exsits: {0:?}")]
-    TestsAlreadyExists(String),
-
-    #[error("an error occured while traversing directories")]
-    WalkDir(#[from] walkdir::Error),
+    TestAlreadyExists(Identifier),
 
     #[error("an io error occurred")]
     Io(#[from] io::Error),

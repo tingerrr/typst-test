@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 
-use super::project::{Project, TestTarget};
+use super::project::{Resolver, TestTarget};
 use crate::test::id::Identifier;
 
 /// A trait for version control systems, this is primarily used to ensure that
@@ -15,9 +15,9 @@ pub trait Vcs {
     fn unignore(&self, path: &Path) -> io::Result<()>;
 
     /// Ignores the given test target within the project.
-    fn ignore_target<P: Project>(
+    fn ignore_target<R: Resolver>(
         &self,
-        project: &P,
+        project: &R,
         id: &Identifier,
         target: TestTarget,
     ) -> io::Result<()> {
@@ -25,9 +25,9 @@ pub trait Vcs {
     }
 
     /// No longer ignores the given test target within the project.
-    fn unignore_target<P: Project>(
+    fn unignore_target<R: Resolver>(
         &self,
-        project: &P,
+        project: &R,
         id: &Identifier,
         target: TestTarget,
     ) -> io::Result<()> {
@@ -36,7 +36,7 @@ pub trait Vcs {
 }
 
 /// An no-op implementation of [`Vcs`] used for porjects which have no vcs.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct NoVcs;
 
 impl Vcs for NoVcs {
@@ -52,7 +52,7 @@ impl Vcs for NoVcs {
 /// A [`Vcs`] implementation for git. This will ignore paths by creating or
 /// amending to a `.gitignore` file in the parent directory of a given path.
 /// Edits by the user should be discouraged.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Git {
     root: PathBuf,
 }

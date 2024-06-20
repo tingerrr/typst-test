@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::test::id::Identifier;
 
-pub mod legacy;
+pub mod v1;
 
 /// The target a [`Project`] must resolve for a given [`Identifier`].
 #[derive(Debug)]
@@ -32,7 +32,7 @@ pub enum TestTarget {
 
 /// A type which resolves and stores commonly accessed paths to tests of a
 /// project.
-pub trait Project {
+pub trait Resolver {
     /// The reserved path names for this project.
     const RESERVED: &'static [&'static str];
 
