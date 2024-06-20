@@ -14,14 +14,12 @@ pub mod _dev;
 #[cfg(test)]
 #[cfg(test)]
 mod tests {
-    use store::project::legacy::ProjectLegacy;
-    use test::collector::Collector;
     use typst::eval::Tracer;
 
-    use super::*;
     use crate::_dev::GlobalTestWorld;
     use crate::compile::Metrics;
-    use crate::store::page::Png;
+    use crate::store::project::legacy::ProjectLegacy;
+    use crate::store::test::collector::Collector;
     use crate::{compare, compile, library, render};
 
     #[test]
@@ -48,27 +46,28 @@ mod tests {
                 continue;
             }
 
-            let output = render::render_document(&output, strategy);
+            let output: Vec<_> = render::render_document(&output, strategy).collect();
 
-            let reference = if let Some(reference) = test.load_ref_source(&project).unwrap() {
-                let reference = compile::compile(
-                    reference.clone(),
-                    &world,
-                    &mut Tracer::new(),
-                    &mut Metrics::new(),
-                )
-                .unwrap();
+            let reference: Vec<_> =
+                if let Some(reference) = test.load_reference_source(&project).unwrap() {
+                    let reference = compile::compile(
+                        reference.clone(),
+                        &world,
+                        &mut Tracer::new(),
+                        &mut Metrics::new(),
+                    )
+                    .unwrap();
 
-                render::render_document(&reference, strategy).collect()
-            } else if let Some(pages) = test.load_ref_pages::<Png, _>(&project).unwrap() {
-                pages
-            } else {
-                panic!()
-            };
+                    render::render_document(&reference, strategy).collect()
+                } else if let Some(document) = test.load_reference_document(&project).unwrap() {
+                    document.pages().to_owned()
+                } else {
+                    panic!()
+                };
 
             compare::visual::compare_pages(
-                output,
-                reference.into_iter(),
+                output.iter(),
+                reference.iter(),
                 compare::visual::Strategy::default(),
                 false,
             )

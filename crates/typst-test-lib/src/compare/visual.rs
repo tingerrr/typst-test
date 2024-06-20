@@ -30,12 +30,16 @@ impl Default for Strategy {
 /// Compares the rendered outputs of two documents with the given strategy, if
 /// `fail_fast` is `true`, then the first page failure aborts further
 /// comparisons.
-pub fn compare_pages(
-    outputs: impl ExactSizeIterator<Item = Pixmap>,
-    references: impl ExactSizeIterator<Item = Pixmap>,
+pub fn compare_pages<'p, O, R>(
+    outputs: O,
+    references: R,
     strategy: Strategy,
     fail_fast: bool,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where
+    O: ExactSizeIterator<Item = &'p Pixmap>,
+    R: ExactSizeIterator<Item = &'p Pixmap>,
+{
     let output_len = outputs.len();
     let reference_len = references.len();
 
@@ -69,8 +73,8 @@ pub fn compare_pages(
 
 /// Compares two pages individually using the given strategy.
 pub fn compare_page(
-    output: Pixmap,
-    reference: Pixmap,
+    output: &Pixmap,
+    reference: &Pixmap,
     strategy: Strategy,
 ) -> Result<(), PageError> {
     let Strategy::Simple {
@@ -130,8 +134,8 @@ mod tests {
     fn test_compare_page_simple_below_max_delta() {
         let [a, b] = images();
         assert!(compare_page(
-            a,
-            b,
+            &a,
+            &b,
             Strategy::Simple {
                 max_delta: 128,
                 max_deviation: 0,
@@ -144,8 +148,8 @@ mod tests {
     fn test_compare_page_simple_below_max_devitation() {
         let [a, b] = images();
         assert!(compare_page(
-            a,
-            b,
+            &a,
+            &b,
             Strategy::Simple {
                 max_delta: 0,
                 max_deviation: 5,
@@ -159,8 +163,8 @@ mod tests {
         let [a, b] = images();
         assert!(matches!(
             compare_page(
-                a,
-                b,
+                &a,
+                &b,
                 Strategy::Simple {
                     max_delta: 0,
                     max_deviation: 0,

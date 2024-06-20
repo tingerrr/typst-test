@@ -4,10 +4,10 @@ use std::io;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
-use super::id::{Identifier, ParseIdentifierError};
 use super::matcher::Matcher;
 use super::{ReferenceKind, Test};
 use crate::store::project::{Project, TestTarget};
+use crate::test::id::{Identifier, ParseIdentifierError};
 
 /// An error that can occur during [`Test`] collection using a [`Collector`].
 #[derive(Debug, thiserror::Error)]

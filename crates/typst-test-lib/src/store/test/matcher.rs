@@ -3,8 +3,9 @@ use std::fmt::Debug;
 use ecow::EcoString;
 use regex::Regex;
 
-use super::id::Identifier;
-use super::{ReferenceKind, Test};
+use super::Test;
+use crate::test::id::Identifier;
+use crate::test::ReferenceKind;
 
 /// A matcher which is applied to [`Identifier`]s when tests are collected.
 #[derive(Debug, Clone)]
@@ -127,11 +128,11 @@ impl Matcher {
     /// The matchers are short circuiting and the custom matcher is tested last,
     /// which means, if a name matcher fails the custom matcher is not tested.
     pub fn is_match(&self, test: &Test) -> bool {
-        if self.filter_ignored && test.is_ignored {
+        if self.filter_ignored && test.is_ignored() {
             return false;
         }
 
-        if !match test.ref_kind {
+        if !match test.ref_kind() {
             Some(ReferenceKind::Ephemeral) => self.include_ephemeral,
             Some(ReferenceKind::Persistent) => self.include_persistent,
             None => self.include_compile_only,
@@ -140,7 +141,7 @@ impl Matcher {
         }
 
         if let Some(filter) = &self.name {
-            if !filter.is_match(&test.id) {
+            if !filter.is_match(test.id()) {
                 return false;
             }
         }
