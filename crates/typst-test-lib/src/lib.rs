@@ -19,13 +19,17 @@ mod tests {
     use crate::_dev::GlobalTestWorld;
     use crate::compile::Metrics;
     use crate::store::project::v1::ResolverV1;
+    use crate::store::project::Resolver;
     use crate::store::test::collector::Collector;
     use crate::{compare, compile, library, render};
 
     #[test]
     fn test_e2e() {
-        let world = GlobalTestWorld::new(library::augmented_default_library());
         let project = ResolverV1::new("../../", "assets/test-assets/collect");
+        let world = GlobalTestWorld::new(
+            project.project_root().to_path_buf(),
+            library::augmented_default_library(),
+        );
 
         let strategy = render::Strategy::default();
 

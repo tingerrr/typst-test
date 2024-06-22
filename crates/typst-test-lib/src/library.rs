@@ -88,7 +88,7 @@ mod tests {
 
     #[test]
     fn test_catch() {
-        let world = GlobalTestWorld::new(augmented_default_library());
+        let world = GlobalTestWorld::new("".into(), augmented_default_library());
         let source = Source::detached(
             r#"
             #let errors = catch(() => {
@@ -103,7 +103,7 @@ mod tests {
 
     #[test]
     fn test_assert_panic() {
-        let world = GlobalTestWorld::new(augmented_default_library());
+        let world = GlobalTestWorld::new("".into(), augmented_default_library());
         let source = Source::detached(
             r#"
             #assert-panic(() => {
