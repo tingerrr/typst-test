@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Display};
 
+use anyhow::Context;
 use typst::eval::Tracer;
 use typst::model::Document as TypstDocument;
 use typst::syntax::Source;
@@ -44,7 +45,7 @@ impl<'p> Runner<'p> {
             fail_fast: false,
             save_temporary: true,
             update: false,
-            compare_strategy: Some(compare::Strategy::default()),
+            compare_strategy: None,
         }
     }
 
@@ -85,11 +86,11 @@ impl<'p> Runner<'p> {
         }
     }
 
-    pub fn prepare(&self) -> Result<(), Error> {
+    pub fn prepare(&self) -> anyhow::Result<()> {
         Ok(())
     }
 
-    pub fn cleanup(&self) -> Result<(), Error> {
+    pub fn cleanup(&self) -> anyhow::Result<()> {
         Ok(())
     }
 }
@@ -102,34 +103,39 @@ macro_rules! bail_inner {
 }
 
 impl TestRunner<'_, '_, '_> {
-    pub fn run(&mut self) -> Result<Result<(), TestFailure>, Error> {
-        self.prepare()?;
+    pub fn run(&mut self) -> anyhow::Result<Result<(), TestFailure>> {
+        self.prepare().at(Stage::Preparation)?;
 
-        self.load_source()?;
+        self.load_source().at(Stage::Loading)?;
 
-        if self.test.is_ephemeral() {
-            self.load_reference_source()?;
-        }
-
-        if let Err(err) = self.compile()? {
+        if let Err(err) = self.compile().at(Stage::Compilation)? {
             bail_inner!(err);
         }
 
-        if self.project_runner.compare_strategy.is_some() {
-            self.render()?;
+        // both update and compare need the rendered document
+        if self.project_runner.update || self.project_runner.compare_strategy.is_some() {
+            self.render_document().at(Stage::Rendering)?;
 
             if self.project_runner.save_temporary {
-                self.save_document()?;
+                self.save_document().at(Stage::Saving)?;
             }
+        }
 
+        if self.project_runner.compare_strategy.is_some() {
             if self.test.is_ephemeral() {
-                self.render_reference()?;
+                self.load_reference_source().at(Stage::Loading)?;
+
+                if let Err(err) = self.compile_reference().at(Stage::Compilation)? {
+                    bail_inner!(err);
+                }
+
+                self.render_reference_document().at(Stage::Rendering)?;
 
                 if self.project_runner.save_temporary {
-                    self.save_reference_document()?;
+                    self.save_reference_document().at(Stage::Saving)?;
                 }
             } else {
-                self.load_reference_document()?;
+                self.load_reference_document().at(Stage::Loading)?;
             }
 
             if let Err(err) = self.compare()? {
@@ -138,74 +144,69 @@ impl TestRunner<'_, '_, '_> {
         }
 
         if self.project_runner.update {
-            self.update()?;
+            self.update().at(Stage::Update)?;
         }
 
-        self.cleanup()?;
+        self.cleanup().at(Stage::Cleanup)?;
         Ok(Ok(()))
     }
 
-    pub fn prepare(&mut self) -> Result<(), Error> {
+    pub fn prepare(&mut self) -> anyhow::Result<()> {
         tracing::trace!(test = ?self.test.id(), "clearing temporary directories");
 
         self.test
-            .delete_temporary_directories(self.project_runner.project.resolver())
-            .map_err(|err| Error::other(err).at(Stage::Preparation))?;
+            .delete_temporary_directories(self.project_runner.project.resolver())?;
 
         self.test
-            .create_temporary_directories(self.project_runner.project.resolver())
-            .map_err(|err| Error::other(err).at(Stage::Preparation))?;
+            .create_temporary_directories(self.project_runner.project.resolver())?;
 
         Ok(())
     }
 
-    pub fn cleanup(&mut self) -> Result<(), Error> {
+    pub fn cleanup(&mut self) -> anyhow::Result<()> {
         Ok(())
     }
 
-    pub fn load_source(&mut self) -> Result<(), Error> {
+    pub fn load_source(&mut self) -> anyhow::Result<()> {
         tracing::trace!(test = ?self.test.id(), "loading test source");
 
         self.source = Some(
             self.test
-                .load_source(self.project_runner.project.resolver())
-                .map_err(|err| Error::other(err).at(Stage::Loading))?,
+                .load_source(self.project_runner.project.resolver())?,
         );
 
         Ok(())
     }
 
-    pub fn load_reference_source(&mut self) -> Result<(), Error> {
+    pub fn load_reference_source(&mut self) -> anyhow::Result<()> {
         tracing::trace!(test = ?self.test.id(), "loading reference source");
 
         self.reference_source = Some(
             self.test
-                .load_reference_source(self.project_runner.project.resolver())
-                .map_err(|err| Error::other(err).at(Stage::Preparation))?,
+                .load_reference_source(self.project_runner.project.resolver())?,
         );
 
         Ok(())
     }
 
-    pub fn load_reference_document(&mut self) -> Result<(), Error> {
+    pub fn load_reference_document(&mut self) -> anyhow::Result<()> {
         tracing::trace!(test = ?self.test.id(), "loading reference document");
 
         self.reference_store_document = Some(
             self.test
-                .load_reference_document(self.project_runner.project.resolver())
-                .map_err(|err| Error::other(err).at(Stage::Loading))?,
+                .load_reference_document(self.project_runner.project.resolver())?,
         );
 
         Ok(())
     }
 
-    pub fn render(&mut self) -> Result<(), Error> {
+    pub fn render_document(&mut self) -> anyhow::Result<()> {
         tracing::trace!(test = ?self.test.id(), "rendering test document");
 
         let document = self
             .document
             .as_ref()
-            .ok_or_else(|| Error::missing_stage(Stage::Compilation).at(Stage::Rendering))?;
+            .ok_or_else(|| MissingStage(Stage::Compilation))?;
 
         let compare::Strategy::Visual(strategy, _) =
             self.project_runner.compare_strategy.unwrap_or_default();
@@ -214,19 +215,16 @@ impl TestRunner<'_, '_, '_> {
         Ok(())
     }
 
-    pub fn render_reference(&mut self) -> Result<(), Error> {
+    pub fn render_reference_document(&mut self) -> anyhow::Result<()> {
         tracing::trace!(test = ?self.test.id(), "rendering reference document");
 
         let document = self
             .reference_document
             .as_ref()
-            .ok_or_else(|| Error::missing_stage(Stage::Compilation).at(Stage::Rendering))?
+            .ok_or_else(|| MissingStage(Stage::Compilation))?
             .as_ref()
-            .ok_or_else(|| {
-                Error::incorrect_kind(self.test.ref_kind().copied())
-                    .context("Only ephemeral tests can have their reference rendered")
-                    .at(Stage::Comparison)
-            })?;
+            .ok_or_else(|| IncorrectKind(self.test.ref_kind().copied()))
+            .context("Only ephemeral tests can have their reference rendered")?;
 
         let compare::Strategy::Visual(strategy, _) =
             self.project_runner.compare_strategy.unwrap_or_default();
@@ -235,15 +233,15 @@ impl TestRunner<'_, '_, '_> {
         Ok(())
     }
 
-    pub fn compile_reference(&mut self) -> Result<Result<(), CompileFailure>, Error> {
+    pub fn compile_reference(&mut self) -> anyhow::Result<Result<(), CompileFailure>> {
         self.compile_inner(true)
     }
 
-    pub fn compile(&mut self) -> Result<Result<(), CompileFailure>, Error> {
+    pub fn compile(&mut self) -> anyhow::Result<Result<(), CompileFailure>> {
         self.compile_inner(false)
     }
 
-    fn compile_inner(&mut self, is_reference: bool) -> Result<Result<(), CompileFailure>, Error> {
+    fn compile_inner(&mut self, is_reference: bool) -> anyhow::Result<Result<(), CompileFailure>> {
         tracing::trace!(
             test = ?self.test.id(),
             "compiling {}document",
@@ -253,17 +251,14 @@ impl TestRunner<'_, '_, '_> {
         let source = if is_reference {
             self.reference_source
                 .as_ref()
-                .ok_or_else(|| Error::missing_stage(Stage::Loading).at(Stage::Compilation))?
+                .ok_or_else(|| MissingStage(Stage::Loading))?
                 .as_ref()
-                .ok_or_else(|| {
-                    Error::incorrect_kind(self.test.ref_kind().copied())
-                        .context("Only ephemeral tests can have their reference compiled")
-                        .at(Stage::Comparison)
-                })?
+                .ok_or_else(|| IncorrectKind(self.test.ref_kind().copied()))
+                .context("Only ephemeral tests can have their reference compiled")?
         } else {
             self.source
                 .as_ref()
-                .ok_or_else(|| Error::missing_stage(Stage::Loading).at(Stage::Compilation))?
+                .ok_or_else(|| MissingStage(Stage::Loading))?
         };
 
         match compile::compile(
@@ -290,71 +285,61 @@ impl TestRunner<'_, '_, '_> {
         Ok(Ok(()))
     }
 
-    pub fn save_reference_document(&mut self) -> Result<(), Error> {
+    pub fn save_reference_document(&mut self) -> anyhow::Result<()> {
         tracing::trace!(test = ?self.test.id(), "saving reference document");
 
         let document = self
             .reference_store_document
             .as_ref()
-            .ok_or_else(|| Error::missing_stage(Stage::Compilation).at(Stage::Saving))?
+            .ok_or_else(|| MissingStage(Stage::Compilation))?
             .as_ref()
-            .ok_or_else(|| {
-                Error::incorrect_kind(self.test.ref_kind().copied())
-                    .context("Only ephemeral tests can save their reference document")
-                    .at(Stage::Comparison)
-            })?;
+            .ok_or_else(|| IncorrectKind(self.test.ref_kind().copied()))
+            .context("Only ephemeral tests can save their reference document")?;
 
-        document
-            .save(
-                self.project_runner
-                    .project
-                    .resovler
-                    .resolve(self.test.id(), TestTarget::RefDir),
-            )
-            .map_err(|err| Error::other(err).at(Stage::Saving))?;
+        document.save(
+            self.project_runner
+                .project
+                .resovler
+                .resolve(self.test.id(), TestTarget::RefDir),
+        )?;
 
         Ok(())
     }
 
-    pub fn save_document(&mut self) -> Result<(), Error> {
+    pub fn save_document(&mut self) -> anyhow::Result<()> {
         tracing::trace!(test = ?self.test.id(), "saving test document");
 
         let document = self
             .store_document
             .as_ref()
-            .ok_or_else(|| Error::missing_stage(Stage::Compilation).at(Stage::Saving))?;
+            .ok_or_else(|| MissingStage(Stage::Compilation))?;
 
-        document
-            .save(
-                self.project_runner
-                    .project
-                    .resovler
-                    .resolve(self.test.id(), TestTarget::OutDir),
-            )
-            .map_err(|err| Error::other(err).at(Stage::Saving))?;
+        document.save(
+            self.project_runner
+                .project
+                .resovler
+                .resolve(self.test.id(), TestTarget::OutDir),
+        )?;
 
         Ok(())
     }
 
-    pub fn compare(&mut self) -> Result<Result<(), CompareFailure>, Error> {
+    pub fn compare(&mut self) -> anyhow::Result<Result<(), CompareFailure>> {
         tracing::trace!(test = ?self.test.id(), "comparing");
 
         let output = self
             .store_document
             .as_ref()
-            .ok_or_else(|| Error::missing_stage(Stage::Loading).at(Stage::Comparison))?
+            .ok_or_else(|| MissingStage(Stage::Loading))?
             .clone();
 
         let reference = self
             .reference_store_document
             .as_ref()
-            .ok_or_else(|| Error::missing_stage(Stage::Loading).at(Stage::Comparison))?
+            .ok_or_else(|| MissingStage(Stage::Loading))?
             .as_ref()
-            .ok_or_else(|| {
-                Error::incorrect_kind(self.test.ref_kind().copied())
-                    .context("Compile only tests cannot be compared")
-                    .at(Stage::Comparison)
-            })?;
+            .ok_or_else(|| IncorrectKind(self.test.ref_kind().copied()))
+            .context("Compile only tests cannot be compared")?;
 
         let compare::Strategy::Visual(_, strategy) =
             self.project_runner.compare_strategy.unwrap_or_default();
@@ -373,95 +358,48 @@ impl TestRunner<'_, '_, '_> {
         }
     }
 
-    pub fn update(&self) -> Result<(), Error> {
+    pub fn update(&self) -> anyhow::Result<()> {
         tracing::trace!(test = ?self.test.id(), "updating references");
 
         let document = self
             .store_document
             .as_ref()
-            .ok_or_else(|| Error::missing_stage(Stage::Loading).at(Stage::Comparison))?;
+            .ok_or_else(|| MissingStage(Stage::Loading))?;
 
         self.test
-            .create_reference_document(self.project_runner.project.resolver(), document)
-            .map_err(|err| Error::other(err).at(Stage::Update))?;
+            .create_reference_document(self.project_runner.project.resolver(), document)?;
 
         Ok(())
     }
 }
 
-#[derive(Debug)]
-enum ErrorImpl {
-    IncorrectKind(Option<ReferenceKind>),
-    MissingStage(Stage),
-    Other(anyhow::Error),
+trait At<T, E> {
+    fn at(self, stage: Stage) -> Result<T, anyhow::Error>;
 }
 
-pub struct Error {
-    inner: ErrorImpl,
-    context: Option<String>,
-    stage: Option<Stage>,
-}
-
-impl Error {
-    fn incorrect_kind(kind: Option<ReferenceKind>) -> Self {
-        Self {
-            inner: ErrorImpl::IncorrectKind(kind),
-            context: None,
-            stage: None,
-        }
-    }
-
-    fn missing_stage(stage: Stage) -> Self {
-        Self {
-            inner: ErrorImpl::MissingStage(stage),
-            context: None,
-            stage: None,
-        }
-    }
-
-    fn other(error: impl Into<anyhow::Error>) -> Self {
-        Self {
-            inner: ErrorImpl::Other(error.into()),
-            context: None,
-            stage: None,
-        }
-    }
-
-    fn at(mut self, stage: Stage) -> Self {
-        self.stage = Some(stage);
-        self
-    }
-
-    fn context<S: Into<String>>(mut self, context: S) -> Self {
-        self.context = Some(context.into());
-        self
+impl<T, E, C: Context<T, E>> At<T, E> for C {
+    fn at(self, stage: Stage) -> Result<T, anyhow::Error> {
+        self.context(format!("Failed at stage {}", stage))
     }
 }
 
-impl Debug for Error {
+#[derive(Debug, thiserror::Error)]
+pub struct IncorrectKind(Option<ReferenceKind>);
+
+impl Display for IncorrectKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(&self.inner, f)
+        write!(
+            f,
+            "Operation invalid for {} tests",
+            match self.0 {
+                Some(ReferenceKind::Ephemeral) => "ephemeral",
+                Some(ReferenceKind::Persistent) => "persistent",
+                None => "compile-only",
+            }
+        )
     }
 }
 
-impl Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(stage) = &self.stage {
-            write!(f, "{} stage failed", stage)?;
-        } else {
-            write!(f, "failed: ")?;
-        }
-
-        if let Some(ctx) = &self.context {
-            write!(f, "{ctx}")?;
-        }
-
-        Ok(())
-    }
-}
-
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        None
-    }
-}
+#[derive(Debug, thiserror::Error)]
+#[error("Required to run stage {0}, but did not")]
+pub struct MissingStage(Stage);
