@@ -281,8 +281,16 @@ impl Test {
     /// Loads the test script source of this test.
     pub fn load_source<R: Resolver>(&self, resolver: &R) -> io::Result<Source> {
         let test_script = resolver.resolve(&self.id, TestTarget::TestScript);
+
         Ok(Source::new(
-            FileId::new(None, VirtualPath::new(test_script)),
+            FileId::new(
+                None,
+                VirtualPath::new(
+                    test_script
+                        .strip_prefix(resolver.project_root())
+                        .unwrap_or(test_script),
+                ),
+            ),
             std::fs::read_to_string(test_script)?,
         ))
     }
@@ -293,7 +301,14 @@ impl Test {
             Some(ReferenceKind::Ephemeral) => {
                 let ref_script = resolver.resolve(&self.id, TestTarget::RefScript);
                 Ok(Some(Source::new(
-                    FileId::new(None, VirtualPath::new(ref_script)),
+                    FileId::new(
+                        None,
+                        VirtualPath::new(
+                            ref_script
+                                .strip_prefix(resolver.project_root())
+                                .unwrap_or(ref_script),
+                        ),
+                    ),
                     std::fs::read_to_string(ref_script)?,
                 )))
             }
@@ -460,7 +475,7 @@ mod tests {
 
     #[test]
     fn test_load_sources() {
-        _dev::fs::TempEnv::run(
+        _dev::fs::TempEnv::run_no_check(
             |root| {
                 root.setup_file("tests/fancy/test.typ", "Hello World")
                     .setup_file("tests/fancy/ref.typ", "Hello\nWorld")
@@ -477,9 +492,27 @@ mod tests {
                 test.load_source(&project).unwrap();
                 test.load_reference_source(&project).unwrap().unwrap();
             },
+        );
+    }
+
+    #[test]
+    fn test_sources_virtual() {
+        _dev::fs::TempEnv::run_no_check(
+            |root| root.setup_file_empty("tests/fancy/test.typ"),
             |root| {
-                root.expect_file("tests/fancy/test.typ", "Hello World")
-                    .expect_file("tests/fancy/ref.typ", "Hello\nWorld")
+                let project = ResolverV1::new(root, "tests");
+
+                let test = Test {
+                    id: Identifier::new("fancy").unwrap(),
+                    ref_kind: None,
+                    is_ignored: false,
+                };
+
+                let source = test.load_source(&project).unwrap();
+                assert_eq!(
+                    source.id().vpath().resolve(root).unwrap(),
+                    root.join("tests/fancy/test.typ")
+                );
             },
         );
     }
