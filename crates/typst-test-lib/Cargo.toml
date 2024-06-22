@@ -7,25 +7,24 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-typst-project = { git = "https://github.com/tingerrr/typst-project", rev = "a71db5451ebdca2174adc0a323c71ba5ab2f8120" }
-
-thiserror = "1.0.56"
-tracing = "0.1.40"
-oxipng = { version = "9.0.0", features = ["image"] }
-serde = { version = "1.0.195", features = ["derive"] }
-typst = "0.11.0"
-typst-render = "0.11.0"
-comemo = "0.4.0"
-ecow = "0.2.2"
-tiny-skia = "0.11.4"
-png = "0.17.13"
-unscanny = "0.1.0"
-ignore = "0.4.22"
-regex = "1.10.5"
+bitflags.workspace = true
+comemo.workspace = true
+ecow.workspace = true
+ignore.workspace = true
+png.workspace = true
+rayon.workspace = true
+serde = { workspace = true, features = ["derive"] }
+regex.workspace = true
+tiny-skia.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+tracing.workspace = true
+typst.workspace = true
+typst-render.workspace = true
+unscanny.workspace = true
 
 # [dev-dependencies]
-tempdir = "0.3.7"
-typst-assets = { version = "0.11.0", features = ["fonts"] }
-typst-dev-assets = { git = "https://github.com/typst/typst-dev-assets", rev = "ee8ae61cca138dc92f9d818fc7f2fc046d0148c5" }
-dirs = "5.0.1"
-
+dirs = { workspace = true }
+tempdir = { workspace = true }
+typst-assets = { workspace = true, features = ["fonts"] }
+typst-dev-assets = { workspace = true }
