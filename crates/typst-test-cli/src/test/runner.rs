@@ -1,4 +1,6 @@
 use std::fmt::{Debug, Display};
+use std::sync::{mpsc, Arc};
+use std::time::Instant;
 
 use anyhow::Context;
 use typst::eval::Tracer;
@@ -10,47 +12,62 @@ use typst_test_lib::store::project::{Resolver, TestTarget};
 use typst_test_lib::store::test::Test;
 use typst_test_lib::store::Document;
 use typst_test_lib::test::ReferenceKind;
-use typst_test_lib::{compare, compile};
+use typst_test_lib::{compare, compile, render};
 
 use super::{CompareFailure, CompileFailure, Stage, TestFailure};
 use crate::project::Project;
 
-pub struct Runner<'p> {
-    project: &'p Project,
-    world: &'p (dyn World + Sync),
+#[derive(Debug, Clone, Default)]
+pub struct RunnerConfig {
+    /// Whether to stop after the first failure.
     fail_fast: bool,
+
+    /// Whether to save the temporary documents to disk.
     save_temporary: bool,
+
+    /// The strategy to use when rendering documents.
+    render_strategy: Option<render::Strategy>,
+
+    /// Whether to update persistent tests.
     update: bool,
+
+    /// The strategy to use when updating persistent tests.
+    update_strategy: Option<render::Strategy>,
+
+    /// Whether to compare ephemeral or persistent tests.
+    compare: bool,
+
+    /// The strategy to use when comparing docuemnts.
     compare_strategy: Option<compare::Strategy>,
 }
 
-pub struct TestRunner<'c, 'p, 't> {
-    project_runner: &'c Runner<'p>,
-    test: &'t Test,
-
-    source: Option<Source>,
-    document: Option<TypstDocument>,
-    store_document: Option<Document>,
-
-    reference_source: Option<Option<Source>>,
-    reference_document: Option<Option<TypstDocument>>,
-    reference_store_document: Option<Option<Document>>,
-}
-
-impl<'p> Runner<'p> {
-    pub fn new(project: &'p Project, world: &'p (dyn World + Sync)) -> Self {
-        Self {
-            project,
-            world,
-            fail_fast: false,
-            save_temporary: true,
-            update: false,
-            compare_strategy: None,
-        }
-    }
-
+impl RunnerConfig {
     pub fn fail_fast(&self) -> bool {
         self.fail_fast
+    }
+
+    pub fn save_temporary(&self) -> bool {
+        self.save_temporary
+    }
+
+    pub fn render_strategy(&self) -> Option<render::Strategy> {
+        self.render_strategy
+    }
+
+    pub fn update(&self) -> bool {
+        self.update
+    }
+
+    pub fn update_strategy(&self) -> Option<render::Strategy> {
+        self.update_strategy
+    }
+
+    pub fn compare(&self) -> bool {
+        self.compare
+    }
+
+    pub fn compare_strategy(&self) -> Option<compare::Strategy> {
+        self.compare_strategy
     }
 
     pub fn with_fail_fast(&mut self, yes: bool) -> &mut Self {
@@ -63,8 +80,8 @@ impl<'p> Runner<'p> {
         self
     }
 
-    pub fn with_compare(&mut self, strategy: Option<compare::Strategy>) -> &mut Self {
-        self.compare_strategy = strategy;
+    pub fn with_render_strategy(&mut self, strategy: Option<render::Strategy>) -> &mut Self {
+        self.render_strategy = strategy;
         self
     }
 
@@ -73,10 +90,87 @@ impl<'p> Runner<'p> {
         self
     }
 
+    pub fn with_update_strategy(&mut self, strategy: Option<render::Strategy>) -> &mut Self {
+        self.update_strategy = strategy;
+        self.with_update(true)
+    }
+
+    pub fn with_compare(&mut self, yes: bool) -> &mut Self {
+        self.compare = yes;
+        self
+    }
+
+    pub fn with_compare_strategy(&mut self, strategy: Option<compare::Strategy>) -> &mut Self {
+        self.compare_strategy = strategy;
+        self.with_compare(true)
+    }
+
+    pub fn build<'p>(self, project: &'p Project, world: &'p (dyn World + Sync)) -> Runner<'p> {
+        Runner {
+            project,
+            world,
+            config: Arc::new(self),
+        }
+    }
+}
+
+pub struct Event {
+    pub test: Test,
+    pub instant: Instant,
+    pub message: Option<String>,
+    pub payload: EventPayload,
+}
+
+pub enum EventPayload {
+    StartedTest,
+    FinishedTest,
+    FailedTest(TestFailure),
+
+    StartedStage(Stage),
+    FinishedStage(Stage),
+    FailedStage(Stage),
+}
+
+pub struct Runner<'p> {
+    project: &'p Project,
+    world: &'p (dyn World + Sync),
+    config: Arc<RunnerConfig>,
+}
+
+pub struct TestRunner<'c, 'p, 't> {
+    project_runner: &'c Runner<'p>,
+    test: &'t Test,
+    config: Arc<RunnerConfig>,
+
+    source: Option<Source>,
+    document: Option<TypstDocument>,
+    store_document: Option<Document>,
+
+    reference_source: Option<Option<Source>>,
+    reference_document: Option<Option<TypstDocument>>,
+    reference_store_document: Option<Option<Document>>,
+}
+
+impl<'p> Runner<'p> {
+    pub fn config(&self) -> &RunnerConfig {
+        &self.config
+    }
+
+    pub fn config_mut(&mut self) -> &mut RunnerConfig {
+        Arc::make_mut(&mut self.config)
+    }
+
     pub fn test<'c, 't>(&'c self, test: &'t Test) -> TestRunner<'c, 'p, 't> {
+        let mut config = Arc::clone(&self.config);
+
+        if test.is_compile_only() {
+            Arc::make_mut(&mut config).with_compare(false);
+        }
+
         TestRunner {
             project_runner: self,
             test,
+            config,
             source: None,
             document: None,
             store_document: None,
@@ -103,52 +197,156 @@ macro_rules! bail_inner {
 }
 
 impl TestRunner<'_, '_, '_> {
-    pub fn run(&mut self) -> anyhow::Result<Result<(), TestFailure>> {
-        self.prepare().at(Stage::Preparation)?;
+    pub fn config(&self) -> &RunnerConfig {
+        &self.config
+    }
 
-        self.load_source().at(Stage::Loading)?;
+    pub fn config_mut(&mut self) -> &mut RunnerConfig {
+        Arc::make_mut(&mut self.config)
+    }
+}
 
-        if let Err(err) = self.compile().at(Stage::Compilation)? {
-            bail_inner!(err);
+impl<'t> TestRunner<'_, '_, 't> {
+    fn run_stage<R, F: FnOnce(&mut Self) -> anyhow::Result<R>>(
+        &mut self,
+        progress: &mpsc::Sender<Event>,
+        stage: Stage,
+        f: F,
+    ) -> anyhow::Result<R> {
+        let start = Instant::now();
+
+        progress.send(Event {
+            test: self.test.clone(),
+            instant: start,
+            message: None,
+            payload: EventPayload::StartedStage(stage),
+        })?;
+
+        let res = f(self);
+        let end = Instant::now();
+
+        if res.is_ok() {
+            progress.send(Event {
+                test: self.test.clone(),
+                instant: end,
+                message: None,
+                payload: EventPayload::FinishedStage(stage),
+            })?;
+        } else {
+            progress.send(Event {
+                test: self.test.clone(),
+                instant: end,
+                message: None,
+                payload: EventPayload::FailedStage(stage),
+            })?;
         }
 
-        // both update and compare need the rendered document
-        if self.project_runner.update || self.project_runner.compare_strategy.is_some() {
-            self.render_document().at(Stage::Rendering)?;
+        res.at(stage)
+    }
 
-            if self.project_runner.save_temporary {
-                self.save_document().at(Stage::Saving)?;
-            }
-        }
+    pub fn run(
+        &mut self,
+        progress: mpsc::Sender<Event>,
+    ) -> anyhow::Result<Result<(), TestFailure>> {
+        let test = self.test.clone();
 
-        if self.project_runner.compare_strategy.is_some() {
-            if self.test.is_ephemeral() {
-                self.load_reference_source().at(Stage::Loading)?;
+        let mut inner = || -> anyhow::Result<Result<(), TestFailure>> {
+            self.run_stage(&progress, Stage::Preparation, |this| this.prepare())?;
 
-                if let Err(err) = self.compile_reference().at(Stage::Compilation)? {
-                    bail_inner!(err);
-                }
+            self.run_stage(&progress, Stage::Loading, |this| this.load_source())?;
 
-                self.render_reference_document().at(Stage::Rendering)?;
-
-                if self.project_runner.save_temporary {
-                    self.save_reference_document().at(Stage::Saving)?;
-                }
-            } else {
-                self.load_reference_document().at(Stage::Loading)?;
-            }
-
-            if let Err(err) = self.compare()? {
+            if let Err(err) =
+                self.run_stage(&progress, Stage::Compilation, |this| this.compile())?
+            {
                 bail_inner!(err);
             }
-        }
 
-        if self.project_runner.update {
-            self.update().at(Stage::Update)?;
-        }
+            // both update and compare need the rendered document
+            if self.config.update || self.config.compare {
+                self.run_stage(&progress, Stage::Rendering, |this| this.render_document())?;
 
-        self.cleanup().at(Stage::Cleanup)?;
-        Ok(Ok(()))
+                if self.config.save_temporary {
+                    self.run_stage(&progress, Stage::Saving, |this| this.save_document())?;
+                }
+            }
+
+            if self.config.compare {
+                if self.test.is_ephemeral() {
+                    self.run_stage(&progress, Stage::Loading, |this| {
+                        this.load_reference_source()
+                    })?;
+
+                    if let Err(err) = self.run_stage(&progress, Stage::Compilation, |this| {
+                        this.compile_reference()
+                    })? {
+                        bail_inner!(err);
+                    }
+
+                    self.run_stage(&progress, Stage::Rendering, |this| {
+                        this.render_reference_document()
+                    })?;
+
+                    if self.config.save_temporary {
+                        self.run_stage(&progress, Stage::Saving, |this| {
+                            this.save_reference_document()
+                        })?;
+                    }
+                } else {
+                    self.run_stage(&progress, Stage::Loading, |this| {
+                        this.load_reference_document()
+                    })?;
+                }
+
+                if let Err(err) =
+                    self.run_stage(&progress, Stage::Comparison, |this| this.compare())?
+                {
+                    bail_inner!(err);
+                }
+            }
+
+            if self.config.update {
+                self.run_stage(&progress, Stage::Update, |this| this.update())?;
+            }
+
+            self.run_stage(&progress, Stage::Cleanup, |this| this.cleanup())?;
+
+            Ok(Ok(()))
+        };
+
+        let start = Instant::now();
+        progress.send(Event {
+            test,
+            instant: start,
+            message: None,
+            payload: EventPayload::StartedTest,
+        })?;
+
+        let res = inner();
+        let end = Instant::now();
+
+        match res {
+            Ok(Ok(_)) => {
+                progress.send(Event {
+                    test: self.test.clone(),
+                    instant: end,
+                    message: None,
+                    payload: EventPayload::FinishedTest,
+                })?;
+
+                Ok(Ok(()))
+            }
+            Ok(Err(err)) => {
+                progress.send(Event {
+                    test: self.test.clone(),
+                    instant: end,
+                    message: None,
+                    payload: EventPayload::FailedTest(err.clone()),
+                })?;
+
+                Ok(Err(err))
+            }
+            Err(err) => { Err(err) }?,
+        }
     }
 
     pub fn prepare(&mut self) -> anyhow::Result<()> {
@@ -208,8 +406,12 @@ impl TestRunner<'_, '_, '_> {
             .as_ref()
             .ok_or_else(|| MissingStage(Stage::Compilation))?;
 
-        let compare::Strategy::Visual(strategy, _) =
-            self.project_runner.compare_strategy.unwrap_or_default();
+        let strategy = self
+            .project_runner
+            .config
+            .render_strategy
+            .unwrap_or_default();
+
         self.store_document = Some(Document::render(document, strategy));
 
         Ok(())
@@ -226,8 +428,12 @@ impl TestRunner<'_, '_, '_> {
             .ok_or_else(|| IncorrectKind(self.test.ref_kind().copied()))
             .context("Only ephemeral tests can have their reference rendered")?;
 
-        let compare::Strategy::Visual(strategy, _) =
-            self.project_runner.compare_strategy.unwrap_or_default();
+        let strategy = self
+            .project_runner
+            .config
+            .render_strategy
+            .unwrap_or_default();
+
         self.reference_store_document = Some(Some(Document::render(document, strategy)));
 
         Ok(())
@@ -299,7 +505,7 @@ impl TestRunner<'_, '_, '_> {
         document.save(
             self.project_runner
                 .project
-                .resovler
+                .resolver()
                 .resolve(self.test.id(), TestTarget::RefDir),
         )?;
 
@@ -317,7 +523,7 @@ impl TestRunner<'_, '_, '_> {
         document.save(
             self.project_runner
                 .project
-                .resovler
+                .resolver()
                 .resolve(self.test.id(), TestTarget::OutDir),
         )?;
 
@@ -341,14 +547,17 @@ impl TestRunner<'_, '_, '_> {
             .ok_or_else(|| IncorrectKind(self.test.ref_kind().copied()))
             .context("Compile only tests cannot be compared")?;
 
-        let compare::Strategy::Visual(_, strategy) =
-            self.project_runner.compare_strategy.unwrap_or_default();
+        let compare::Strategy::Visual(strategy) = self
+            .project_runner
+            .config
+            .compare_strategy
+            .unwrap_or_default();
 
         match compare::visual::compare_pages(
             output.pages(),
             reference.pages(),
             strategy,
-            self.project_runner.fail_fast,
+            self.project_runner.config.fail_fast,
         ) {
             Ok(_) => Ok(Ok(())),
             Err(error) => Ok(Err(CompareFailure::Visual {

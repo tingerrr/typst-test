@@ -37,7 +37,7 @@ impl Display for Stage {
 }
 
 // TODO: add a soft stage error for misinputs?
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 #[error("test failed")]
 pub enum TestFailure {
     Compilation(#[from] CompileFailure),
@@ -53,14 +53,14 @@ impl TestFailure {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 #[error("compilation failed")]
 pub struct CompileFailure {
     pub is_ref: bool,
     pub error: compile::Error,
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 #[error("comparison failed")]
 pub enum CompareFailure {
     Visual {

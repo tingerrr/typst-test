@@ -19,10 +19,8 @@ use typst_test_lib::test::ReferenceKind;
 
 use crate::util;
 
-pub mod test;
-
-const DEFAULT_TEST_INPUT: &str = include_str!("../../../../assets/default-test/test.typ");
-const DEFAULT_TEST_OUTPUT: &[u8] = include_bytes!("../../../../assets/default-test/test.png");
+const DEFAULT_TEST_INPUT: &str = include_str!("../../../assets/default-test/test.typ");
+const DEFAULT_TEST_OUTPUT: &[u8] = include_bytes!("../../../assets/default-test/test.png");
 
 pub fn try_open_manifest(root: &Path) -> Result<Option<Manifest>, Error> {
     if is_project_root(root)? {
@@ -54,7 +52,7 @@ bitflags::bitflags! {
 pub struct Project {
     config: Config,
     manifest: Option<Manifest>,
-    resovler: ResolverV1,
+    resolver: ResolverV1,
     vcs: Option<Git>,
     tests: BTreeMap<Identifier, Test>,
     filtered: BTreeMap<Identifier, Test>,
@@ -67,7 +65,7 @@ impl Project {
         Self {
             config,
             manifest,
-            resovler,
+            resolver: resovler,
             // TODO: vcs support
             vcs: None,
             tests: BTreeMap::new(),
@@ -95,7 +93,7 @@ impl Project {
         &self.tests
     }
 
-    pub fn tests_mut(&mut self) -> &mut BTreeMap<Identifier, Test> {
+    pub fn matched_mut(&mut self) -> &mut BTreeMap<Identifier, Test> {
         &mut self.tests
     }
 
@@ -111,7 +109,7 @@ impl Project {
         self.config
             .template
             .as_ref()
-            .map(|t| self.resovler.project_root().join(t))
+            .map(|t| self.resolver.project_root().join(t))
     }
 
     pub fn template(&self) -> Option<&str> {
@@ -119,23 +117,23 @@ impl Project {
     }
 
     pub fn resolver(&self) -> &ResolverV1 {
-        &self.resovler
+        &self.resolver
     }
 
     pub fn root(&self) -> &Path {
-        self.resovler.project_root()
+        self.resolver.project_root()
     }
 
     pub fn tests_root(&self) -> &Path {
-        self.resovler.test_root()
+        self.resolver.test_root()
     }
 
     pub fn root_exists(&self) -> io::Result<bool> {
-        self.resovler.project_root().try_exists()
+        self.resolver.project_root().try_exists()
     }
 
     pub fn test_root_exists(&self) -> io::Result<bool> {
-        self.resovler.test_root().try_exists()
+        self.resolver.test_root().try_exists()
     }
 
     pub fn unique_test(&self) -> Result<&Test, ()> {
@@ -179,7 +177,7 @@ impl Project {
     pub fn clean_artifacts(&self) -> Result<(), Error> {
         self.tests
             .par_iter()
-            .try_for_each(|(_, test)| test.delete_temporary_directories(&self.resovler))?;
+            .try_for_each(|(_, test)| test.delete_temporary_directories(&self.resolver))?;
 
         Ok(())
     }
@@ -229,9 +227,9 @@ impl Project {
 
         // TODO: error handling
         let test = if let Some(git) = &self.vcs {
-            Test::create(&self.resovler, git, id, source, reference)
+            Test::create(&self.resolver, git, id, source, reference)
         } else {
-            Test::create(&self.resovler, &NoVcs, id, source, reference)
+            Test::create(&self.resolver, &NoVcs, id, source, reference)
         }
         .unwrap();
 
@@ -243,7 +241,7 @@ impl Project {
     pub fn delete_tests(&mut self) -> Result<(), Error> {
         self.tests
             .par_iter()
-            .try_for_each(|(_, test)| test.delete(&self.resovler))?;
+            .try_for_each(|(_, test)| test.delete(&self.resolver))?;
 
         self.tests.clear();
         Ok(())
@@ -251,10 +249,11 @@ impl Project {
 
     pub fn collect_tests(&mut self, matcher: Matcher) -> Result<(), Error> {
         // TODO: error handling
-        let mut collector = Collector::new(&self.resovler);
+        let mut collector = Collector::new(&self.resolver);
         collector.with_matcher(matcher);
         collector.collect();
         self.tests = collector.take_tests();
+        self.filtered = collector.take_filtered();
 
         Ok(())
     }

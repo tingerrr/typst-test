@@ -28,7 +28,7 @@ impl Metrics {
 
 /// An error may occur during compilation. This struct only exists to implement
 /// [`Error`][std::error::Error].
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 #[error("compilation failed with {} {}", .0.len(), util::fmt::plural(.0.len(), "error"))]
 pub struct Error(pub EcoVec<SourceDiagnostic>);
 

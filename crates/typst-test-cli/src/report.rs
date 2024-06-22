@@ -9,8 +9,8 @@ use typst_test_lib::compare;
 use typst_test_lib::store::test::Test;
 
 use crate::cli::OutputFormat;
-use crate::project::test::{CompareFailure, TestFailure};
 use crate::project::Project;
+use crate::test::{CompareFailure, TestFailure};
 use crate::util;
 
 pub const ANNOT_PADDING: usize = 8;
@@ -18,9 +18,10 @@ pub const ANNOT_PADDING: usize = 8;
 pub struct Summary {
     pub total: usize,
     pub filtered: usize,
-    pub compiled: usize,
-    pub compared: Option<usize>,
-    pub updated: Option<usize>,
+    pub failed_compilation: usize,
+    pub failed_comparison: usize,
+    pub failed_otherwise: usize,
+    pub passed: usize,
     pub time: Duration,
 }
 
@@ -30,15 +31,15 @@ impl Summary {
     }
 
     pub fn is_ok(&self) -> bool {
-        self.passed() == self.run()
+        self.passed == self.run()
+    }
+
+    pub fn is_partial_fail(&self) -> bool {
+        self.passed < self.run()
     }
 
     pub fn is_total_fail(&self) -> bool {
-        self.passed() == 0
-    }
-
-    pub fn passed(&self) -> usize {
-        self.updated.or(self.compared).unwrap_or(self.compiled)
+        self.passed == 0
     }
 }
 
@@ -157,6 +158,11 @@ impl Reporter {
             write_bold(this, |w| writeln!(w, "{}", test.id()))?;
             f(this)
         })
+    }
+
+    pub fn test_progress(&mut self, test: &Test, annot: &str) -> io::Result<()> {
+        self.test_result(test, annot, Color::Yellow, |_| Ok(()))?;
+        Ok(())
     }
 
     pub fn test_success(&mut self, test: &Test, annot: &str) -> io::Result<()> {
@@ -380,10 +386,28 @@ impl Reporter {
                 Color::Yellow
             };
 
-            write_bold_colored(this, summary.passed(), color)?;
+            write_bold_colored(this, summary.passed, color)?;
             write!(this, " / ")?;
             write_bold(this, |w| write!(w, "{}", summary.run()))?;
             write!(this, " {}.", if is_update { "updated" } else { "passed" })?;
+
+            if summary.failed_compilation != 0 {
+                write!(this, " ")?;
+                write_bold_colored(this, summary.failed_compilation, Color::Red)?;
+                write!(this, " failed compilations.")?;
+            }
+
+            if summary.failed_comparison != 0 {
+                write!(this, " ")?;
+                write_bold_colored(this, summary.failed_comparison, Color::Red)?;
+                write!(this, " failed comparisons.")?;
+            }
+
+            if summary.failed_otherwise != 0 {
+                write!(this, " ")?;
+                write_bold_colored(this, summary.failed_otherwise, Color::Red)?;
+                write!(this, " failed otherwise.")?;
+            }
 
             if summary.filtered != 0 {
                 write!(this, " ")?;

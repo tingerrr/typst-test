@@ -18,6 +18,7 @@ use self::report::Reporter;
 mod cli;
 mod project;
 mod report;
+mod test;
 mod util;
 
 const IS_OUTPUT_STDERR: bool = false;
@@ -173,56 +174,58 @@ fn main_impl(args: cli::Args, reporter: &mut Reporter) -> anyhow::Result<CliResu
         }));
     }
 
-    let mut ctx = cmd::Context {
+    let ctx = cmd::Context {
         project: &mut project,
         reporter,
         matcher,
     };
 
     let (runner_args, compare) = match args.cmd {
-        cli::Command::Init { no_example } => return cmd::init(&mut ctx, no_example),
-        cli::Command::Uninit => return cmd::uninit(&mut ctx),
-        cli::Command::Clean => return cmd::clean(&mut ctx),
+        cli::Command::Init { no_example } => return cmd::init(ctx, no_example),
+        cli::Command::Uninit => return cmd::uninit(ctx),
+        cli::Command::Clean => return cmd::clean(ctx),
         cli::Command::Add {
             test,
             ephemeral,
             compile_only,
             no_template,
-        } => return cmd::add(&mut ctx, test, ephemeral, compile_only, no_template),
-        cli::Command::Edit => return cmd::edit(&mut ctx, args.filter.all),
-        cli::Command::Remove => return cmd::remove(&mut ctx, args.filter.all),
-        cli::Command::Status => return cmd::status(&mut ctx),
-        cli::Command::List => return cmd::list(&mut ctx),
+        } => return cmd::add(ctx, test, ephemeral, compile_only, no_template),
+        cli::Command::Edit => return cmd::edit(ctx, args.filter.all),
+        cli::Command::Remove => return cmd::remove(ctx, args.filter.all),
+        cli::Command::Status => return cmd::status(ctx),
+        cli::Command::List => return cmd::list(ctx),
         cli::Command::Update {
             runner_args,
             all: _,
-        } => return cmd::update(&mut ctx, runner_args.summary, args.fail_fast),
+        } => return cmd::update(ctx, runner_args.summary, args.fail_fast),
         cli::Command::Compile(runner_args) => (runner_args, false),
         cli::Command::Run(runner_args) => (runner_args, true),
     };
 
     let compare = compare.then_some(compare::Strategy::default());
 
-    cmd::run(&mut ctx, runner_args.summary, args.fail_fast, compare)
+    cmd::run(ctx, runner_args.summary, args.fail_fast, compare)
 }
 
 mod cmd {
+    use std::collections::BTreeMap;
     use std::io::Write;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Mutex;
+    use std::sync::{mpsc, Mutex};
     use std::time::Instant;
 
     use rayon::prelude::*;
+    use termcolor::Color;
     use typst_test_lib::compare;
     use typst_test_lib::store::test::matcher::Matcher;
     use typst_test_lib::test::id::Identifier;
     use typst_test_lib::test::ReferenceKind;
 
     use crate::cli::CliResult;
-    use crate::project::test::runner::Runner;
-    use crate::project::test::Stage;
     use crate::project::{Project, ScaffoldOptions};
     use crate::report::{Reporter, Summary};
+    use crate::test::runner::{Event, EventPayload, RunnerConfig};
+    use crate::test::Stage;
     use crate::util;
 
     pub struct Context<'a> {
@@ -240,47 +243,9 @@ mod cmd {
                 )));
             }
         };
-        (if_test_not_unique; $project:expr; $name:ident) => {
-            let $name = match $project.tests().len() {
-                0 => return Ok(CliResult::operation_failure("No test matched")),
-                1 => $project.tests().first_key_value().map(|(_, test)| test).unwrap(),
-                _ => {
-                    return Ok(CliResult::operation_failure(
-                        "Multiple tests matched, this operation can only be performed on a single test",
-                    ));
-                }
-            };
-        };
-        (if_test_not_found; $project:expr; $test:expr => $name:ident) => {
-            let Some($name) = $project.get_test($test) else {
-                return Ok(CliResult::operation_failure(format!(
-                    "Test '{}' could not be found",
-                    $test,
-                )));
-            };
-        };
-        (if_no_tests_match; $project:expr; $filter:expr) => {
-            if let Some(filter) = $filter {
-                match filter {
-                    Filter::Exact(f) => {
-                        $project.tests_mut().retain(|n, _| n == f);
-                    }
-                    Filter::Contains(f) => {
-                        $project.tests_mut().retain(|n, _| n.contains(f));
-                    }
-                }
-
-                if $project.tests().is_empty() {
-                    return Ok(CliResult::operation_failure(format!(
-                        "Filter '{}' did not match any tests",
-                        filter.value(),
-                    )));
-                }
-            }
-        };
     }
 
-    pub fn init(ctx: &mut Context, no_example: bool) -> anyhow::Result<CliResult> {
+    pub fn init(ctx: Context, no_example: bool) -> anyhow::Result<CliResult> {
         if ctx.project.is_init()? {
             return Ok(CliResult::operation_failure(format!(
                 "Project '{}' was already initialized",
@@ -297,7 +262,7 @@ mod cmd {
         Ok(CliResult::Ok)
     }
 
-    pub fn uninit(ctx: &mut Context) -> anyhow::Result<CliResult> {
+    pub fn uninit(ctx: Context) -> anyhow::Result<CliResult> {
         bail_gracefully!(if_uninit; ctx.project);
 
         ctx.project.collect_tests(ctx.matcher.clone())?;
@@ -314,7 +279,7 @@ mod cmd {
         Ok(CliResult::Ok)
     }
 
-    pub fn clean(ctx: &mut Context) -> anyhow::Result<CliResult> {
+    pub fn clean(ctx: Context) -> anyhow::Result<CliResult> {
         bail_gracefully!(if_uninit; ctx.project);
 
         ctx.project.collect_tests(ctx.matcher.clone())?;
@@ -326,7 +291,7 @@ mod cmd {
     }
 
     pub fn add(
-        ctx: &mut Context,
+        ctx: Context,
         name: String,
         ephemeral: bool,
         compile_only: bool,
@@ -335,7 +300,7 @@ mod cmd {
         bail_gracefully!(if_uninit; ctx.project);
 
         let Ok(id) = Identifier::new(name) else {
-            return Ok(CliResult::operation_failure(""));
+            return Ok(CliResult::operation_failure("Invalid test name"));
         };
 
         ctx.project.collect_tests(ctx.matcher.clone())?;
@@ -363,13 +328,13 @@ mod cmd {
         Ok(CliResult::Ok)
     }
 
-    pub fn remove(ctx: &mut Context, all: bool) -> anyhow::Result<CliResult> {
+    pub fn remove(ctx: Context, all: bool) -> anyhow::Result<CliResult> {
         bail_gracefully!(if_uninit; ctx.project);
 
         ctx.project.collect_tests(ctx.matcher.clone())?;
 
         match ctx.project.matched().len() {
-            0 => return Ok(CliResult::operation_failure("")),
+            0 => return Ok(CliResult::operation_failure("Matched no tests")),
             1 => {}
             _ if all => {}
             _ => {
@@ -386,13 +351,13 @@ mod cmd {
         Ok(CliResult::Ok)
     }
 
-    pub fn edit(ctx: &mut Context, all: bool) -> anyhow::Result<CliResult> {
+    pub fn edit(ctx: Context, all: bool) -> anyhow::Result<CliResult> {
         bail_gracefully!(if_uninit; ctx.project);
 
         ctx.project.collect_tests(ctx.matcher.clone())?;
 
         match ctx.project.matched().len() {
-            0 => return Ok(CliResult::operation_failure("")),
+            0 => return Ok(CliResult::operation_failure("Matched no tests")),
             1 => {}
             _ if all => {}
             _ => {
@@ -408,22 +373,17 @@ mod cmd {
         Ok(CliResult::Ok)
     }
 
-    pub fn update(ctx: &mut Context, summary: bool, fail_fast: bool) -> anyhow::Result<CliResult> {
+    pub fn update(ctx: Context, summary: bool, fail_fast: bool) -> anyhow::Result<CliResult> {
         run_tests(
             ctx,
             summary,
-            false,
             true,
-            |ctx| {
-                ctx.with_fail_fast(fail_fast)
-                    .with_compare(None)
-                    .with_update(true)
-            },
+            |ctx| ctx.with_fail_fast(fail_fast).with_update(true),
             "updated",
         )
     }
 
-    pub fn status(ctx: &mut Context) -> anyhow::Result<CliResult> {
+    pub fn status(ctx: Context) -> anyhow::Result<CliResult> {
         bail_gracefully!(if_uninit; ctx.project);
 
         ctx.project.collect_tests(ctx.matcher.clone())?;
@@ -434,7 +394,7 @@ mod cmd {
         Ok(CliResult::Ok)
     }
 
-    pub fn list(ctx: &mut Context) -> anyhow::Result<CliResult> {
+    pub fn list(ctx: Context) -> anyhow::Result<CliResult> {
         bail_gracefully!(if_uninit; ctx.project);
 
         ctx.project.collect_tests(ctx.matcher.clone())?;
@@ -444,7 +404,7 @@ mod cmd {
     }
 
     pub fn run(
-        ctx: &mut Context,
+        ctx: Context,
         summary: bool,
         fail_fast: bool,
         compare: Option<compare::Strategy>,
@@ -452,27 +412,21 @@ mod cmd {
         run_tests(
             ctx,
             summary,
-            compare.is_some(),
             false,
-            |ctx| {
-                ctx.with_fail_fast(fail_fast)
-                    .with_compare(compare)
-                    .with_update(false)
-            },
+            |ctx| ctx.with_fail_fast(fail_fast).with_compare_strategy(compare),
             if compare.is_some() { "ok" } else { "compiled" },
         )
     }
 
     fn run_tests<F>(
-        ctx: &mut Context,
+        ctx: Context,
         summary_only: bool,
-        compare: bool,
         update: bool,
         f: F,
         done_annot: &str,
     ) -> anyhow::Result<CliResult>
     where
-        F: for<'a, 'p> FnOnce(&'a mut Runner<'p>) -> &'a mut Runner<'p>,
+        F: FnOnce(&mut RunnerConfig) -> &mut RunnerConfig,
     {
         bail_gracefully!(if_uninit; ctx.project);
 
@@ -485,109 +439,175 @@ mod cmd {
             )));
         }
 
+        // TODO: port proper typst-cli impl
         let world = typst_test_lib::_dev::GlobalTestWorld::new(
             ctx.project.root().to_path_buf(),
             typst_test_lib::library::augmented_default_library(),
         );
 
-        let mut runner = Runner::new(ctx.project, &world);
-        f(&mut runner);
+        let mut config = RunnerConfig::default();
+        config.with_save_temporary(true);
+        f(&mut config);
+        let runner = config.build(ctx.project, &world);
 
         ctx.reporter.test_start(update)?;
 
-        let compiled = AtomicUsize::new(0);
-        let compared = compare.then_some(AtomicUsize::new(0));
-        let updated = update.then_some(AtomicUsize::new(0));
+        let start = Instant::now();
+        runner.prepare()?;
 
-        let maybe_increment = |c: &Option<AtomicUsize>| {
-            if let Some(c) = c {
-                c.fetch_add(1, Ordering::SeqCst);
-            }
-        };
+        let len = ctx.project.matched().len();
 
-        let time = ctx.reporter.with_indent(2, |reporter| {
-            let start = Instant::now();
-            runner.prepare()?;
+        let failed_compilation = AtomicUsize::new(0);
+        let failed_comparison = AtomicUsize::new(0);
+        let failed_otherwise = AtomicUsize::new(0);
+        let passed = AtomicUsize::new(0);
 
-            let reporter = Mutex::new(reporter);
+        let reporter = Mutex::new(ctx.reporter);
+        rayon::scope(|scope| {
+            let (tx, rx) = mpsc::channel();
+            scope.spawn({
+                let reporter = &reporter;
+                let failed_compilation = &failed_compilation;
+                let failed_comparison = &failed_comparison;
+                let failed_otherwise = &failed_otherwise;
+                let passed = &passed;
+
+                move |_| {
+                    reporter.lock().unwrap().with_indent(2, |reporter| {
+                        let mut tests = BTreeMap::new();
+                        let mut count = 0;
+
+                        // TODO: track times by comparing stage instants
+                        while let Ok(Event {
+                            test,
+                            instant: _,
+                            message: _,
+                            payload,
+                        }) = rx.recv()
+                        {
+                            let id = test.id();
+                            match payload {
+                                EventPayload::StartedTest => {
+                                    tests.insert(id.clone(), (test, "start"));
+                                }
+                                EventPayload::StartedStage(stage) => {
+                                    tests.get_mut(id).unwrap().1 = match stage {
+                                        Stage::Preparation => "prepare",
+                                        Stage::Loading => "load",
+                                        Stage::Compilation => "compile",
+                                        Stage::Saving => "save",
+                                        Stage::Rendering => "render",
+                                        Stage::Comparison => "compare",
+                                        Stage::Update => "update",
+                                        Stage::Cleanup => "cleanup",
+                                    };
+                                }
+                                EventPayload::FinishedStage(_) => {
+                                    continue;
+                                }
+                                EventPayload::FailedStage(stage) => match stage {
+                                    Stage::Compilation => {
+                                        failed_compilation.fetch_add(1, Ordering::SeqCst);
+                                    }
+                                    Stage::Comparison => {
+                                        failed_comparison.fetch_add(1, Ordering::SeqCst);
+                                    }
+                                    _ => {
+                                        failed_otherwise.fetch_add(1, Ordering::SeqCst);
+                                    }
+                                },
+                                EventPayload::FinishedTest => {
+                                    tests.remove(id);
+                                    reporter.test_success(&test, done_annot).unwrap();
+                                    count += 1;
+                                    passed.fetch_add(1, Ordering::SeqCst);
+                                }
+                                EventPayload::FailedTest(failure) => {
+                                    tests.remove(id);
+                                    reporter.test_failure(&test, failure).unwrap();
+                                    count += 1;
+                                }
+                            }
+
+                            for (_, (test, msg)) in &tests {
+                                reporter.test_progress(test, msg).unwrap();
+                            }
+
+                            reporter
+                                .write_annotated("tested", Color::Cyan, |reporter| {
+                                    writeln!(
+                                        reporter,
+                                        "{} / {} ({} tests running)",
+                                        count,
+                                        len,
+                                        tests.len(),
+                                    )
+                                })
+                                .unwrap();
+
+                            // clear the progress lines
+                            print!("\x1B[{}F\x1B[0J", tests.len() + 1);
+                        }
+                    });
+
+                    // clear progress line after we're done
+                    print!("\x1B[1F\x1B[0J");
+                }
+            });
+
             let res = ctx.project.matched().par_iter().try_for_each(
                 |(_, test)| -> Result<(), Option<anyhow::Error>> {
-                    match runner.test(test).run() {
-                        Ok(Ok(_)) => {
-                            compiled.fetch_add(1, Ordering::SeqCst);
-                            maybe_increment(&compared);
-                            maybe_increment(&updated);
-
-                            if !summary_only {
-                                reporter
-                                    .lock()
-                                    .unwrap()
-                                    .test_success(test, done_annot)
-                                    .map_err(|e| Some(e.into()))?;
-                            }
-                            Ok(())
-                        }
-                        Ok(Err(err)) => {
-                            if err.stage() > Stage::Compilation {
-                                compiled.fetch_add(1, Ordering::SeqCst);
-                            }
-
-                            if err.stage() > Stage::Comparison {
-                                maybe_increment(&compared);
-                            }
-
-                            if err.stage() > Stage::Update {
-                                maybe_increment(&updated);
-                            }
-
-                            if !summary_only {
-                                reporter
-                                    .lock()
-                                    .unwrap()
-                                    .test_failure(test, err)
-                                    .map_err(|e| Some(e.into()))?;
-                            }
-                            if runner.fail_fast() {
+                    match runner.test(test).run(tx.clone()) {
+                        Ok(Ok(_)) => Ok(()),
+                        Ok(Err(_)) => {
+                            if runner.config().fail_fast() {
                                 Err(None)
                             } else {
                                 Ok(())
                             }
                         }
                         Err(err) => Err(Some(
-                            err.context(format!("Fatally failed when running test {}", test.id())),
+                            err.context(format!("Fatal error when running test {}", test.id())),
                         )),
                     }
                 },
             );
+
+            drop(tx);
+
+            let time = start.elapsed();
 
             if let Err(Some(err)) = res {
                 return Err(err);
             }
 
             runner.cleanup()?;
-            Ok(start.elapsed())
-        })?;
 
-        if !summary_only {
-            writeln!(ctx.reporter)?;
-        }
+            if !summary_only {
+                writeln!(reporter.lock().unwrap())?;
+            }
 
-        let summary = Summary {
-            total: ctx.project.matched().len() + ctx.project.filtered().len(),
-            filtered: ctx.project.filtered().len(),
-            compiled: compiled.into_inner(),
-            compared: compared.map(AtomicUsize::into_inner),
-            updated: updated.map(AtomicUsize::into_inner),
-            time,
-        };
+            let summary = Summary {
+                total: ctx.project.matched().len() + ctx.project.filtered().len(),
+                filtered: ctx.project.filtered().len(),
+                failed_compilation: failed_compilation.load(Ordering::SeqCst),
+                failed_comparison: failed_comparison.load(Ordering::SeqCst),
+                failed_otherwise: failed_otherwise.load(Ordering::SeqCst),
+                passed: passed.load(Ordering::SeqCst),
+                time,
+            };
 
-        let is_ok = summary.is_ok();
-        ctx.reporter.test_summary(summary, update, summary_only)?;
+            let is_ok = summary.is_ok();
+            reporter
+                .lock()
+                .unwrap()
+                .test_summary(summary, update, summary_only)?;
 
-        Ok(if is_ok {
-            CliResult::Ok
-        } else {
-            CliResult::TestFailure
+            Ok(if is_ok {
+                CliResult::Ok
+            } else {
+                CliResult::TestFailure
+            })
         })
     }
 }

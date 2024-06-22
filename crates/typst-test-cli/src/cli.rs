@@ -13,15 +13,15 @@ pub enum CliResult {
 
     /// The requested operation failed gracefully.
     OperationFailure {
-        message: Box<dyn Display>,
-        hint: Option<Box<dyn Display>>,
+        message: Box<dyn Display + Send + 'static>,
+        hint: Option<Box<dyn Display + Send + 'static>>,
     } = EXIT_OPERATION_FAILURE,
 }
 
 impl CliResult {
     pub fn operation_failure<M>(message: M) -> Self
     where
-        M: Display + 'static,
+        M: Display + Send + 'static,
     {
         Self::OperationFailure {
             message: Box::new(message) as _,
@@ -31,8 +31,8 @@ impl CliResult {
 
     pub fn hinted_operation_failure<M, H>(message: M, hint: H) -> Self
     where
-        M: Display + 'static,
-        H: Display + 'static,
+        M: Display + Send + 'static,
+        H: Display + Send + 'static,
     {
         Self::OperationFailure {
             message: Box::new(message) as _,

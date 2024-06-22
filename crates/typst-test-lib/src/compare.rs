@@ -2,7 +2,6 @@ use std::fmt::{Debug, Display};
 
 use thiserror::Error;
 
-use super::render;
 use crate::util;
 
 pub mod visual;
@@ -16,17 +15,17 @@ pub mod visual;
 pub enum Strategy {
     /// Use visual comparison of raster images, with the given render strategy
     /// if necessary.
-    Visual(render::Strategy, visual::Strategy),
+    Visual(visual::Strategy),
 }
 
 impl Default for Strategy {
     fn default() -> Self {
-        Self::Visual(render::Strategy::default(), visual::Strategy::default())
+        Self::Visual(visual::Strategy::default())
     }
 }
 
 /// An error describing why a document.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub struct Error {
     /// The output page count.
     pub output: usize,
@@ -67,7 +66,7 @@ impl Display for Error {
 }
 
 /// An error describing why a page comparison failed.
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum PageError {
     /// The dimensions of the pages did not match.
     #[error("dimensions differed: out {output} != ref {reference}")]
