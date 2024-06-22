@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::fmt::{Debug, Display};
 use std::io::Write;
 use std::time::Duration;
@@ -73,34 +72,6 @@ fn write_bold_colored<W: WriteColor + ?Sized>(
         |c| c.set_bold(false).set_fg(None),
         |w| write!(w, "{annot}"),
     )
-}
-
-fn write_program_buffer(reporter: &mut Reporter, name: &str, buffer: &[u8]) -> io::Result<()> {
-    if buffer.is_empty() {
-        return Ok(());
-    }
-
-    let lossy = String::from_utf8_lossy(buffer);
-    if matches!(lossy, Cow::Owned(_)) {
-        reporter.hint(format!("{name} was not valid UTF8"))?;
-    }
-
-    if reporter.format.is_pretty() {
-        write_bold(reporter, |w| writeln!(w, "┏━ {name}"))?;
-        for line in lossy.lines() {
-            write_bold(reporter, |w| write!(w, "┃"))?;
-            writeln!(reporter, "{line}")?;
-        }
-        write_bold(reporter, |w| writeln!(w, "┗━ {name}"))?;
-    } else {
-        writeln!(reporter, "begin: {name}")?;
-        for line in lossy.lines() {
-            writeln!(reporter, "{line}")?;
-        }
-        writeln!(reporter, "end: {name}")?;
-    }
-
-    Ok(())
 }
 
 pub struct Reporter {
@@ -353,7 +324,7 @@ impl Reporter {
         }
         writeln!(self)?;
 
-        write!(self, "{:>align$}{}", "Template", delims.middle)?;
+        write!(self, "{:>align$}{}", "Template", delims.close)?;
         match (project.template_path(), project.template()) {
             (None, None) => {
                 write_bold_colored(self, "none", Color::Green)?;

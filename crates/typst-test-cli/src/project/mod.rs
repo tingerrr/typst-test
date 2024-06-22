@@ -148,41 +148,12 @@ impl Project {
         Ok(test)
     }
 
-    fn ensure_root(&self) -> Result<(), Error> {
-        if self.root_exists()? {
-            Ok(())
-        } else {
-            Err(Error::RootNotFound(
-                self.resovler.project_root().to_path_buf(),
-            ))
-        }
-    }
-
     pub fn is_init(&self) -> io::Result<bool> {
         self.test_root_exists()
     }
 
-    fn ensure_init(&self) -> Result<(), Error> {
-        self.ensure_root()?;
-
-        if self.test_root_exists()? {
-            Ok(())
-        } else {
-            Err(Error::NotInitialized)
-        }
-    }
-
     pub fn init(&mut self, options: ScaffoldOptions) -> Result<(), Error> {
-        #[cfg(debug_assertions)]
-        self.ensure_root()?;
-
         let tests_root_dir = self.tests_root();
-        #[cfg(debug_assertions)]
-        if self.is_init()? {
-            tracing::warn!(path = ?tests_root_dir, "test dir already exists");
-            return Err(Error::DoubleInit);
-        }
-
         tracing::trace!(path = ?tests_root_dir, "creating tests root dir");
         util::fs::create_dir(&tests_root_dir, false)?;
 
@@ -201,17 +172,11 @@ impl Project {
     }
 
     pub fn uninit(&self) -> Result<(), Error> {
-        #[cfg(debug_assertions)]
-        self.ensure_init()?;
-
         util::fs::remove_dir(self.tests_root(), true)?;
         Ok(())
     }
 
     pub fn clean_artifacts(&self) -> Result<(), Error> {
-        #[cfg(debug_assertions)]
-        self.ensure_init()?;
-
         self.tests
             .par_iter()
             .try_for_each(|(_, test)| test.delete_temporary_directories(&self.resovler))?;
@@ -220,9 +185,6 @@ impl Project {
     }
 
     pub fn load_template(&mut self) -> Result<(), Error> {
-        #[cfg(debug_assertions)]
-        self.ensure_init()?;
-
         if let Some(template) = self.template_path() {
             match fs::read_to_string(template) {
                 Ok(template) => self.template = Some(template),
@@ -240,9 +202,6 @@ impl Project {
         kind: Option<ReferenceKind>,
         use_template: bool,
     ) -> Result<(), Error> {
-        #[cfg(debug_assertions)]
-        self.ensure_init()?;
-
         if self.tests.contains_key(&id) {
             return Err(Error::TestAlreadyExists(id));
         }
@@ -282,9 +241,6 @@ impl Project {
     }
 
     pub fn delete_tests(&mut self) -> Result<(), Error> {
-        #[cfg(debug_assertions)]
-        self.ensure_init()?;
-
         self.tests
             .par_iter()
             .try_for_each(|(_, test)| test.delete(&self.resovler))?;
@@ -294,9 +250,6 @@ impl Project {
     }
 
     pub fn collect_tests(&mut self, matcher: Matcher) -> Result<(), Error> {
-        #[cfg(debug_assertions)]
-        self.ensure_init()?;
-
         // TODO: error handling
         let mut collector = Collector::new(&self.resovler);
         collector.with_matcher(matcher);
@@ -309,17 +262,8 @@ impl Project {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("project not found: {0:?}")]
-    RootNotFound(PathBuf),
-
     #[error("invalid manifest")]
     InvalidManifest(#[from] toml::de::Error),
-
-    #[error("project is not initalized")]
-    NotInitialized,
-
-    #[error("project is already initialized")]
-    DoubleInit,
 
     #[error("test already exsits: {0:?}")]
     TestAlreadyExists(Identifier),
