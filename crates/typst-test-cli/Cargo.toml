@@ -10,9 +10,11 @@ edition = "2021"
 typst-test-lib = { path = "../typst-test-lib" }
 
 anyhow = { workspace = true, features = ["backtrace"] }
-clap = { workspace = true, features = ["derive"] }
 bitflags.workspace = true
+clap = { workspace = true, features = ["derive"] }
+comemo.workspace = true
 ecow.workspace = true
+fontdb.workspace = true
 rayon.workspace = true
 semver.workspace = true
 serde.workspace = true
@@ -25,3 +27,8 @@ tracing-subscriber.workspace = true
 tracing-tree.workspace = true
 typst.workspace = true
 typst-project.workspace = true
+typst-assets = { workspace = true, optional = true, features = ["fonts"] }
+
+[features]
+default = ["embed-fonts"]
+embed-fonts = ["dep:typst-assets"]

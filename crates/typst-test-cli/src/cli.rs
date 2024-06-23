@@ -1,7 +1,31 @@
 use std::fmt::Display;
 use std::path::PathBuf;
 
-use clap::ColorChoice;
+use clap::{ArgAction, ColorChoice};
+use typst_test_lib::store::test::matcher::{IdentifierMatcher, Matcher};
+
+use crate::fonts::FontSearcher;
+use crate::project::Project;
+use crate::report::Reporter;
+
+mod add;
+mod clean;
+mod compare;
+mod compile;
+mod edit;
+mod init;
+mod list;
+mod remove;
+mod run;
+mod status;
+mod uninit;
+mod update;
+mod util;
+
+pub struct Context<'a> {
+    pub project: &'a mut Project,
+    pub reporter: &'a mut Reporter,
+}
 
 #[repr(u8)]
 pub enum CliResult {
@@ -79,28 +103,24 @@ static AFTER_LONG_ABOUT: &str = concat!(
     "  ", ansi!("3"; b), "  An unexpected error occured",
 );
 
-/// Execute, compare and update visual regression tests for typst
-#[derive(clap::Parser, Debug)]
-#[clap(after_long_help = AFTER_LONG_ABOUT)]
-pub struct Args {
+#[derive(clap::Parser, Debug, Clone)]
+pub struct Global {
     /// The project root directory
     #[arg(long, global = true)]
     pub root: Option<PathBuf>,
 
     #[command(flatten, next_help_heading = "Filter Args")]
-    pub filter: TestFilter,
+    pub matcher: MatcherArgs,
 
-    /// Whether to abort after the first test failure
-    ///
-    /// Keep in mind that because tests are run in parallel, this may not stop
-    /// immediately. But it will not schedule any new tests to run after one
-    /// failure has been detected.
-    #[arg(long, global = true)]
-    pub fail_fast: bool,
+    #[command(flatten, next_help_heading = "Font Args")]
+    pub fonts: FontArgs,
+
+    #[command(flatten, next_help_heading = "Package Args")]
+    pub package: PackageArgs,
 
     /// The output format to use
     ///
-    /// Using anyting but pretty implies --color=never
+    /// Using anything but pretty implies --color=never
     #[arg(long, short, global = true, alias = "fmt", default_value = "pretty")]
     pub format: OutputFormat,
 
@@ -125,6 +145,100 @@ pub struct Args {
     /// corresponds to the log levels ERROR, WARN, INFO, DEBUG, TRACE.
     #[arg(long, short, global = true, action = clap::ArgAction::Count)]
     pub verbose: u8,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct MatcherArgs {
+    /// A filter for which tests to run, any test matching this filter is
+    /// run
+    #[arg(long = "filter", global = true)]
+    pub term: Option<String>,
+
+    /// Whether the ignored tests should be included anyway
+    #[arg(long, global = true)]
+    pub include_ignored: bool,
+
+    /// Whether the test filter should be an exact match
+    #[arg(long, global = true)]
+    pub exact: bool,
+
+    /// Allow operating on more than one test if multiple tests match
+    #[arg(long, global = true)]
+    pub all: bool,
+}
+
+impl MatcherArgs {
+    pub fn matcher(&self) -> Matcher {
+        let mut matcher = Matcher::default();
+        if let Some(term) = self.term.as_ref() {
+            matcher.name(Some(IdentifierMatcher::Simple {
+                term: term.into(),
+                exact: self.exact,
+            }));
+        }
+
+        matcher.filter_ignored(!self.include_ignored);
+        matcher
+    }
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct FontArgs {
+    /// Do not read system fonts
+    #[arg(long, global = true)]
+    pub ignore_system_fonts: bool,
+
+    /// Add a directory to read fonts from (can be repeated)
+    #[arg(long = "font-path", global = true, action = ArgAction::Append)]
+    pub font_paths: Vec<PathBuf>,
+}
+
+impl FontArgs {
+    pub fn searcher(&self) -> FontSearcher {
+        let mut searcher = FontSearcher::new();
+        searcher.search(
+            self.font_paths.iter().map(PathBuf::as_path),
+            !self.ignore_system_fonts,
+        );
+
+        searcher
+    }
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct PackageArgs {
+    // TODO: add package dir args
+}
+
+// TODO: add json
+#[derive(clap::ValueEnum, Debug, Clone, Copy)]
+pub enum OutputFormat {
+    /// Pretty human-readible color output
+    Pretty,
+
+    /// Plain output for script processing
+    Plain,
+}
+
+impl OutputFormat {
+    pub fn is_pretty(&self) -> bool {
+        matches!(self, Self::Pretty)
+    }
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct MutationArgs {
+    /// Allow operating on more than one test if multiple tests match
+    #[arg(long, short)]
+    pub all: bool,
+}
+
+/// Execute, compare and update visual regression tests for typst
+#[derive(clap::Parser, Debug, Clone)]
+#[clap(after_long_help = AFTER_LONG_ABOUT)]
+pub struct Args {
+    #[command(flatten)]
+    pub global: Global,
 
     #[command(subcommand)]
     pub cmd: Command,
@@ -133,11 +247,7 @@ pub struct Args {
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum Command {
     /// Initialize the current project with a test directory
-    Init {
-        /// Do not create a default example test
-        #[arg(long)]
-        no_example: bool,
-    },
+    Init(init::Args),
 
     /// Remove the test directory from the current project
     Uninit,
@@ -154,93 +264,65 @@ pub enum Command {
     List,
 
     /// Compile and compare tests
-    #[command(alias = "r")]
-    Run(RunnerArgs),
+    #[command(name = "run", alias = "r")]
+    Compare(run::Args),
 
     /// Compile tests
     #[command(alias = "c")]
-    Compile(RunnerArgs),
+    Compile(run::Args),
 
     /// Update tests
     #[command(alias = "u")]
-    Update {
-        #[command(flatten)]
-        runner_args: RunnerArgs,
-
-        /// Allow operating on more than one test if multiple tests match
-        #[arg(long, short)]
-        all: bool,
-    },
+    Update(update::Args),
 
     /// Add a new test
     ///
     /// The default test simply contains `Hello World`, if a
     /// `tests/template.typ` file is given, it is used instead.
     #[command(alias = "a")]
-    Add {
-        /// Whether this test creates it's references on the fly
-        ///
-        /// An ephemeral test consistes of two scripts which are compared
-        /// against each other. The reference script must be called `ref.typ`.
-        #[arg(long, short)]
-        ephemeral: bool,
-
-        /// Whether this test has no references at all
-        #[arg(long, short, conflicts_with = "ephemeral")]
-        compile_only: bool,
-
-        /// Ignore the test template for this test
-        #[arg(long)]
-        no_template: bool,
-
-        /// The name of the test to add
-        test: String,
-    },
+    Add(add::Args),
 
     /// Edit existing tests
     #[command(alias = "e")]
-    Edit,
+    Edit(edit::Args),
 
     /// Remove tests
     #[command(alias = "rm")]
-    Remove,
+    Remove(remove::Args),
+
+    /// Utility commands
+    #[command()]
+    Util(util::Args),
 }
 
-#[derive(clap::Parser, Debug, Clone)]
-pub struct RunnerArgs {
-    /// Show a summary of the test run instread of the individual test results
-    #[arg(long, global = true)]
-    pub summary: bool,
+macro_rules! bail_if_uninit {
+    ($ctx:expr) => {
+        if !$ctx.project.is_init()? {
+            return Ok(CliResult::operation_failure(format!(
+                "Project '{}' was not initialized",
+                $ctx.project.name(),
+            )));
+        }
+    };
 }
 
-#[derive(clap::Parser, Debug, Clone)]
-pub struct TestFilter {
-    /// A filter for which tests to run, any test matching this filter is
-    /// run
-    #[arg(long, global = true)]
-    pub filter: Option<String>,
+pub(crate) use bail_if_uninit;
 
-    /// Whether the test filter should be an exact match
-    #[arg(long, global = true)]
-    pub exact: bool,
-
-    /// Allow operating on more than one test if multiple tests match
-    #[arg(long, global = true)]
-    pub all: bool,
-}
-
-// TODO: add json
-#[derive(clap::ValueEnum, Debug, Clone, Copy)]
-pub enum OutputFormat {
-    /// Pretty human-readible color output
-    Pretty,
-
-    /// Plain output for script processing
-    Plain,
-}
-
-impl OutputFormat {
-    pub fn is_pretty(&self) -> bool {
-        matches!(self, Self::Pretty)
+impl Command {
+    pub fn run(&self, ctx: Context, global: &Global) -> anyhow::Result<CliResult> {
+        match self {
+            Command::Init(args) => init::run(ctx, global, args),
+            Command::Uninit => uninit::run(ctx, global),
+            Command::Clean => clean::run(ctx, global),
+            Command::Add(args) => add::run(ctx, global, args),
+            Command::Edit(args) => edit::run(ctx, global, args),
+            Command::Remove(args) => remove::run(ctx, global, args),
+            Command::Status => status::run(ctx, global),
+            Command::List => list::run(ctx, global),
+            Command::Update(args) => update::run(ctx, global, args),
+            Command::Compile(args) => compile::run(ctx, global, args),
+            Command::Compare(args) => compare::run(ctx, global, args),
+            Command::Util(args) => args.cmd.run(ctx, global),
+        }
     }
 }

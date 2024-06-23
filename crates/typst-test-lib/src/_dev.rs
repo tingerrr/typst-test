@@ -98,10 +98,10 @@ impl FileSlot {
 
 #[derive(Debug)]
 pub struct GlobalTestWorld {
-    root: PathBuf,
-    lib: Prehashed<Library>,
-    book: Prehashed<FontBook>,
-    fonts: Vec<Font>,
+    pub root: PathBuf,
+    pub lib: Prehashed<Library>,
+    pub book: Prehashed<FontBook>,
+    pub fonts: Vec<Font>,
     slots: Mutex<HashMap<FileId, FileSlot>>,
 }
 

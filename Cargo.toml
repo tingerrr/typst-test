@@ -10,6 +10,7 @@ clap = { version = "4.4.12", features = ["derive"] }
 bitflags = "2.4.2"
 comemo = "0.4.0"
 ecow = "0.2.2"
+fontdb = "0.18.0"
 ignore = "0.4.22"
 png = "0.17.13"
 rayon = "1.8.0"
@@ -24,11 +25,11 @@ tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 tracing-tree = "0.3.0"
 typst = "0.11.1"
+typst-assets = "0.11.0"
 typst-render = "0.11.1"
 unscanny = "0.1.0"
 
 # [workspace.dev-dependencies]
 dirs = "5.0.1"
 tempdir = "0.3.7"
-typst-assets = { version = "0.11.0", features = ["fonts"] }
 typst-dev-assets = { git = "https://github.com/typst/typst-dev-assets", rev = "ee8ae61cca138dc92f9d818fc7f2fc046d0148c5" }
