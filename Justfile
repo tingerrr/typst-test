@@ -8,4 +8,4 @@ test root=justfile_directory():
 
 # install typst-test using cargo
 install:
-	cargo install --path crates/typst-test
+	cargo install --path crates/typst-test-cli
