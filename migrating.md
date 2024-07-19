@@ -13,6 +13,7 @@ The rewrite is now complete and the following things have changed and will be gr
 - `util` has been added for running utility and debugging commands
 - various global options were moved to be on the respective commands they are relevant for only
 - typst test now brings it's own typst compiler (currently 0.11.1) and has no ability to change to another compiler version at the moment
+- reference images are no longer optimized when written to, this may be added back before 0.1.0
 
 **Many of the aforementioned features are only tested locally and need further testing before the rewrite is fully done.**
 
