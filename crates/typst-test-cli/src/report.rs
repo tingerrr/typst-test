@@ -1,26 +1,35 @@
-use std::borrow::Cow;
 use std::fmt::{Debug, Display};
 use std::io::Write;
-use std::path::PathBuf;
 use std::time::Duration;
 use std::{fmt, io};
 
+use codespan_reporting::diagnostic::{Diagnostic, Label};
+use codespan_reporting::term;
+use ecow::eco_format;
 use semver::Version;
 use termcolor::{Color, ColorSpec, HyperlinkSpec, WriteColor};
+use typst::diag::{Severity, SourceDiagnostic};
+use typst::syntax::{FileId, Source, Span};
+use typst::WorldExt;
+use typst_test_lib::compare;
+use typst_test_lib::store::test::Test;
+use typst_test_lib::test::ReferenceKind;
+use typst_test_lib::util;
 
 use crate::cli::OutputFormat;
-use crate::project::test::{CompareFailure, ComparePageFailure, Test, TestFailure, UpdateFailure};
 use crate::project::Project;
-use crate::util;
+use crate::test::{CompareFailure, TestFailure};
+use crate::world::SystemWorld;
 
 pub const ANNOT_PADDING: usize = 8;
 
 pub struct Summary {
     pub total: usize,
     pub filtered: usize,
-    pub compiled: usize,
-    pub compared: Option<usize>,
-    pub updated: Option<usize>,
+    pub failed_compilation: usize,
+    pub failed_comparison: usize,
+    pub failed_otherwise: usize,
+    pub passed: usize,
     pub time: Duration,
 }
 
@@ -30,15 +39,15 @@ impl Summary {
     }
 
     pub fn is_ok(&self) -> bool {
-        self.passed() == self.run()
+        self.passed == self.run()
+    }
+
+    pub fn is_partial_fail(&self) -> bool {
+        self.passed < self.run()
     }
 
     pub fn is_total_fail(&self) -> bool {
-        self.passed() == 0
-    }
-
-    pub fn passed(&self) -> usize {
-        self.updated.or(self.compared).unwrap_or(self.compiled)
+        self.passed == 0
     }
 }
 
@@ -72,34 +81,6 @@ fn write_bold_colored<W: WriteColor + ?Sized>(
         |c| c.set_bold(false).set_fg(None),
         |w| write!(w, "{annot}"),
     )
-}
-
-fn write_program_buffer(reporter: &mut Reporter, name: &str, buffer: &[u8]) -> io::Result<()> {
-    if buffer.is_empty() {
-        return Ok(());
-    }
-
-    let lossy = String::from_utf8_lossy(buffer);
-    if matches!(lossy, Cow::Owned(_)) {
-        reporter.hint(format!("{name} was not valid UTF8"))?;
-    }
-
-    if reporter.format.is_pretty() {
-        write_bold(reporter, |w| writeln!(w, "┏━ {name}"))?;
-        for line in lossy.lines() {
-            write_bold(reporter, |w| write!(w, "┃"))?;
-            writeln!(reporter, "{line}")?;
-        }
-        write_bold(reporter, |w| writeln!(w, "┗━ {name}"))?;
-    } else {
-        writeln!(reporter, "begin: {name}")?;
-        for line in lossy.lines() {
-            writeln!(reporter, "{line}")?;
-        }
-        writeln!(reporter, "end: {name}")?;
-    }
-
-    Ok(())
 }
 
 pub struct Reporter {
@@ -151,21 +132,24 @@ impl Reporter {
         &mut self,
         annot: &str,
         color: Color,
+        annot_padding: impl Into<Option<usize>>,
         f: impl FnOnce(&mut Self) -> io::Result<()>,
     ) -> io::Result<()> {
+        let annot_padding = annot_padding.into().unwrap_or(annot.len());
+
         self.set_color(ColorSpec::new().set_bold(true).set_fg(Some(color)))?;
         if self.format.is_pretty() {
-            write!(self, "{annot:>ANNOT_PADDING$} ")?;
+            write!(self, "{annot:>annot_padding$} ")?;
         } else {
             write!(self, "{annot} ")?;
         }
         self.set_color(ColorSpec::new().set_bold(false).set_fg(None))?;
-        self.with_indent(ANNOT_PADDING + 1, |this| f(this))?;
+        self.with_indent(annot_padding + 1, |this| f(this))?;
         Ok(())
     }
 
     pub fn warning(&mut self, warning: impl Display) -> io::Result<()> {
-        self.write_annotated("warning:", Color::Yellow, |this| {
+        self.write_annotated("warning:", Color::Yellow, None, |this| {
             writeln!(this, "{warning}")
         })
     }
@@ -175,80 +159,113 @@ impl Reporter {
             return Ok(());
         }
 
-        self.write_annotated("hint:", Color::Cyan, |this| writeln!(this, "{hint}"))
+        self.write_annotated("hint:", Color::Cyan, None, |this| writeln!(this, "{hint}"))
+    }
+
+    pub fn operation_failure(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> io::Result<()>,
+    ) -> io::Result<()> {
+        self.write_annotated("Error:", Color::Red, None, |this| f(this))
     }
 
     pub fn test_result(
         &mut self,
-        name: &str,
+        test: &Test,
         annot: &str,
         color: Color,
         f: impl FnOnce(&mut Self) -> io::Result<()>,
     ) -> io::Result<()> {
-        self.write_annotated(annot, color, |this| {
-            write_bold(this, |w| writeln!(w, "{name}"))?;
+        self.write_annotated(annot, color, ANNOT_PADDING, |this| {
+            write_bold(this, |w| writeln!(w, "{}", test.id()))?;
             f(this)
         })
     }
 
+    pub fn test_progress(&mut self, test: &Test, annot: &str) -> io::Result<()> {
+        self.test_result(test, annot, Color::Yellow, |_| Ok(()))?;
+        Ok(())
+    }
+
     pub fn test_success(&mut self, test: &Test, annot: &str) -> io::Result<()> {
-        self.test_result(test.name(), annot, Color::Green, |_| Ok(()))
+        self.test_result(test, annot, Color::Green, |_| Ok(()))?;
+        Ok(())
     }
 
-    pub fn test_added(&mut self, test: &Test, no_ref: bool) -> io::Result<()> {
-        self.test_result(test.name(), "added", Color::Green, |this| {
-            if no_ref && !test.is_ephemeral() {
-                let hint = format!(
-                    "Test template used, no default reference generated\nrun 'typst-test update \
-                    --exact {}' to accept test",
-                    test.name(),
-                );
-                this.hint(&hint)?;
-            }
+    pub fn tests_success(&mut self, project: &Project, annot: &str) -> io::Result<()> {
+        for test in project.matched().values() {
+            self.test_success(test, annot)?;
+        }
 
-            Ok(())
-        })
+        Ok(())
     }
 
-    pub fn test_failure(&mut self, test: &Test, error: TestFailure) -> io::Result<()> {
-        self.test_result(test.name(), "failed", Color::Red, |this| {
+    pub fn tests_added(&mut self, project: &Project) -> io::Result<()> {
+        self.tests_success(project, "added")?;
+        Ok(())
+    }
+
+    pub fn test_added(&mut self, test: &Test) -> io::Result<()> {
+        self.test_success(test, "added")?;
+        Ok(())
+    }
+
+    pub fn test_failure(
+        &mut self,
+        test: &Test,
+        error: TestFailure,
+        world: &SystemWorld,
+    ) -> io::Result<()> {
+        self.test_result(test, "failed", Color::Red, |this| {
             if !this.format.is_pretty() {
                 return Ok(());
             }
 
             match error {
-                TestFailure::Preparation(e) => writeln!(this, "{e}")?,
-                TestFailure::Cleanup(e) => writeln!(this, "{e}")?,
                 TestFailure::Compilation(e) => {
                     writeln!(
                         this,
-                        "Compilation of {} failed ({})",
+                        "Compilation of {} failed",
                         if e.is_ref { "references" } else { "test" },
-                        e.output.status
                     )?;
-                    write_program_buffer(this, "stdout", &e.output.stdout)?;
-                    write_program_buffer(this, "stderr", &e.output.stderr)?;
+
+                    // TODO: pass warnings + report warnings on success too
+                    print_diagnostics(this, world, e.error.0.as_slice(), &[]).unwrap();
                 }
-                TestFailure::Comparison(CompareFailure::PageCount { output, reference }) => {
-                    writeln!(
-                        this,
-                        "Expected {reference} {}, got {output} {}",
-                        util::fmt::plural(reference, "page"),
-                        util::fmt::plural(output, "page"),
-                    )?;
-                }
-                TestFailure::Comparison(CompareFailure::Page { pages, diff_dir }) => {
+                TestFailure::Comparison(CompareFailure::Visual {
+                    error:
+                        compare::Error {
+                            output,
+                            reference,
+                            pages,
+                        },
+                    diff_dir,
+                }) => {
+                    if output != reference {
+                        writeln!(
+                            this,
+                            "Expected {reference} {}, got {output} {}",
+                            util::fmt::plural(reference, "page"),
+                            util::fmt::plural(output, "page"),
+                        )?;
+                    }
+
                     for (p, e) in pages {
+                        let p = p + 1;
                         match e {
-                            ComparePageFailure::Dimensions { output, reference } => {
+                            compare::PageError::Dimensions { output, reference } => {
                                 writeln!(this, "Page {p} had different dimensions")?;
                                 this.with_indent(2, |this| {
-                                    writeln!(this, "Output: {}x{}", output.0, output.1)?;
-                                    writeln!(this, "Reference: {}x{}", reference.0, reference.1)
+                                    writeln!(this, "Output: {}", output)?;
+                                    writeln!(this, "Reference: {}", reference)
                                 })?;
                             }
-                            ComparePageFailure::Content => {
-                                writeln!(this, "Page {p} did not match")?;
+                            compare::PageError::SimpleDeviations { deviations } => {
+                                writeln!(
+                                    this,
+                                    "Page {p} had {deviations} {}",
+                                    util::fmt::plural(deviations, "deviation",)
+                                )?;
                             }
                         }
                     }
@@ -259,20 +276,6 @@ impl Reporter {
                             diff_dir.display()
                         ))?;
                     }
-                }
-                TestFailure::Comparison(CompareFailure::MissingOutput) => {
-                    writeln!(this, "No output was generated")?;
-                }
-                TestFailure::Comparison(CompareFailure::MissingReferences) => {
-                    writeln!(this, "No references were found")?;
-                    this.hint(&format!(
-                        "Use 'typst-test update --exact {}' to accept the test output",
-                        test.name(),
-                    ))?;
-                }
-                TestFailure::Update(UpdateFailure::Optimize { error }) => {
-                    writeln!(this, "Failed to optimize image")?;
-                    writeln!(this, "{error}")?;
                 }
             }
 
@@ -290,12 +293,7 @@ impl Reporter {
         Ok(())
     }
 
-    pub fn project(
-        &mut self,
-        project: &Project,
-        typst: PathBuf,
-        typst_path: Option<PathBuf>,
-    ) -> io::Result<()> {
+    pub fn project(&mut self, project: &Project) -> io::Result<()> {
         struct Delims {
             open: &'static str,
             middle: &'static str,
@@ -309,7 +307,7 @@ impl Reporter {
                     middle: " ├ ",
                     close: " └ ",
                 },
-                ["Template", "Project", "Tests", "Typst"]
+                ["Template", "Project", "Tests"]
                     .map(str::len)
                     .into_iter()
                     .max()
@@ -342,28 +340,38 @@ impl Reporter {
             writeln!(self)?;
         }
 
-        let tests = project.tests();
-        write!(self, "{:>align$}{}", "Tests", delims.middle)?;
+        let tests = project.matched();
         if tests.is_empty() {
+            write!(self, "{:>align$}{}", "Tests", delims.middle)?;
             write_bold_colored(self, "none", Color::Cyan)?;
-            write!(
-                self,
-                " (searched at '{}')",
-                project.tests_root_dir().display()
-            )?;
+            writeln!(self, " (searched at '{}')", project.tests_root().display())?;
         } else {
-            write_bold_colored(self, tests.len(), Color::Cyan)?;
-            write!(self, " (")?;
-            write_bold_colored(
-                self,
-                tests.iter().filter(|(_, t)| t.is_ephemeral()).count(),
-                Color::Yellow,
-            )?;
-            write!(self, " ephemeral)")?;
-        }
-        writeln!(self)?;
+            let mut persistent = 0;
+            let mut ephemeral = 0;
+            let mut compile_only = 0;
 
-        write!(self, "{:>align$}{}", "Template", delims.middle)?;
+            for test in tests.values() {
+                match test.ref_kind() {
+                    Some(ReferenceKind::Persistent) => persistent += 1,
+                    Some(ReferenceKind::Ephemeral) => ephemeral += 1,
+                    None => compile_only += 1,
+                }
+            }
+
+            write!(self, "{:>align$}{}", "Tests", delims.middle)?;
+            write_bold_colored(self, persistent, Color::Green)?;
+            writeln!(self, " persistent")?;
+
+            write!(self, "{:>align$}{}", "", delims.middle)?;
+            write_bold_colored(self, ephemeral, Color::Yellow)?;
+            writeln!(self, " ephemeral")?;
+
+            write!(self, "{:>align$}{}", "", delims.middle)?;
+            write_bold_colored(self, compile_only, Color::Yellow)?;
+            writeln!(self, " compile-only")?;
+        }
+
+        write!(self, "{:>align$}{}", "Template", delims.close)?;
         match (project.template_path(), project.template()) {
             (None, None) => {
                 write_bold_colored(self, "none", Color::Green)?;
@@ -378,15 +386,6 @@ impl Reporter {
             (Some(_), Some(_)) => {
                 write_bold_colored(self, "found", Color::Green)?;
             }
-        }
-        writeln!(self)?;
-
-        write!(self, "{:>align$}{}", "Typst", delims.close)?;
-        if let Some(path) = typst_path {
-            write_bold_colored(self, path.display(), Color::Green)?;
-        } else {
-            write_bold_colored(self, "not found", Color::Red)?;
-            write!(self, " (searched for '{}')", typst.display())?;
         }
         writeln!(self)?;
 
@@ -428,10 +427,28 @@ impl Reporter {
                 Color::Yellow
             };
 
-            write_bold_colored(this, summary.passed(), color)?;
+            write_bold_colored(this, summary.passed, color)?;
             write!(this, " / ")?;
             write_bold(this, |w| write!(w, "{}", summary.run()))?;
             write!(this, " {}.", if is_update { "updated" } else { "passed" })?;
+
+            if summary.failed_compilation != 0 {
+                write!(this, " ")?;
+                write_bold_colored(this, summary.failed_compilation, Color::Red)?;
+                write!(this, " failed compilations.")?;
+            }
+
+            if summary.failed_comparison != 0 {
+                write!(this, " ")?;
+                write_bold_colored(this, summary.failed_comparison, Color::Red)?;
+                write!(this, " failed comparisons.")?;
+            }
+
+            if summary.failed_otherwise != 0 {
+                write!(this, " ")?;
+                write_bold_colored(this, summary.failed_otherwise, Color::Red)?;
+                write!(this, " failed otherwise.")?;
+            }
 
             if summary.filtered != 0 {
                 write!(this, " ")?;
@@ -463,18 +480,33 @@ impl Reporter {
         }
 
         self.with_indent(2, |this| {
-            for (name, test) in project.tests() {
+            for (name, test) in project.matched() {
                 write!(this, "{name} ")?;
-                if test.is_ephemeral() {
-                    write_bold_colored(this, "ephemeral", Color::Yellow)?;
-                } else {
-                    write_bold_colored(this, "persistent", Color::Green)?;
+                match test.ref_kind() {
+                    Some(ReferenceKind::Ephemeral) => {
+                        write_bold_colored(this, "ephemeral", Color::Yellow)?
+                    }
+                    Some(ReferenceKind::Persistent) => {
+                        write_bold_colored(this, "persistent", Color::Green)?
+                    }
+                    None => write_bold_colored(this, "compile-only", Color::Yellow)?,
                 }
                 writeln!(this)?;
             }
 
             Ok(())
         })
+    }
+
+    pub fn clear_last_lines(&mut self, lines: usize) -> io::Result<()> {
+        if !self.format.is_pretty() {
+            return Ok(());
+        }
+
+        write!(self, "\x1B[{}F\x1B[0J", lines)?;
+        self.need_indent = true;
+
+        Ok(())
     }
 }
 
@@ -553,5 +585,113 @@ impl WriteColor for Reporter {
 
     fn supports_hyperlinks(&self) -> bool {
         self.writer.supports_hyperlinks()
+    }
+}
+
+type CodespanResult<T> = Result<T, CodespanError>;
+type CodespanError = codespan_reporting::files::Error;
+
+fn print_diagnostics<W: WriteColor>(
+    writer: &mut W,
+    world: &SystemWorld,
+    errors: &[SourceDiagnostic],
+    warnings: &[SourceDiagnostic],
+) -> Result<(), codespan_reporting::files::Error> {
+    let config = term::Config {
+        display_style: term::DisplayStyle::Rich,
+        tab_width: 2,
+        ..Default::default()
+    };
+
+    for diagnostic in warnings.iter().chain(errors) {
+        let diag = match diagnostic.severity {
+            Severity::Error => Diagnostic::error(),
+            Severity::Warning => Diagnostic::warning(),
+        }
+        .with_message(diagnostic.message.clone())
+        .with_notes(
+            diagnostic
+                .hints
+                .iter()
+                .map(|e| (eco_format!("hint: {e}")).into())
+                .collect(),
+        )
+        .with_labels(label(world, diagnostic.span).into_iter().collect());
+
+        term::emit(writer, &config, world, &diag)?;
+
+        // Stacktrace-like helper diagnostics.
+        for point in &diagnostic.trace {
+            let message = point.v.to_string();
+            let help = Diagnostic::help()
+                .with_message(message)
+                .with_labels(label(world, point.span).into_iter().collect());
+
+            term::emit(writer, &config, world, &help)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn label(world: &SystemWorld, span: Span) -> Option<Label<FileId>> {
+    Some(Label::primary(span.id()?, world.range(span)?))
+}
+
+impl<'a> codespan_reporting::files::Files<'a> for SystemWorld {
+    type FileId = FileId;
+    type Name = String;
+    type Source = Source;
+
+    fn name(&'a self, id: FileId) -> CodespanResult<Self::Name> {
+        let vpath = id.vpath();
+        Ok(if let Some(package) = id.package() {
+            format!("{package}{}", vpath.as_rooted_path().display())
+        } else {
+            // Try to express the path relative to the working directory.
+            vpath
+                .resolve(self.root())
+                // .and_then(|abs| pathdiff::diff_paths(abs, self.workdir()))
+                // .as_deref()
+                .unwrap_or_else(|| vpath.as_rootless_path().to_path_buf())
+                .to_string_lossy()
+                .into()
+        })
+    }
+
+    fn source(&'a self, id: FileId) -> CodespanResult<Self::Source> {
+        Ok(self.lookup(id))
+    }
+
+    fn line_index(&'a self, id: FileId, given: usize) -> CodespanResult<usize> {
+        let source = self.lookup(id);
+        source
+            .byte_to_line(given)
+            .ok_or_else(|| CodespanError::IndexTooLarge {
+                given,
+                max: source.len_bytes(),
+            })
+    }
+
+    fn line_range(&'a self, id: FileId, given: usize) -> CodespanResult<std::ops::Range<usize>> {
+        let source = self.lookup(id);
+        source
+            .line_to_range(given)
+            .ok_or_else(|| CodespanError::LineTooLarge {
+                given,
+                max: source.len_lines(),
+            })
+    }
+
+    fn column_number(&'a self, id: FileId, _: usize, given: usize) -> CodespanResult<usize> {
+        let source = self.lookup(id);
+        source.byte_to_column(given).ok_or_else(|| {
+            let max = source.len_bytes();
+            if given <= max {
+                CodespanError::InvalidCharBoundary { given }
+            } else {
+                CodespanError::IndexTooLarge { given, max }
+            }
+        })
     }
 }

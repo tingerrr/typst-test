@@ -1,0 +1,34 @@
+[package]
+name = "typst-test-lib"
+repository = "https://github.com/tingerrr/typst-test"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bitflags.workspace = true
+bytemuck.workspace = true
+comemo.workspace = true
+ecow.workspace = true
+ignore.workspace = true
+once_cell.workspace = true
+pest_derive.workspace = true
+pest.workspace = true
+png.workspace = true
+rayon.workspace = true
+serde = { workspace = true, features = ["derive"] }
+regex.workspace = true
+tiny-skia.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+tracing.workspace = true
+typst.workspace = true
+typst-render.workspace = true
+unscanny.workspace = true
+
+[dev-dependencies]
+dirs.workspace = true
+tempdir.workspace = true
+typst-assets = { workspace = true, features = ["fonts"] }
+typst-dev-assets.workspace = true

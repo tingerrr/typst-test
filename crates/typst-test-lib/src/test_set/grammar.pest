@@ -1,0 +1,31 @@
+main = _{ SOI ~ expr ~ EOI }
+
+expr = { unary_operator* ~ term ~ (binary_operator ~ unary_operator* ~ term)* }
+  atom = { func | val }
+  term = { atom | "(" ~ expr ~ ")" }
+
+unary_operator = _{ complement }
+  complement = { "¬" | "!" | "not" }
+
+binary_operator = _{ intersect | union | difference | symmetric_difference }
+  intersect = { "∩" | "&" | "and" }
+  union = { "∪" | "|" | "or" | "+" }
+  difference = { "\\" | "-" }
+  symmetric_difference = { "Δ" | "^" | "xor" }
+
+val = { id }
+
+func = ${ id ~ args }
+  args = { "(" ~ arg ~ ")" }
+  arg = { matcher }
+
+matcher = { exact_matcher | contains_matcher | regex_matcher }
+  exact_matcher = ${ "=" ~ name }
+  contains_matcher = ${ "~" ~ name }
+  regex_matcher = ${ "/" ~ regex ~ "/" }
+
+id = { ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "-" | "_")* }
+name = { ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "-" | "_" | "/")* }
+regex = { (( "\\" ~ "/") | (!"/" ~ ANY))+ }
+
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }

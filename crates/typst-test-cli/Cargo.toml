@@ -7,22 +7,37 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-typst-project = { git = "https://github.com/tingerrr/typst-project", rev = "a71db5451ebdca2174adc0a323c71ba5ab2f8120" }
+typst-test-lib = { path = "../typst-test-lib" }
 
-anyhow = { version = "1.0.78", features = ["backtrace"] }
-clap = { version = "4.4.12", features = ["derive"] }
-image = { version = "0.24.7", default-features = false, features = ["png"] }
-open = "5.0.1"
-oxipng = { version = "9.0.0", features = ["image"] }
-rayon = "1.8.0"
-termcolor = "1.4.0"
-thiserror = "1.0.56"
-tracing = "0.1.40"
-tracing-subscriber = "0.3.18"
-tracing-tree = "0.3.0"
-serde = { version = "1.0.195", features = ["derive"] }
-semver = "1.0.21"
-walkdir = "2.4.0"
-which = "6.0.0"
-bitflags = "2.4.2"
-toml = "0.8.11"
+anyhow = { workspace = true, features = ["backtrace"] }
+bitflags.workspace = true
+clap = { workspace = true, features = ["derive", "env"] }
+chrono.workspace = true
+codespan-reporting.workspace = true
+comemo.workspace = true
+dirs.workspace = true
+ecow.workspace = true
+env_proxy.workspace = true
+flate2.workspace = true
+fontdb.workspace = true
+native-tls.workspace = true
+once_cell.workspace = true
+rayon.workspace = true
+semver.workspace = true
+serde.workspace = true
+tar.workspace = true
+termcolor.workspace = true
+tiny-skia.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-tree.workspace = true
+typst.workspace = true
+typst-project.workspace = true
+typst-assets = { workspace = true, optional = true, features = ["fonts"] }
+ureq = { workspace = true, default-features = false, features = ["native-tls", "gzip", "json"] }
+
+[features]
+default = ["embed-fonts"]
+embed-fonts = ["dep:typst-assets"]

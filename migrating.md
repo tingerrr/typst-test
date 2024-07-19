@@ -4,6 +4,18 @@ typst-test. The entries are ordered in decending relevance, i.e. last breaking c
 
 This file will be removed on the first release, as from then on, a changelog shall be curated.
 
+## Rewrite
+The rewrite is now complete and the following things have changed and will be gradually tested, refined and stabilized until `0.1.0` is released:
+- `edit` exists but has no implementation anymore it will soon serve to edit tests's meta data like their reference kind instead of opening the tests
+- `run`, `compare` and `update` now take multiple tests and exact names for filtering, more elabirate filtering is done using `-e ...` with test set expressions
+- there are various
+- the output of `list` and `status` has changed
+- `util` has been added for running utility and debugging commands
+- various global options were moved to be on the respective commands they are relevant for only
+- typst test now brings it's own typst compiler (currently 0.11.1) and has no ability to change to another compiler version at the moment
+
+**Many of the aforementioned features are only tested locally and need further testing before the rewrite is fully done.**
+
 ## CI semi stable tag
 The `ci-semi-stable` tag will no longer be bumped on breaking changes. Instead a branch of the same
 name that follows `main` is provided for the same purpose.
