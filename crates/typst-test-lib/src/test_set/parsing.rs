@@ -164,6 +164,9 @@ pub enum NameMatcher {
 
     /// An regex identifier matcher.
     Regex(String),
+
+    /// A plain identifier matcher.
+    Plain(String),
 }
 
 /// Parses an [`Atom`].
@@ -314,6 +317,7 @@ pub fn parse_matcher(pair: Pair<Rule>) -> NameMatcher {
     }
 
     match inner.as_rule() {
+        Rule::plain_matcher => NameMatcher::Plain(extract_name(inner)),
         Rule::exact_matcher => NameMatcher::Exact(extract_name(inner)),
         Rule::contains_matcher => NameMatcher::Contains(extract_name(inner)),
         Rule::regex_matcher => NameMatcher::Regex(extract_name(inner).replace("\\/", "/")),
@@ -504,6 +508,18 @@ mod tests {
             negatives: [],
             pos: 1
         };
+        pest::parses_to! {
+            parser: TestSetParser,
+            input: "a",
+            rule: Rule::matcher,
+            tokens: [
+                matcher(0, 1, [
+                    plain_matcher(0, 1, [
+                        name(0, 1)
+                    ])
+                ])
+            ]
+        }
         pest::parses_to! {
             parser: TestSetParser,
             input: "=a",

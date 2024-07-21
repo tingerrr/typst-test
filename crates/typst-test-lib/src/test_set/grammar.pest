@@ -19,10 +19,11 @@ func = ${ id ~ args }
   args = { "(" ~ arg ~ ")" }
   arg = { matcher }
 
-matcher = { exact_matcher | contains_matcher | regex_matcher }
+matcher = { exact_matcher | contains_matcher | regex_matcher | plain_matcher }
   exact_matcher = ${ "=" ~ name }
   contains_matcher = ${ "~" ~ name }
   regex_matcher = ${ "/" ~ regex ~ "/" }
+  plain_matcher = ${ name }
 
 id = { ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "-" | "_")* }
 name = { ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "-" | "_" | "/")* }

@@ -7,9 +7,12 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use ecow::{eco_vec, EcoVec};
+
 use super::{ReferenceKind, Test};
 use crate::store::project::{Resolver, TestTarget};
 use crate::test::id::{Identifier, ParseIdentifierError};
+use crate::test::{Annotation, ParseAnnotationError};
 use crate::test_set;
 use crate::test_set::TestSet;
 
@@ -27,6 +30,10 @@ pub enum CollectError {
     /// An error occured while trying to parse a test identifier.
     #[error("an error occured while collecting a test")]
     Test(#[from] ParseIdentifierError),
+
+    /// An error occured while trying parsing a test's annotations.
+    #[error("an error occured while parsing a test's annotations")]
+    Annotation(#[from] ParseAnnotationError),
 }
 
 /// Recursively collects tests, applying test set matchers and respecting ignore
@@ -175,12 +182,12 @@ impl<'p, R: Resolver + Sync> Collector<'p, R> {
         }
 
         let reference = self.get_reference_kind(&id)?;
-        let is_ignored = self.get_test_annotations(&id)?;
+        let annotations = self.get_test_annotations(&id)?;
 
         let test = Test {
             id,
             ref_kind: reference,
-            is_ignored,
+            annotations,
         };
 
         if self.matcher.contains(&test) {
@@ -212,35 +219,27 @@ impl<'p, R: Resolver + Sync> Collector<'p, R> {
     /// Returns the annotations for a test.
     ///
     /// At this moment only the `ignored` annotation is returned.
-    pub fn get_test_annotations(&mut self, id: &Identifier) -> io::Result<bool> {
+    pub fn get_test_annotations(
+        &mut self,
+        id: &Identifier,
+    ) -> Result<EcoVec<Annotation>, CollectError> {
         let reader = BufReader::new(
             File::options()
                 .read(true)
                 .open(self.resolver.resolve(&id, TestTarget::TestScript))?,
         );
 
-        let mut is_ignored = false;
+        let mut annotations = eco_vec![];
         for line in reader.lines() {
             let line = line?;
-            let Some(mut line) = line.strip_prefix("///") else {
+            if !line.starts_with("///") {
                 break;
-            };
-
-            line = line.strip_prefix(" ").unwrap_or(line);
-
-            let Some(annotation) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) else {
-                continue;
-            };
-
-            if annotation == "ignore" {
-                is_ignored = true
-            } else {
-                // NOTE: this is implemented in two places and should be unified if more is added
-                todo!("no proper annotation parsing implemented")
             }
+
+            annotations.push(Annotation::parse_line(&line)?);
         }
 
-        Ok(is_ignored)
+        Ok(annotations)
     }
 }
 
@@ -263,11 +262,17 @@ mod tests {
                     .setup_file("tests/compare/ephemeral/test.typ", "Hello World")
                     .setup_file("tests/compare/ephemeral/ref.typ", "Hello\nWorld")
                     // ephemeral despite ref directory
-                    .setup_file("tests/compare/ephemeral-store/test.typ", "Hello World")
+                    .setup_file(
+                        "tests/compare/ephemeral-store/test.typ",
+                        "/// [custom: foo]\nHello World",
+                    )
                     .setup_file("tests/compare/ephemeral-store/ref.typ", "Hello\nWorld")
                     .setup_file("tests/compare/ephemeral-store/ref", REFERNCE_BYTES)
                     // persistent
-                    .setup_file("tests/compare/persistent/test.typ", "Hello World")
+                    .setup_file(
+                        "tests/compare/persistent/test.typ",
+                        "/// [custom: foo]\nHello World",
+                    )
                     .setup_file("tests/compare/persistent/ref", REFERNCE_BYTES)
                     // not a test
                     .setup_file_empty("tests/not-a-test/test.txt")
@@ -280,27 +285,35 @@ mod tests {
                 collector.collect();
 
                 let tests = [
-                    ("compile-only", None, false),
-                    ("compare/ephemeral", Some(ReferenceKind::Ephemeral), false),
+                    ("compile-only", None, eco_vec![]),
+                    (
+                        "compare/ephemeral",
+                        Some(ReferenceKind::Ephemeral),
+                        eco_vec![],
+                    ),
                     (
                         "compare/ephemeral-store",
                         Some(ReferenceKind::Ephemeral),
-                        false,
+                        eco_vec![Annotation::Custom("foo".into())],
                     ),
-                    ("compare/persistent", Some(ReferenceKind::Persistent), false),
+                    (
+                        "compare/persistent",
+                        Some(ReferenceKind::Persistent),
+                        eco_vec![Annotation::Custom("foo".into())],
+                    ),
                 ];
 
-                let filtered = [("ignored", None, true)];
+                let filtered = [("ignored", None, eco_vec![Annotation::Ignored])];
 
-                for (key, kind, ignored) in tests {
+                for (key, kind, annotations) in tests {
                     let test = &collector.tests[key];
-                    assert_eq!(test.is_ignored, ignored);
+                    assert_eq!(test.annotations, annotations);
                     assert_eq!(test.ref_kind, kind);
                 }
 
-                for (key, kind, ignored) in filtered {
+                for (key, kind, annotations) in filtered {
                     let test = &collector.filtered[key];
-                    assert_eq!(test.is_ignored, ignored);
+                    assert_eq!(test.annotations, annotations);
                     assert_eq!(test.ref_kind, kind);
                 }
 

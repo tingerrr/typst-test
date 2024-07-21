@@ -42,6 +42,18 @@ impl super::TestSet for IgnoredTestSet {
 
 /// A test set which contains tests of a certain [`ReferenceKind`].
 #[derive(Debug, Clone)]
+pub struct CustomTestSet {
+    pub id: EcoString,
+}
+
+impl super::TestSet for CustomTestSet {
+    fn contains(&self, test: &Test) -> bool {
+        test.in_custom_test_set(&self.id)
+    }
+}
+
+/// A test set which contains tests of a certain [`ReferenceKind`].
+#[derive(Debug, Clone)]
 pub struct KindTestSet {
     pub kind: Option<ReferenceKind>,
 }
@@ -213,23 +225,41 @@ impl super::TestSet for FnTestSet {
 
 #[cfg(test)]
 mod tests {
+    use ecow::eco_vec;
+
     use super::*;
-    use crate::test::id::Identifier;
-    use crate::test::ReferenceKind;
+    use crate::test::id::Identifier as TestIdentifier;
+    use crate::test::{Annotation, ReferenceKind};
     use crate::test_set::TestSet;
 
     macro_rules! assert_matcher {
         ($m:expr, $matches:expr $(,)?) => {
             assert_eq!(
                 [
-                    ("mod/test-1", Some(ReferenceKind::Ephemeral), false),
-                    ("mod/test-2", Some(ReferenceKind::Persistent), false),
-                    ("mod/other/test-1", None, false),
-                    ("mod/other/test-2", Some(ReferenceKind::Ephemeral), false),
-                    ("top-level", None, false),
-                    ("ignored", Some(ReferenceKind::Persistent), true),
+                    ("mod/test-1", Some(ReferenceKind::Ephemeral), eco_vec![]),
+                    (
+                        "mod/test-2",
+                        Some(ReferenceKind::Persistent),
+                        eco_vec![Annotation::Custom("foo".into())]
+                    ),
+                    ("mod/other/test-1", None, eco_vec![]),
+                    (
+                        "mod/other/test-2",
+                        Some(ReferenceKind::Ephemeral),
+                        eco_vec![]
+                    ),
+                    (
+                        "top-level",
+                        None,
+                        eco_vec![Annotation::Custom("foo".into())]
+                    ),
+                    (
+                        "ignored",
+                        Some(ReferenceKind::Persistent),
+                        eco_vec![Annotation::Ignored]
+                    ),
                 ]
-                .map(|(id, r, i)| Test::new_test(Identifier::new(id).unwrap(), r, i,))
+                .map(|(id, r, a)| Test::new_test(TestIdentifier::new(id).unwrap(), r, a))
                 .iter()
                 .map(|t| $m.contains(t))
                 .collect::<Vec<_>>(),
@@ -242,6 +272,12 @@ mod tests {
     fn test_default() {
         let m = default();
         assert_matcher!(m, [true, true, true, true, true, false]);
+    }
+
+    #[test]
+    fn test_custom() {
+        let m = CustomTestSet { id: "foo".into() };
+        assert_matcher!(m, [false, true, false, false, true, false]);
     }
 
     #[test]

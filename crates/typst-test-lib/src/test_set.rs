@@ -38,6 +38,9 @@ pub enum BuildTestSetError {
 
     /// A regex matcher argument could not be parsed.
     RegexError(#[from] regex::Error),
+
+    /// The arguments passed to the test set were invalid.
+    InvalidArguments { id: EcoString },
 }
 
 impl Display for BuildTestSetError {
@@ -50,6 +53,9 @@ impl Display for BuildTestSetError {
                 }
             }
             BuildTestSetError::RegexError(err) => write!(f, "{err}")?,
+            BuildTestSetError::InvalidArguments { id } => {
+                write!(f, "Invalid arguments for test set {id}(...)")?;
+            }
         }
 
         Ok(())
@@ -126,6 +132,22 @@ impl TestSets {
             .collect(),
             funcs: [
                 (
+                    "custom",
+                    Box::new(|args| {
+                        let Arguments {
+                            arg: Argument { matcher },
+                        } = args;
+                        Ok(match matcher {
+                            NameMatcher::Plain(id) => builtin::custom(id.into()),
+                            _ => {
+                                return Err(BuildTestSetError::InvalidArguments {
+                                    id: "custom".into(),
+                                })
+                            }
+                        })
+                    }) as TestSetFactory,
+                ),
+                (
                     "id",
                     Box::new(|args| {
                         let Arguments {
@@ -135,6 +157,9 @@ impl TestSets {
                             NameMatcher::Exact(name) => builtin::id_string(name, true),
                             NameMatcher::Contains(name) => builtin::id_string(name, false),
                             NameMatcher::Regex(name) => builtin::id_regex(Regex::new(&name)?),
+                            NameMatcher::Plain(_) => {
+                                return Err(BuildTestSetError::InvalidArguments { id: "id".into() })
+                            }
                         })
                     }) as TestSetFactory,
                 ),
@@ -149,6 +174,11 @@ impl TestSets {
                             NameMatcher::Exact(name) => builtin::mod_string(name, true),
                             NameMatcher::Contains(name) => builtin::mod_string(name, false),
                             NameMatcher::Regex(name) => builtin::mod_regex(Regex::new(&name)?),
+                            NameMatcher::Plain(_) => {
+                                return Err(BuildTestSetError::InvalidArguments {
+                                    id: "mod".into(),
+                                })
+                            }
                         })
                     }),
                 ),
@@ -163,6 +193,11 @@ impl TestSets {
                             NameMatcher::Exact(name) => builtin::name_string(name, true),
                             NameMatcher::Contains(name) => builtin::name_string(name, false),
                             NameMatcher::Regex(name) => builtin::name_regex(Regex::new(&name)?),
+                            NameMatcher::Plain(_) => {
+                                return Err(BuildTestSetError::InvalidArguments {
+                                    id: "name".into(),
+                                })
+                            }
                         })
                     }),
                 ),
@@ -210,8 +245,8 @@ pub mod builtin {
     use super::*;
 
     use eval::{
-        AllTestSet, FnTestSet, IdentiferTarget, IdentifierPattern, IdentifierTestSet,
-        IgnoredTestSet, KindTestSet, NoneTestSet,
+        AllTestSet, CustomTestSet, FnTestSet, IdentiferTarget, IdentifierPattern,
+        IdentifierTestSet, IgnoredTestSet, KindTestSet, NoneTestSet,
     };
 
     /// Returns the `none` test set.
@@ -308,6 +343,12 @@ pub mod builtin {
             pattern: IdentifierPattern::Regex(pattern),
             target,
         })
+    }
+
+    /// Returns a custom matcher which matches all tests with a custom
+    /// [`Annotation`][crate::test::Annotation].
+    pub fn custom(id: EcoString) -> DynTestSet {
+        Arc::new(CustomTestSet { id })
     }
 
     /// Creates a new test set wich is defined by the given matcher function.

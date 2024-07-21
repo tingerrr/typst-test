@@ -2,6 +2,7 @@
 
 use std::borrow::Borrow;
 use std::fmt::{Debug, Display};
+use std::str::FromStr;
 
 use ecow::EcoString;
 use thiserror::Error;
@@ -107,6 +108,14 @@ impl AsRef<str> for Identifier {
 impl Borrow<str> for Identifier {
     fn borrow(&self) -> &str {
         self.as_str()
+    }
+}
+
+impl FromStr for Identifier {
+    type Err = ParseIdentifierError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::new(s)
     }
 }
 

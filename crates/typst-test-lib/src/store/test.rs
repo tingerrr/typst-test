@@ -5,14 +5,14 @@ use std::fs::File;
 use std::io;
 use std::io::Write;
 
-use ecow::EcoString;
+use ecow::{eco_vec, EcoString, EcoVec};
 use typst::syntax::{FileId, Source, VirtualPath};
 
 use super::vcs::Vcs;
 use crate::store::project::{Resolver, TestTarget};
 use crate::store::{Document, LoadError, SaveError};
 use crate::test::id::Identifier;
-use crate::test::ReferenceKind;
+use crate::test::{Annotation, ReferenceKind};
 use crate::util;
 
 pub mod collector;
@@ -22,7 +22,7 @@ pub mod collector;
 pub struct Test {
     id: Identifier,
     ref_kind: Option<ReferenceKind>,
-    is_ignored: bool,
+    annotations: EcoVec<Annotation>,
 }
 
 /// References for a test.
@@ -42,18 +42,22 @@ impl Test {
         Self {
             id,
             ref_kind: None,
-            is_ignored: false,
+            annotations: eco_vec![],
         }
     }
 
     /// Generates a new test which does not exist on disk yet. This is primarily
     /// used in tests outside this module.
     #[cfg(test)]
-    pub fn new_test(id: Identifier, ref_kind: Option<ReferenceKind>, is_ignored: bool) -> Self {
+    pub fn new_test(
+        id: Identifier,
+        ref_kind: Option<ReferenceKind>,
+        annotations: EcoVec<Annotation>,
+    ) -> Self {
         Self {
             id,
             ref_kind,
-            is_ignored,
+            annotations,
         }
     }
 
@@ -83,9 +87,19 @@ impl Test {
         matches!(self.ref_kind, None)
     }
 
-    /// Returns whether this test is marked as ignored.
+    /// Returns a reference to this test's anotations.
+    pub fn annotations(&self) -> &[Annotation] {
+        &self.annotations
+    }
+
+    /// Returns whether this test has an ignored annotation.
     pub fn is_ignored(&self) -> bool {
-        self.is_ignored
+        self.annotations.contains(&Annotation::Ignored)
+    }
+
+    /// Returns whether this test has a matching custom annotation.
+    pub fn in_custom_test_set(&self, id: &EcoString) -> bool {
+        self.annotations.contains(&Annotation::Custom(id.clone()))
     }
 
     /// Creates a new test directly on disk.
@@ -112,20 +126,17 @@ impl Test {
             None => None,
         };
 
-        let is_ignored = source
+        // TODO: we need to return a proper error here
+        let annotations = source
             .lines()
             .take_while(|&l| l.starts_with("///"))
-            .filter(|l| {
-                l.strip_prefix("///")
-                    .is_some_and(|l| l.trim() == "[ignored]")
-            })
-            .next()
-            .is_some();
+            .filter_map(|l| Annotation::parse_line(l).ok())
+            .collect();
 
         let test = Self {
             id,
             ref_kind,
-            is_ignored,
+            annotations,
         };
 
         match references {
@@ -503,7 +514,7 @@ mod tests {
                 let test = Test {
                     id: Identifier::new("fancy").unwrap(),
                     ref_kind: Some(ReferenceKind::Ephemeral),
-                    is_ignored: false,
+                    annotations: eco_vec![],
                 };
 
                 test.load_source(&project).unwrap();
@@ -522,7 +533,7 @@ mod tests {
                 let test = Test {
                     id: Identifier::new("fancy").unwrap(),
                     ref_kind: None,
-                    is_ignored: false,
+                    annotations: eco_vec![],
                 };
 
                 let source = test.load_source(&project).unwrap();
