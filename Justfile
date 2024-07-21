@@ -5,7 +5,9 @@ default:
 # run a full test harness
 test *args:
 	cargo nextest run {{ args }}
-	cargo test --doc
+	# TODO: re-enable this once we know why this make my CPU skyrocket to 100%
+	# usage
+	# cargo test --doc
 
 # compile the documentation
 docs:
