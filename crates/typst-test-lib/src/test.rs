@@ -1,3 +1,5 @@
+//! In memory test represention.
+
 pub mod id;
 
 /// The kind of a [`Test`][crate::store::test::Test]'s reference.

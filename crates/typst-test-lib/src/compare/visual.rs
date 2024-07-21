@@ -1,15 +1,18 @@
+//! Visual comparison on raster images.
+
 use tiny_skia::Pixmap;
 
 use super::{Error, PageError, Size};
 
-/// The strategy to use for comparison.
+/// The strategy to use for visual comparison.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Strategy {
     /// Use a simple pixel channel difference comparison, setting both fields
     /// to `0` makes an exact comparison.
     Simple {
         /// The maximum allowed difference between a channel of two pixels
-        /// before they are be considered different.
+        /// before the pixel is considered different. A single channel mismatch
+        /// is enough to mark a pixel as a deviation.
         max_delta: u8,
 
         /// The maximum allowed amount of pixels that can differ per page in
@@ -48,10 +51,13 @@ where
     let output_len = outputs.len();
     let reference_len = references.len();
 
-    let mut page_errors = if fail_fast {
-        vec![]
+    let max_cap = Ord::min(output_len, reference_len);
+
+    // NOTE: anything under 32 is pre allocated, fail_fast or not
+    let mut page_errors = if !fail_fast || max_cap <= 32 {
+        Vec::with_capacity(max_cap)
     } else {
-        Vec::with_capacity(outputs.len())
+        vec![]
     };
 
     for (idx, (a, b)) in Iterator::zip(outputs, references).enumerate() {
@@ -82,11 +88,21 @@ pub fn compare_page(
     reference: &Pixmap,
     strategy: Strategy,
 ) -> Result<(), PageError> {
-    let Strategy::Simple {
-        max_delta,
-        max_deviation,
-    } = strategy;
+    match strategy {
+        Strategy::Simple {
+            max_delta,
+            max_deviation,
+        } => compare_page_simple(output, reference, max_delta, max_deviation),
+    }
+}
 
+/// Compares two pages individually using [`Strategy::Simple`].
+pub fn compare_page_simple(
+    output: &Pixmap,
+    reference: &Pixmap,
+    max_delta: u8,
+    max_deviation: usize,
+) -> Result<(), PageError> {
     if output.width() != reference.width() || output.height() != reference.height() {
         return Err(PageError::Dimensions {
             output: Size {

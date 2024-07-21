@@ -1,13 +1,17 @@
+//! Test identifiers.
+
 use std::borrow::{Borrow, Cow};
+use std::fmt::Debug;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
 
 use ecow::EcoString;
+use thiserror::Error;
 
 /// An error returned when parsing of an identifier fails.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Error)]
 pub enum ParseIdentifierError {
     /// An identifier contained an invalid fragment.
     #[error("identifier contained an invalid fragment")]
@@ -20,10 +24,8 @@ pub enum ParseIdentifierError {
 
 /// A test identifier, this is the full path from the test root directory, down
 /// to the folder containing the test script.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Identifier {
-    id: EcoString,
-}
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Identifier(EcoString);
 
 impl Identifier {
     /// The test component separator.
@@ -33,7 +35,6 @@ impl Identifier {
     ///
     /// All components must start at least one ascii alphabetic letter and
     /// contain only ascii alphanumeric characters, underscores and minuses.
-    /// No component can be equal to the values in [`Identifier::RESERVED`].
     ///
     /// # Examples
     /// ```
@@ -48,7 +49,7 @@ impl Identifier {
         let id = string.into();
         Self::validate(&id)?;
 
-        Ok(Self { id })
+        Ok(Self(id))
     }
 
     /// Turns this path into an identifier, this follows the same rules as
@@ -65,28 +66,32 @@ impl Identifier {
     /// # Errors
     /// Returns an error if a component wasn't valid.
     pub fn new_from_path<P: AsRef<Path>>(path: P) -> Result<Self, ParseIdentifierError> {
-        let mut id = String::new();
+        fn inner(path: &Path) -> Result<Identifier, ParseIdentifierError> {
+            let mut id = String::new();
 
-        for component in path.as_ref().components() {
-            match component {
-                Component::Normal(comp) => {
-                    if let Some(comp) = comp.to_str() {
-                        Self::validate_component(comp)?;
+            for component in path.components() {
+                match component {
+                    Component::Normal(comp) => {
+                        if let Some(comp) = comp.to_str() {
+                            Identifier::validate_component(comp)?;
 
-                        if !id.is_empty() {
-                            id.push_str(Self::SEPARATOR);
+                            if !id.is_empty() {
+                                id.push_str(Identifier::SEPARATOR);
+                            }
+
+                            id.push_str(comp);
+                        } else {
+                            return Err(ParseIdentifierError::InvalidFrament);
                         }
-
-                        id.push_str(comp);
-                    } else {
-                        return Err(ParseIdentifierError::InvalidFrament);
                     }
+                    _ => return Err(ParseIdentifierError::InvalidFrament),
                 }
-                _ => return Err(ParseIdentifierError::InvalidFrament),
             }
+
+            Ok(Self(id.into()))
         }
 
-        Ok(Self { id: id.into() })
+        inner(path.as_ref())
     }
 
     /// Turns this string into an identifier without validating it.
@@ -95,7 +100,7 @@ impl Identifier {
     /// The caller must ensure that the given string is a valid identifier.
     pub unsafe fn new_unchecked(string: EcoString) -> Self {
         debug_assert!(Self::is_valid(&string));
-        Self { id: string }
+        Self(string)
     }
 
     /// Returns whether the given string is a valid identifier.
@@ -128,8 +133,8 @@ impl Identifier {
     /// # use typst_test_lib::test::id::Identifier;
     /// assert!( Identifier::is_component_valid("a"));
     /// assert!( Identifier::is_component_valid("a1"));
-    /// assert!(!Identifier::is_component_valid("1a"));  // invalid char
-    /// assert!(!Identifier::is_component_valid("a "));  // invalid char
+    /// assert!(!Identifier::is_component_valid("1a")); // invalid char
+    /// assert!(!Identifier::is_component_valid("a ")); // invalid char
     /// ```
     pub fn is_component_valid(component: &str) -> bool {
         Self::validate_component(component).is_ok()
@@ -156,12 +161,12 @@ impl Identifier {
 
     /// Returns a reference to the full identifier.
     pub fn as_str(&self) -> &str {
-        self.id.as_str()
+        self.0.as_str()
     }
 
-    /// Returns a clone of the inner [`EcoString`].
+    /// Returns the inner [`EcoString`], performing a cheap clone.
     pub fn to_inner(&self) -> EcoString {
-        self.id.clone()
+        self.0.clone()
     }
 
     /// Returns the name of this test, the last component of this identifier.
@@ -175,7 +180,9 @@ impl Identifier {
     /// # Ok::<_, Box<dyn std::error::Error>>(())
     /// ```
     pub fn name(&self) -> &str {
-        self.components().next_back().expect("is non-empty")
+        self.components()
+            .next_back()
+            .expect("identifier is always non-empty")
     }
 
     /// Returns the module containing the, all but the last component of this
@@ -190,12 +197,12 @@ impl Identifier {
     /// ```
     pub fn module(&self) -> &str {
         let mut c = self.components();
-        _ = c.next_back().expect("is non-empty");
+        _ = c.next_back().expect("identifier is always non-empty");
         c.rest
     }
 
-    /// The components of this identifier, the corresponds to the path direcotry
-    /// path of the test.
+    /// The components of this identifier, this corresponds to the components of
+    /// the test's path.
     ///
     /// # Examples
     /// ```
@@ -209,12 +216,12 @@ impl Identifier {
     /// # Ok::<_, Box<dyn std::error::Error>>(())
     /// ```
     pub fn components(&self) -> Components<'_> {
-        Components { rest: &self.id }
+        Components { rest: &self.0 }
     }
 
     /// Turns this identifier into a path relative to the test directory root.
     pub fn to_path(&self) -> Cow<'_, Path> {
-        let s = self.id.as_str();
+        let s = self.0.as_str();
 
         if Self::SEPARATOR == std::path::MAIN_SEPARATOR_STR {
             Cow::Borrowed(Path::new(s))
@@ -230,19 +237,19 @@ impl Deref for Identifier {
     type Target = str;
 
     fn deref(&self) -> &Self::Target {
-        self.id.as_str()
+        self.0.as_str()
     }
 }
 
 impl AsRef<str> for Identifier {
     fn as_ref(&self) -> &str {
-        self.id.as_str()
+        self.0.as_str()
     }
 }
 
 impl Borrow<str> for Identifier {
     fn borrow(&self) -> &str {
-        self.id.as_str()
+        self.0.as_str()
     }
 }
 
@@ -254,9 +261,15 @@ impl FromStr for Identifier {
     }
 }
 
+impl Debug for Identifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self.as_str(), f)
+    }
+}
+
 impl Display for Identifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.id.fmt(f)
+        Display::fmt(self.as_str(), f)
     }
 }
 
@@ -329,7 +342,7 @@ mod tests {
         let tests = [("a/b/c", "c"), ("a/b", "b"), ("a", "a")];
 
         for (id, name) in tests {
-            assert_eq!(Identifier { id: id.into() }.name(), name);
+            assert_eq!(Identifier(id.into()).name(), name);
         }
     }
 
@@ -338,7 +351,7 @@ mod tests {
         let tests = [("a/b/c", "a/b"), ("a/b", "a"), ("a", "")];
 
         for (id, name) in tests {
-            assert_eq!(Identifier { id: id.into() }.module(), name);
+            assert_eq!(Identifier(id.into()).module(), name);
         }
     }
 

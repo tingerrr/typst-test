@@ -1,3 +1,5 @@
+//! Parsing test set expressions.
+
 use once_cell::sync::Lazy;
 use pest::error::Error;
 use pest::iterators::{Pair, Pairs};

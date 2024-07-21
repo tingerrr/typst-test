@@ -52,7 +52,7 @@ pub struct Project {
 
 impl Project {
     pub fn new(root: PathBuf, config: Config, manifest: Option<Manifest>) -> Self {
-        let resovler = ResolverV1::new(root, &config.tests_root);
+        let resovler = ResolverV1::new(root, config.tests_root_fallback());
         Self {
             config,
             manifest,
@@ -241,7 +241,7 @@ impl Project {
     pub fn collect_tests<T: TestSet + 'static>(&mut self, test_set: T) -> Result<(), Error> {
         // TODO: error handling
         let mut collector = Collector::new(&self.resolver);
-        collector.with_matcher(test_set);
+        collector.with_test_set(test_set);
         collector.collect();
         self.tests = collector.take_tests();
         self.filtered = collector.take_filtered();

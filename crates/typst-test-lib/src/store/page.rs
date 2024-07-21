@@ -1,3 +1,5 @@
+//! Management of page based reference documents.
+
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::io;

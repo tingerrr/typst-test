@@ -1,20 +1,23 @@
+//! Version control support. Contains a git and no-vcs implementation.
+
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io;
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 
 use super::project::{Resolver, TestTarget};
 use crate::test::id::Identifier;
 
 /// A trait for version control systems, this is primarily used to ensure that
-/// ephemeral storage directories are not tracked by the vcs.
+/// temporary storage directories are not tracked by the vcs.
 pub trait Vcs {
-    /// Ignores the given path within the project.
+    /// Ignore the given path within the project.
     fn ignore(&self, path: &Path) -> io::Result<()>;
 
-    /// No longer ignores the given path within the project.
+    /// No longer ignore the given path within the project.
     fn unignore(&self, path: &Path) -> io::Result<()>;
 
-    /// Ignores the given test target within the project.
+    /// Ignore the given test target within the project.
     fn ignore_target<R: Resolver>(
         &self,
         project: &R,
@@ -24,7 +27,7 @@ pub trait Vcs {
         self.ignore(project.resolve(id, target))
     }
 
-    /// No longer ignores the given test target within the project.
+    /// No longer ignore the given test target within the project.
     fn unignore_target<R: Resolver>(
         &self,
         project: &R,

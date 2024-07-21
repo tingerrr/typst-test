@@ -1,25 +1,27 @@
+//! Reading and correctly interpreting user configuration.
+
 use std::path::{Path, PathBuf};
 
 /// The default tests root path relative to the _project root_.
 pub const DEFAULT_TESTS_ROOT: &str = "tests";
 
-/// The default template path relative to the _tests root_.
+/// The default template path relative to the _project root_.
 pub const DEFAULT_TEMPLATE: &str = "tests/template.typ";
 
-/// The default [`Config::tests_root`].
+/// The default [`Config::tests_root`], see also [`DEFAULT_TESTS_ROOT`].
 pub fn default_tests_root() -> PathBuf {
     DEFAULT_TESTS_ROOT.into()
 }
 
-/// The default [`Config::template`].
+/// The default [`Config::template`], see also [`DEFAULT_TEMPLATE`].
 pub fn default_template() -> PathBuf {
     DEFAULT_TEMPLATE.into()
 }
 
 /// The config which can be read from the `tool.typst-test` section of a
-/// `typst.toml` manifest. The default values for [`Self::test_root`] and
+/// `typst.toml` manifest. The default values for [`Self::tests_root`] and
 /// [`Self::template`] are given by [`DEFAULT_TESTS_ROOT`] and
-/// [`DEFAULT_TEMPLATE`] respectively, note that.
+/// [`DEFAULT_TEMPLATE`] respectively.
 ///
 /// All paths are relative to the _project root_.
 ///
@@ -34,41 +36,49 @@ pub fn default_template() -> PathBuf {
 pub struct Config {
     /// The path pointing to the root directory of all tests.
     ///
-    /// Defaults to [`DEFAULT_TEST_ROOT`].
-    #[serde(rename = "tests", default = "default_tests_root")]
-    pub tests_root: PathBuf,
+    /// Defaults to [`DEFAULT_TESTS_ROOT`].
+    #[serde(rename = "tests")]
+    pub tests_root: Option<PathBuf>,
 
     /// The path pointing to the template test script.
     ///
     /// Defaults to [`DEFAULT_TEMPLATE`].
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub template: Option<PathBuf>,
 
     /// The path to a prepare hook.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub prepare: Option<PathBuf>,
 
     /// The path to a prepare hook.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub prepare_each: Option<PathBuf>,
 
     /// The path to the clean up hook.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub cleanup: Option<PathBuf>,
 
     /// The path to a clean up hook.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub cleanup_each: Option<PathBuf>,
+}
+
+impl Config {
+    /// Returns the test root, or the default fallback value.
+    pub fn tests_root_fallback(&self) -> &Path {
+        self.tests_root
+            .as_deref()
+            .unwrap_or(Path::new(DEFAULT_TESTS_ROOT))
+    }
+
+    /// Returns the template path, or the default fallback value.
+    pub fn template_fallback(&self) -> &Path {
+        self.template
+            .as_deref()
+            .unwrap_or(Path::new(DEFAULT_TEMPLATE))
+    }
 }
 
 impl Default for Config {
     fn default() -> Self {
-        let tests_root = Path::new(DEFAULT_TESTS_ROOT).to_path_buf();
-        let template = tests_root.join("template.typ");
-
         Self {
-            tests_root,
-            template: Some(template),
+            tests_root: None,
+            template: None,
             prepare: None,
             prepare_each: None,
             cleanup: None,

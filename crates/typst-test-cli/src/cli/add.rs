@@ -2,7 +2,7 @@ use std::io::Write;
 
 use typst_test_lib::test::id::Identifier;
 use typst_test_lib::test::ReferenceKind;
-use typst_test_lib::test_set::eval::AllMatcher;
+use typst_test_lib::test_set;
 
 use super::Context;
 
@@ -30,7 +30,7 @@ pub struct Args {
 
 pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
     let mut project = ctx.ensure_init()?;
-    project.collect_tests(AllMatcher)?;
+    project.collect_tests(test_set::builtin::all())?;
     project.load_template()?;
 
     if project.matched().contains_key(&args.test) {

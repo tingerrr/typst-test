@@ -1,3 +1,5 @@
+//! Various types of comparisons used to compare tests which have references.
+
 use std::fmt::{Debug, Display};
 
 use thiserror::Error;
@@ -7,7 +9,7 @@ use crate::util;
 pub mod visual;
 
 // TODO: comparison errors should differ depending on the format and strategy
-// implement this similar to the store page formats, currently they are to visual centric
+// implement this similar to the store page formats, currently they are too visual centric
 
 /// The comparison strategy for test output, currently only supports rendering
 /// and comparing visually.
@@ -24,7 +26,7 @@ impl Default for Strategy {
     }
 }
 
-/// An error describing why a document.
+/// An error describing why a document comparison failed.
 #[derive(Debug, Clone, thiserror::Error)]
 pub struct Error {
     /// The output page count.
@@ -70,15 +72,25 @@ impl Display for Error {
 pub enum PageError {
     /// The dimensions of the pages did not match.
     #[error("dimensions differed: out {output} != ref {reference}")]
-    Dimensions { output: Size, reference: Size },
+    Dimensions {
+        /// The size of the output page.
+        output: Size,
 
-    /// The pages differed according to [`Strategy::Simple`].
+        /// The size of the reference page.
+        reference: Size,
+    },
+
+    /// The pages differed according to [`visual::Strategy::Simple`].
     #[error(
         "content differed in at least {} {}",
         deviations,
         util::fmt::plural(*deviations, "pixel")
     )]
-    SimpleDeviations { deviations: usize },
+    SimpleDeviations {
+        /// The amount of visual deviations, i.e. the amount of pixels which did
+        /// not match according to the visual strategy.
+        deviations: usize,
+    },
 }
 
 /// A struct representing page size in pixels.
@@ -87,7 +99,7 @@ pub struct Size {
     /// The width of the page.
     pub width: u32,
 
-    /// Thenheight of the page.
+    /// The height of the page.
     pub height: u32,
 }
 

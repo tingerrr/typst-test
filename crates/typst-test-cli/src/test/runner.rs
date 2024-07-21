@@ -11,7 +11,6 @@ use typst::eval::Tracer;
 use typst::model::Document as TypstDocument;
 use typst::syntax::Source;
 use typst::World;
-use typst_test_lib::compile::Metrics;
 use typst_test_lib::store::project::{Resolver, TestTarget};
 use typst_test_lib::store::test::Test;
 use typst_test_lib::store::Document;
@@ -550,7 +549,7 @@ impl<'t> TestRunner<'_, '_, 't> {
 
         self.reference_store_document = Some(
             self.test
-                .load_reference_document(self.project_runner.project.resolver())?,
+                .load_reference_documents(self.project_runner.project.resolver())?,
         );
 
         Ok(())
@@ -652,7 +651,6 @@ impl<'t> TestRunner<'_, '_, 't> {
             source.clone(),
             self.project_runner.world,
             &mut Tracer::new(),
-            &mut Metrics::new(),
         ) {
             Ok(doc) => {
                 if is_reference {
@@ -786,7 +784,7 @@ impl<'t> TestRunner<'_, '_, 't> {
             .context("Output docuemnt not rendered")?;
 
         self.test
-            .create_reference_document(self.project_runner.project.resolver(), document)?;
+            .create_reference_documents(self.project_runner.project.resolver(), document)?;
 
         Ok(())
     }

@@ -1,6 +1,9 @@
+//! Test loading and on-disk manipulation.
+
 use std::fmt::Debug;
 use std::fs::File;
-use std::io::{self, Write};
+use std::io;
+use std::io::Write;
 
 use ecow::EcoString;
 use typst::syntax::{FileId, Source, VirtualPath};
@@ -14,7 +17,7 @@ use crate::util;
 
 pub mod collector;
 
-/// A thin test handle for managing on-disk resources.
+/// A test handle for managing on-disk resources.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Test {
     id: Identifier,
@@ -43,6 +46,8 @@ impl Test {
         }
     }
 
+    /// Generates a new test which does not exist on disk yet. This is primarily
+    /// used in tests outside this module.
     #[cfg(test)]
     pub fn new_test(id: Identifier, ref_kind: Option<ReferenceKind>, is_ignored: bool) -> Self {
         Self {
@@ -57,7 +62,8 @@ impl Test {
         &self.id
     }
 
-    /// Returns a reference to the reference kind of this test.
+    /// Returns a reference to the reference kind of this test, if this test has
+    /// references.
     pub fn ref_kind(&self) -> Option<&ReferenceKind> {
         self.ref_kind.as_ref()
     }
@@ -127,7 +133,7 @@ impl Test {
                 test.create_reference_script(resolver, reference.as_str())?;
             }
             Some(References::Persistent(reference)) => {
-                test.create_reference_document(resolver, &reference)?;
+                test.create_reference_documents(resolver, &reference)?;
             }
             None => {}
         }
@@ -137,7 +143,7 @@ impl Test {
         Ok(test)
     }
 
-    /// Creates this test's temporary directories.
+    /// Creates this test's temporary directories, if they don't exist yet.
     pub fn create_temporary_directories<R: Resolver>(&self, resolver: &R) -> io::Result<()> {
         if self.is_ephemeral() {
             util::fs::create_dir(resolver.resolve(&self.id, TestTarget::RefDir), true)?;
@@ -148,7 +154,8 @@ impl Test {
         Ok(())
     }
 
-    /// Creates this test's reference script.
+    /// Creates this test's reference script, this will truncate the file if it
+    /// already exists.
     pub fn create_reference_script<R: Resolver>(
         &self,
         resolver: &R,
@@ -158,8 +165,9 @@ impl Test {
         Ok(())
     }
 
-    /// Creates this test's persistent references.
-    pub fn create_reference_document<R: Resolver>(
+    /// Creates this test's persistent references, this will fail if there are
+    /// already pages in the directory.
+    pub fn create_reference_documents<R: Resolver>(
         &self,
         resolver: &R,
         reference: &Document,
@@ -170,7 +178,7 @@ impl Test {
         Ok(())
     }
 
-    /// Deletes this test's directories and scripts.
+    /// Deletes this test's directories and scripts, if they exist.
     pub fn delete<R: Resolver>(&self, resolver: &R) -> io::Result<()> {
         self.delete_reference_documents(resolver)?;
         self.delete_reference_script(resolver)?;
@@ -182,7 +190,7 @@ impl Test {
         Ok(())
     }
 
-    /// Deletes this test's temporary directories.
+    /// Deletes this test's temporary directories, if they exist.
     pub fn delete_temporary_directories<R: Resolver>(&self, resolver: &R) -> io::Result<()> {
         if self.is_ephemeral() {
             util::fs::remove_dir(resolver.resolve(&self.id, TestTarget::RefDir), true)?;
@@ -193,13 +201,13 @@ impl Test {
         Ok(())
     }
 
-    /// Deletes this test's reference script.
+    /// Deletes this test's reference script, if it exists.
     pub fn delete_reference_script<R: Resolver>(&self, resolver: &R) -> io::Result<()> {
         util::fs::remove_file(resolver.resolve(&self.id, TestTarget::RefScript))?;
         Ok(())
     }
 
-    /// Deletes this test's persistent reference documents.
+    /// Deletes this test's persistent reference documents, if they exist.
     pub fn delete_reference_documents<R: Resolver>(&self, resolver: &R) -> io::Result<()> {
         util::fs::remove_dir(resolver.resolve(&self.id, TestTarget::RefDir), true)?;
         Ok(())
@@ -240,8 +248,8 @@ impl Test {
         Ok(())
     }
 
-    /// Removes any previous references and creates a reference script by
-    /// copying the test script.
+    /// Removes any previous references, if they exist and creates a reference
+    /// script by copying the test script.
     pub fn make_ephemeral<R: Resolver, V: Vcs>(&mut self, resolver: &R, vcs: &V) -> io::Result<()> {
         self.delete_reference_script(resolver)?;
         self.delete_reference_documents(resolver)?;
@@ -256,8 +264,8 @@ impl Test {
         Ok(())
     }
 
-    /// Removes any previous references and creates a persistent references from the
-    /// given pages.
+    /// Removes any previous references, if they exist and creates persistent
+    /// references from the given pages.
     pub fn make_persistent<R: Resolver, V: Vcs>(
         &mut self,
         resolver: &R,
@@ -266,14 +274,14 @@ impl Test {
     ) -> Result<(), SaveError> {
         self.delete_reference_script(resolver)?;
         self.delete_reference_documents(resolver)?;
-        self.create_reference_document(resolver, reference)?;
+        self.create_reference_documents(resolver, reference)?;
         self.unignore_reference_documents(resolver, vcs)?;
 
         self.ref_kind = Some(ReferenceKind::Persistent);
         Ok(())
     }
 
-    /// Removes any previous references.
+    /// Removes any previous references, if they exist.
     pub fn make_compile_only<R: Resolver, V: Vcs>(
         &mut self,
         resolver: &R,
@@ -303,7 +311,8 @@ impl Test {
         ))
     }
 
-    /// Loads the reference test script source of this test, if one exists.
+    /// Loads the reference test script source of this test, if this test is
+    /// ephemeral.
     pub fn load_reference_source<R: Resolver>(&self, resolver: &R) -> io::Result<Option<Source>> {
         match self.ref_kind {
             Some(ReferenceKind::Ephemeral) => {
@@ -325,7 +334,7 @@ impl Test {
     }
 
     /// Loads the persistent reference pages of this test, if they exist.
-    pub fn load_reference_document<R: Resolver>(
+    pub fn load_reference_documents<R: Resolver>(
         &self,
         resolver: &R,
     ) -> Result<Option<Document>, LoadError> {

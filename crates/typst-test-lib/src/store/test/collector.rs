@@ -1,3 +1,5 @@
+//! Test discovery.
+
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io;
@@ -27,7 +29,8 @@ pub enum CollectError {
     Test(#[from] ParseIdentifierError),
 }
 
-/// Recursively collects tests, applying matchers and respecting ignore files.
+/// Recursively collects tests, applying test set matchers and respecting ignore
+/// files.
 #[derive(Debug)]
 pub struct Collector<'p, R> {
     resolver: &'p R,
@@ -97,10 +100,10 @@ impl<'p, R: Resolver + Sync> Collector<'p, R> {
         std::mem::take(&mut self.errors)
     }
 
-    /// Sets the matcher used for this collector, the matcher is applied to each
-    /// test after it's type and annotations have been checked.
-    pub fn with_matcher<M: TestSet + 'static>(&mut self, matcher: M) -> &mut Self {
-        self.matcher = Arc::new(matcher);
+    /// Sets the test set matcher used for this collector, the matcher is
+    /// applied to each test after it's type and annotations have been checked.
+    pub fn with_test_set<T: TestSet + 'static>(&mut self, test_set: T) -> &mut Self {
+        self.matcher = Arc::new(test_set);
         self
     }
 
@@ -180,7 +183,7 @@ impl<'p, R: Resolver + Sync> Collector<'p, R> {
             is_ignored,
         };
 
-        if self.matcher.is_match(&test) {
+        if self.matcher.contains(&test) {
             self.tests.insert(test.id.clone(), test);
         } else {
             self.filtered.insert(test.id.clone(), test);

@@ -3,13 +3,13 @@
 //! - prepare: run once before all tests
 //! - cleanup: run once after all tests
 //! - prepare-each: run once before each test, receives the test directory as
-//!   it's first argument
+//!   its first argument
 //! - cleanup-each: run once after each test, receives the test directory as
-//!   it's first argument
+//!   its first argument
 //!
 //! All hooks have the test root set as their working directory.
 //! When a hook returns non-zero exist status the test it was run for is
-//! considered failed.
+//! considered a failure.
 
 use std::io;
 use std::path::Path;
@@ -31,8 +31,11 @@ pub enum Error {
     Io(#[from] io::Error),
 }
 
-/// Creates a [`Command`] to a hook, if a test is passed it's directory path is resolved
-/// and passed as an argument. The test root is set as the working directory.
+/// Creates a [`Command`] to a hook, if a test is passed, its directory path is
+/// resolved and passed as the first and only argument. The test root is set as
+/// the working directory.
+///
+/// All paths are canonicalized, if this fails an error is returned.
 pub fn prepare<R: Resolver>(
     path: &Path,
     test: Option<&Identifier>,

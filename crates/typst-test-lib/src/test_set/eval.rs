@@ -1,3 +1,5 @@
+//! Evaluate test set expressions.
+
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -8,55 +10,56 @@ use super::DynTestSet;
 use crate::store::test::Test;
 use crate::test::ReferenceKind;
 
-/// A matcher which matches all tests.
+/// A test set which contains all tests.
 #[derive(Debug, Clone)]
-pub struct AllMatcher;
+pub struct AllTestSet;
 
-impl super::TestSet for AllMatcher {
-    fn is_match(&self, _test: &Test) -> bool {
+impl super::TestSet for AllTestSet {
+    fn contains(&self, _test: &Test) -> bool {
         true
     }
 }
 
-/// A matcher which matches no tests.
+/// A test set which contains no tests.
 #[derive(Debug, Clone)]
-pub struct NoneMatcher;
+pub struct NoneTestSet;
 
-impl super::TestSet for NoneMatcher {
-    fn is_match(&self, _test: &Test) -> bool {
+impl super::TestSet for NoneTestSet {
+    fn contains(&self, _test: &Test) -> bool {
         false
     }
 }
 
-/// A matcher which matches all ignored tests.
+/// A tet set which contains ignored tests.
 #[derive(Debug, Clone)]
-pub struct IgnoredMatcher;
+pub struct IgnoredTestSet;
 
-impl super::TestSet for IgnoredMatcher {
-    fn is_match(&self, test: &Test) -> bool {
+impl super::TestSet for IgnoredTestSet {
+    fn contains(&self, test: &Test) -> bool {
         test.is_ignored()
     }
 }
 
-/// A matcher which matches all ignored tests.
+/// A test set which contains tests of a certain [`ReferenceKind`].
 #[derive(Debug, Clone)]
-pub struct KindMatcher {
+pub struct KindTestSet {
     pub kind: Option<ReferenceKind>,
 }
-impl KindMatcher {
-    /// A kind matcher whcih matches on compile only tests.
+
+impl KindTestSet {
+    /// A kind test set which contains compile only tests.
     pub fn compile_only() -> Self {
         Self { kind: None }
     }
 
-    /// A kind matcher whcih matches on ephemeral tests.
+    /// A kind test set which contains ephemeral tests.
     pub fn ephemeral() -> Self {
         Self {
             kind: Some(ReferenceKind::Ephemeral),
         }
     }
 
-    /// A kind matcher whcih matches on persistent tests.
+    /// A kind test set which contains persistent tests.
     pub fn persistent() -> Self {
         Self {
             kind: Some(ReferenceKind::Persistent),
@@ -64,24 +67,25 @@ impl KindMatcher {
     }
 }
 
-impl super::TestSet for KindMatcher {
-    fn is_match(&self, test: &Test) -> bool {
+impl super::TestSet for KindTestSet {
+    fn contains(&self, test: &Test) -> bool {
         test.ref_kind() == self.kind.as_ref()
     }
 }
 
-/// A matcher which matches tests by their identifiers.
+/// A test set which contains tests matching the given identifier pattern.
 #[derive(Debug, Clone)]
-pub struct IdentifierMatcher {
+pub struct IdentifierTestSet {
     /// The pattern to use for identifier matching.
-    pub pattern: IdentifierMatcherPattern,
+    pub pattern: IdentifierPattern,
 
     /// The target to match on.
-    pub target: IdentiferMatcherTarget,
+    pub target: IdentiferTarget,
 }
 
+/// The target to apply the identifier pattern to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IdentiferMatcherTarget {
+pub enum IdentiferTarget {
     /// Match on the whole identifier.
     Full,
 
@@ -92,9 +96,9 @@ pub enum IdentiferMatcherTarget {
     Module,
 }
 
-/// A matcher which matches tests by their identifiers.
+/// A test set which contains tests by their identifiers.
 #[derive(Debug, Clone)]
-pub enum IdentifierMatcherPattern {
+pub enum IdentifierPattern {
     /// Matches all tests which match the [`Regex`].
     Regex(Regex),
 
@@ -105,82 +109,83 @@ pub enum IdentifierMatcherPattern {
     Contains(EcoString),
 }
 
-impl super::TestSet for IdentifierMatcher {
-    fn is_match(&self, test: &Test) -> bool {
+impl super::TestSet for IdentifierTestSet {
+    fn contains(&self, test: &Test) -> bool {
         let id = test.id();
         let part = match self.target {
-            IdentiferMatcherTarget::Full => id.as_str(),
-            IdentiferMatcherTarget::Name => id.name(),
-            IdentiferMatcherTarget::Module => id.module(),
+            IdentiferTarget::Full => id.as_str(),
+            IdentiferTarget::Name => id.name(),
+            IdentiferTarget::Module => id.module(),
         };
 
         match &self.pattern {
-            IdentifierMatcherPattern::Regex(regex) => regex.is_match(part),
-            IdentifierMatcherPattern::Exact(term) => part == term,
-            IdentifierMatcherPattern::Contains(term) => part.contains(term.as_str()),
+            IdentifierPattern::Regex(regex) => regex.is_match(part),
+            IdentifierPattern::Exact(term) => part == term,
+            IdentifierPattern::Contains(term) => part.contains(term.as_str()),
         }
     }
 }
 
-/// A unary operator matcher.
+/// A unary operator test set.
 #[derive(Debug, Clone)]
-pub enum UnaryMatcher {
-    /// Matches all tests which don't match the inner matcher.
+pub enum UnaryTestSet {
+    /// Contains all tests which are not contained in the inner test set.
     Complement(DynTestSet),
 }
 
-impl super::TestSet for UnaryMatcher {
-    fn is_match(&self, test: &Test) -> bool {
+impl super::TestSet for UnaryTestSet {
+    fn contains(&self, test: &Test) -> bool {
         match self {
-            UnaryMatcher::Complement(matcher) => !matcher.is_match(test),
+            UnaryTestSet::Complement(matcher) => !matcher.contains(test),
         }
     }
 }
 
-/// A binary operator matcher.
+/// A binary operator test set.
 #[derive(Debug, Clone)]
-pub enum BinaryMatcher {
-    /// Matches the union of the inner matchers, those tests that match either
-    /// matcher.
+pub enum BinaryTestSet {
+    /// Contains the union of the inner test sets, those tests that are
+    /// contained in either test set.
     Union(DynTestSet, DynTestSet),
 
-    /// Matches the set difference of the inner matchers, those tests that match
-    /// the left but not the right matcher.
+    /// Contains the set difference of the inner test sets, those tests that are
+    /// contained in the left but not the right test set.
     Difference(DynTestSet, DynTestSet),
 
-    /// Matches the symmetric difference of the inner matchers, those tests that
-    /// match only one matcher, but not both.
+    /// Contains the symmetric difference of the inner test sets, those tests
+    /// that are contained in only one test set, but not both.
     SymmetricDifference(DynTestSet, DynTestSet),
 
-    /// Matches the intersection of the inner matchers, those tests
-    /// that match both.
+    /// Contains the intersection of the inner test sets, those tests
+    /// that are contained in both test sets.
     Intersect(DynTestSet, DynTestSet),
 }
 
-impl super::TestSet for BinaryMatcher {
-    fn is_match(&self, test: &Test) -> bool {
+impl super::TestSet for BinaryTestSet {
+    fn contains(&self, test: &Test) -> bool {
         match self {
-            BinaryMatcher::Union(m1, m2) => m1.is_match(test) || m2.is_match(test),
-            BinaryMatcher::Difference(m1, m2) => m1.is_match(test) && !m2.is_match(test),
-            BinaryMatcher::SymmetricDifference(m1, m2) => m1.is_match(test) ^ m2.is_match(test),
-            BinaryMatcher::Intersect(m1, m2) => m1.is_match(test) && m2.is_match(test),
+            BinaryTestSet::Union(m1, m2) => m1.contains(test) || m2.contains(test),
+            BinaryTestSet::Difference(m1, m2) => m1.contains(test) && !m2.contains(test),
+            BinaryTestSet::SymmetricDifference(m1, m2) => m1.contains(test) ^ m2.contains(test),
+            BinaryTestSet::Intersect(m1, m2) => m1.contains(test) && m2.contains(test),
         }
     }
 }
 
-/// Returns the default test set.
+/// Returns the default test set, `!ignored`.
 pub fn default() -> DynTestSet {
-    Arc::new(UnaryMatcher::Complement(Arc::new(IgnoredMatcher)))
+    Arc::new(UnaryTestSet::Complement(Arc::new(IgnoredTestSet)))
 }
 
-/// A matcher for running an arbitray function on tests.
+/// A test set for running an arbitray function on tests to check if they're
+/// contained in the test set.
 #[derive(Clone)]
-pub struct FnMatcher {
+pub struct FnTestSet {
     /// The closure to run on tests.
     pub custom: Arc<dyn Fn(&Test) -> bool + Send + Sync>,
 }
 
-impl Debug for FnMatcher {
+impl Debug for FnTestSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CustomMatcher")
             .field("custom", &..)
@@ -188,8 +193,8 @@ impl Debug for FnMatcher {
     }
 }
 
-impl FnMatcher {
-    /// Crates a new matcher from the given closure.
+impl FnTestSet {
+    /// Crates a new test set from the given closure.
     pub fn new<F>(f: F) -> Self
     where
         F: Fn(&Test) -> bool + Send + Sync + 'static,
@@ -200,8 +205,8 @@ impl FnMatcher {
     }
 }
 
-impl super::TestSet for FnMatcher {
-    fn is_match(&self, test: &Test) -> bool {
+impl super::TestSet for FnTestSet {
+    fn contains(&self, test: &Test) -> bool {
         (self.custom)(test)
     }
 }
@@ -226,7 +231,7 @@ mod tests {
                 ]
                 .map(|(id, r, i)| Test::new_test(Identifier::new(id).unwrap(), r, i,))
                 .iter()
-                .map(|t| $m.is_match(t))
+                .map(|t| $m.contains(t))
                 .collect::<Vec<_>>(),
                 $matches,
             );
@@ -241,138 +246,138 @@ mod tests {
 
     #[test]
     fn test_name_regex() {
-        let m = IdentifierMatcher {
-            pattern: IdentifierMatcherPattern::Regex(Regex::new(r#"mod/.+/test"#).unwrap()),
-            target: IdentiferMatcherTarget::Full,
+        let m = IdentifierTestSet {
+            pattern: IdentifierPattern::Regex(Regex::new(r#"mod/.+/test"#).unwrap()),
+            target: IdentiferTarget::Full,
         };
         assert_matcher!(m, [false, false, true, true, false, false]);
 
-        let m = IdentifierMatcher {
-            pattern: IdentifierMatcherPattern::Regex(Regex::new(r#"mod/.+"#).unwrap()),
-            target: IdentiferMatcherTarget::Module,
+        let m = IdentifierTestSet {
+            pattern: IdentifierPattern::Regex(Regex::new(r#"mod/.+"#).unwrap()),
+            target: IdentiferTarget::Module,
         };
         assert_matcher!(m, [false, false, true, true, false, false]);
 
-        let m = IdentifierMatcher {
-            pattern: IdentifierMatcherPattern::Regex(Regex::new(r#"test-\d"#).unwrap()),
-            target: IdentiferMatcherTarget::Name,
+        let m = IdentifierTestSet {
+            pattern: IdentifierPattern::Regex(Regex::new(r#"test-\d"#).unwrap()),
+            target: IdentiferTarget::Name,
         };
         assert_matcher!(m, [true, true, true, true, false, false]);
     }
 
     #[test]
     fn test_name_contains() {
-        let m = IdentifierMatcher {
-            pattern: IdentifierMatcherPattern::Contains("-".into()),
-            target: IdentiferMatcherTarget::Full,
+        let m = IdentifierTestSet {
+            pattern: IdentifierPattern::Contains("-".into()),
+            target: IdentiferTarget::Full,
         };
         assert_matcher!(m, [true, true, true, true, true, false]);
 
-        let m = IdentifierMatcher {
-            pattern: IdentifierMatcherPattern::Contains("d".into()),
-            target: IdentiferMatcherTarget::Module,
+        let m = IdentifierTestSet {
+            pattern: IdentifierPattern::Contains("d".into()),
+            target: IdentiferTarget::Module,
         };
         assert_matcher!(m, [true, true, true, true, false, false]);
 
-        let m = IdentifierMatcher {
-            pattern: IdentifierMatcherPattern::Contains("d".into()),
-            target: IdentiferMatcherTarget::Name,
+        let m = IdentifierTestSet {
+            pattern: IdentifierPattern::Contains("d".into()),
+            target: IdentiferTarget::Name,
         };
         assert_matcher!(m, [false, false, false, false, false, true]);
     }
 
     #[test]
     fn test_name_exact() {
-        let m = IdentifierMatcher {
-            pattern: IdentifierMatcherPattern::Exact("mod/test-1".into()),
-            target: IdentiferMatcherTarget::Full,
+        let m = IdentifierTestSet {
+            pattern: IdentifierPattern::Exact("mod/test-1".into()),
+            target: IdentiferTarget::Full,
         };
         assert_matcher!(m, [true, false, false, false, false, false]);
 
-        let m = IdentifierMatcher {
-            pattern: IdentifierMatcherPattern::Exact("mod".into()),
-            target: IdentiferMatcherTarget::Module,
+        let m = IdentifierTestSet {
+            pattern: IdentifierPattern::Exact("mod".into()),
+            target: IdentiferTarget::Module,
         };
         assert_matcher!(m, [true, true, false, false, false, false]);
 
-        let m = IdentifierMatcher {
-            pattern: IdentifierMatcherPattern::Exact("test-1".into()),
-            target: IdentiferMatcherTarget::Name,
+        let m = IdentifierTestSet {
+            pattern: IdentifierPattern::Exact("test-1".into()),
+            target: IdentiferTarget::Name,
         };
         assert_matcher!(m, [true, false, true, false, false, false]);
     }
 
     #[test]
     fn test_kind() {
-        let m = KindMatcher::compile_only();
+        let m = KindTestSet::compile_only();
         assert_matcher!(m, [false, false, true, false, true, false]);
 
-        let m = KindMatcher::ephemeral();
+        let m = KindTestSet::ephemeral();
         assert_matcher!(m, [true, false, false, true, false, false]);
 
-        let m = KindMatcher::persistent();
+        let m = KindTestSet::persistent();
         assert_matcher!(m, [false, true, false, false, false, true]);
     }
 
     #[test]
     fn test_ignored() {
-        let m = IgnoredMatcher;
+        let m = IgnoredTestSet;
         assert_matcher!(m, [false, false, false, false, false, true]);
     }
 
     #[test]
     fn test_all() {
-        let m = AllMatcher;
+        let m = AllTestSet;
         assert_matcher!(m, [true, true, true, true, true, true]);
     }
 
     #[test]
     fn test_none() {
-        let m = NoneMatcher;
+        let m = NoneTestSet;
         assert_matcher!(m, [false, false, false, false, false, false]);
     }
 
     #[test]
     fn test_complement() {
-        let m = UnaryMatcher::Complement(Arc::new(IgnoredMatcher));
+        let m = UnaryTestSet::Complement(Arc::new(IgnoredTestSet));
         assert_matcher!(m, [true, true, true, true, true, false]);
     }
 
     #[test]
     fn test_binary() {
-        let m = BinaryMatcher::Union(
-            Arc::new(IdentifierMatcher {
-                pattern: IdentifierMatcherPattern::Regex(Regex::new(r#"test-\d"#).unwrap()),
-                target: IdentiferMatcherTarget::Full,
+        let m = BinaryTestSet::Union(
+            Arc::new(IdentifierTestSet {
+                pattern: IdentifierPattern::Regex(Regex::new(r#"test-\d"#).unwrap()),
+                target: IdentiferTarget::Full,
             }),
-            Arc::new(KindMatcher::compile_only()),
+            Arc::new(KindTestSet::compile_only()),
         );
         assert_matcher!(m, [true, true, true, true, true, false]);
 
-        let m = BinaryMatcher::Intersect(
-            Arc::new(IdentifierMatcher {
-                pattern: IdentifierMatcherPattern::Regex(Regex::new(r#"test-\d"#).unwrap()),
-                target: IdentiferMatcherTarget::Full,
+        let m = BinaryTestSet::Intersect(
+            Arc::new(IdentifierTestSet {
+                pattern: IdentifierPattern::Regex(Regex::new(r#"test-\d"#).unwrap()),
+                target: IdentiferTarget::Full,
             }),
-            Arc::new(KindMatcher::compile_only()),
+            Arc::new(KindTestSet::compile_only()),
         );
         assert_matcher!(m, [false, false, true, false, false, false]);
 
-        let m = BinaryMatcher::Difference(
-            Arc::new(IdentifierMatcher {
-                pattern: IdentifierMatcherPattern::Regex(Regex::new(r#"test-\d"#).unwrap()),
-                target: IdentiferMatcherTarget::Full,
+        let m = BinaryTestSet::Difference(
+            Arc::new(IdentifierTestSet {
+                pattern: IdentifierPattern::Regex(Regex::new(r#"test-\d"#).unwrap()),
+                target: IdentiferTarget::Full,
             }),
-            Arc::new(KindMatcher::compile_only()),
+            Arc::new(KindTestSet::compile_only()),
         );
         assert_matcher!(m, [true, true, false, true, false, false]);
 
-        let m = BinaryMatcher::SymmetricDifference(
-            Arc::new(IdentifierMatcher {
-                pattern: IdentifierMatcherPattern::Regex(Regex::new(r#"test-\d"#).unwrap()),
-                target: IdentiferMatcherTarget::Full,
+        let m = BinaryTestSet::SymmetricDifference(
+            Arc::new(IdentifierTestSet {
+                pattern: IdentifierPattern::Regex(Regex::new(r#"test-\d"#).unwrap()),
+                target: IdentiferTarget::Full,
             }),
-            Arc::new(KindMatcher::compile_only()),
+            Arc::new(KindTestSet::compile_only()),
         );
         assert_matcher!(m, [true, true, false, true, true, false]);
     }

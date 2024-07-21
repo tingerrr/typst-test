@@ -9,6 +9,7 @@ test *args:
 
 # compile the documentation
 docs:
+	cargo doc
 	typst compile docs/test-set-dsl.typ docs/test-set-dsl.pdf
 
 # install typst-test using cargo

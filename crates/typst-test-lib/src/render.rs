@@ -1,4 +1,6 @@
-use tiny_skia::{BlendMode, FilterQuality, Pixmap, PixmapPaint, PremultipliedColorU8, Transform};
+//! Rendering document, reference and difference images.
+
+use tiny_skia::{BlendMode, FilterQuality, Pixmap, PixmapPaint, Transform};
 use typst::layout::Page;
 use typst::model::Document;
 use typst::visualize::Color;
@@ -6,7 +8,7 @@ use typst::visualize::Color;
 /// Renders a document into a a collection of raster images.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Strategy {
-    /// The ammount of pixels to use per pt.
+    /// The amount of pixels to use per pt.
     pub pixel_per_pt: f32,
 
     /// The background fill.
@@ -17,7 +19,9 @@ impl Default for Strategy {
     fn default() -> Self {
         Self {
             // NOTE: this doesn't seem to be quite exactly 2, so we use this to
-            // ensure we get the same default value as typst-cli
+            // ensure we get the same default value as typst-cli, this avoids
+            // spurious failures when people migrate between the old and new
+            // version
             pixel_per_pt: ppi_to_ppp(144.0),
             fill: Color::WHITE,
         }
@@ -37,23 +41,12 @@ pub fn ppi_to_ppp(pixel_per_inch: f32) -> f32 {
     pixel_per_inch / PPP_TO_PPI_FACTOR
 }
 
-/// Inverts a pixels fully.
-pub fn invert_pixel(px: PremultipliedColorU8) -> PremultipliedColorU8 {
-    PremultipliedColorU8::from_rgba(
-        0u8.wrapping_sub(px.red()),
-        0u8.wrapping_sub(px.green()),
-        0u8.wrapping_sub(px.blue()),
-        0u8.wrapping_sub(px.alpha()),
-    )
-    .expect("wrapping sub of zero and non zero must not be zero")
-}
-
 /// Renders a single page with the given strategy.
 pub fn render_page(page: &Page, strategy: Strategy) -> Pixmap {
     typst_render::render(&page.frame, strategy.pixel_per_pt, strategy.fill)
 }
 
-// TODO: support rtl by defining which the origin of the images
+// TODO: support rtl by defining the origin of the images
 
 /// Render the visual diff of two pages.
 pub fn render_page_diff(base: &Pixmap, change: &Pixmap) -> Pixmap {
@@ -180,6 +173,12 @@ mod tests {
                 let idx = diff.width().checked_mul(y).unwrap().checked_add(x).unwrap();
                 let px = diff.pixels_mut().get_mut(idx as usize).unwrap();
 
+                // NOTE: Despite some of these being invalid according to
+                // PremultipliedColorU8::new, this is indeed what is internally
+                // created when inverting.
+                //
+                // That's not surprising, but not allowing us to create those
+                // pixels when they're valid is.
                 *px = bytemuck::cast(match (is_in(x, y, &base), is_in(x, y, &change)) {
                     // proper difference where both are in bounds
                     (true, true) => [0u8, 255, 255, 255],

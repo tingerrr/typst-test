@@ -1,3 +1,5 @@
+//! The current default implementation of [`Resolver`].
+
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
@@ -55,7 +57,7 @@ impl Debug for Paths {
 }
 
 /// An interner for commonly accessed paths following the current project
-/// strucutre.
+/// strucutre. This is the default implementation for [`Resolver`].
 #[derive(Debug)]
 pub struct ResolverV1 {
     root: PathBuf,
@@ -79,7 +81,7 @@ impl ResolverV1 {
 
     /// Creates a new project with the given root and config.
     pub fn from_config<P: Into<PathBuf>>(root: P, config: Config) -> Self {
-        Self::new(root, &config.tests_root)
+        Self::new(root, config.tests_root_fallback())
     }
 
     fn leak_and_record(
@@ -93,7 +95,7 @@ impl ResolverV1 {
 
         // SAFETY:
         // - the result of Box::leak never dangles
-        // - we ensure that init doesn't panic below
+        // - we ensure that init doesn't panic below (save for OOM)
         unsafe {
             target
                 .get_or_insert_with(|| NonNull::new_unchecked(Box::leak(init().into_boxed_path())))
@@ -102,10 +104,10 @@ impl ResolverV1 {
     }
 }
 
-// SAFETY: access to internerd stoarge is synchronized and not thread local
+// SAFETY: access to internerd storage is synchronized and not thread local
 unsafe impl Send for ResolverV1 {}
 
-// SAFETY: access to internerd stoarge is synchronized and not thread local
+// SAFETY: access to internerd storage is synchronized and not thread local
 unsafe impl Sync for ResolverV1 {}
 
 impl Drop for ResolverV1 {

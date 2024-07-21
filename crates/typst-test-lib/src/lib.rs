@@ -1,3 +1,5 @@
+//! The core library of typst-test.
+
 pub mod compare;
 pub mod compile;
 pub mod config;
@@ -7,18 +9,18 @@ pub mod render;
 pub mod store;
 pub mod test;
 pub mod test_set;
+
+#[doc(hidden)]
 pub mod util;
 
 #[cfg(test)]
 pub mod _dev;
 
 #[cfg(test)]
-#[cfg(test)]
 mod tests {
     use typst::eval::Tracer;
 
     use crate::_dev::GlobalTestWorld;
-    use crate::compile::Metrics;
     use crate::store::project::v1::ResolverV1;
     use crate::store::project::Resolver;
     use crate::store::test::collector::Collector;
@@ -39,13 +41,7 @@ mod tests {
 
         for test in collector.tests().values() {
             let source = test.load_source(&project).unwrap();
-            let output = compile::compile(
-                source.clone(),
-                &world,
-                &mut Tracer::new(),
-                &mut Metrics::new(),
-            )
-            .unwrap();
+            let output = compile::compile(source.clone(), &world, &mut Tracer::new()).unwrap();
 
             if test.is_compile_only() {
                 continue;
@@ -55,16 +51,11 @@ mod tests {
 
             let reference: Vec<_> =
                 if let Some(reference) = test.load_reference_source(&project).unwrap() {
-                    let reference = compile::compile(
-                        reference.clone(),
-                        &world,
-                        &mut Tracer::new(),
-                        &mut Metrics::new(),
-                    )
-                    .unwrap();
+                    let reference =
+                        compile::compile(reference.clone(), &world, &mut Tracer::new()).unwrap();
 
                     render::render_document(&reference, strategy).collect()
-                } else if let Some(document) = test.load_reference_document(&project).unwrap() {
+                } else if let Some(document) = test.load_reference_documents(&project).unwrap() {
                     document.pages().to_owned()
                 } else {
                     panic!()

@@ -9,7 +9,6 @@ use termcolor::{Color, WriteColor};
 use typst_test_lib::config::Config;
 use typst_test_lib::test::id::Identifier;
 use typst_test_lib::test_set;
-use typst_test_lib::test_set::eval::IdentiferMatcherTarget;
 use typst_test_lib::test_set::{DynTestSet, TestSetExpr};
 
 use crate::fonts::FontSearcher;
@@ -283,6 +282,8 @@ pub struct Global {
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct OperationArgs {
+    // reason: as above, clap does not ignore the extra formatting
+    #[allow(rustdoc::bare_urls)]
     /// A test set expression for the given operation
     ///
     /// See https://github.com/tingerrr/typst-test for an introduction on the
@@ -316,20 +317,10 @@ impl OperationArgs {
                 } else {
                     self.tests
                         .iter()
-                        .map(|id| {
-                            test_set::builtin::id_string(
-                                IdentiferMatcherTarget::Name,
-                                id.to_inner(),
-                                true,
-                            )
+                        .map(|id| test_set::builtin::name_string(id.to_inner(), true))
+                        .fold(test_set::builtin::none(), |acc, it| {
+                            test_set::expr::union(acc, it)
                         })
-                        .fold(
-                            Arc::new(test_set::eval::NoneMatcher) as DynTestSet,
-                            |acc, it| {
-                                Arc::new(test_set::eval::BinaryMatcher::Union(acc, it))
-                                    as DynTestSet
-                            },
-                        )
                 }
             }
         })
@@ -476,6 +467,8 @@ pub enum Command {
     #[command(visible_alias = "a")]
     Add(add::Args),
 
+    // reason: escaping this is not ignored by clap
+    #[allow(rustdoc::broken_intra_doc_links)]
     /// Edit existing tests [disabled]
     #[command()]
     Edit(edit::Args),

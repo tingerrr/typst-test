@@ -1,10 +1,13 @@
+//! Project management and test loading.
+
 use std::io;
 use std::path::Path;
 
 use ecow::EcoVec;
 use tiny_skia::Pixmap;
 
-use crate::render::{self, Strategy};
+use crate::render;
+use crate::render::Strategy;
 
 pub mod page;
 pub mod project;
@@ -53,7 +56,7 @@ impl Document {
         }
     }
 
-    /// Fully renders diff of two typst [`Document`][typst::model::Document]s.
+    /// Fully renders the diff of two typst [`Document`][typst::model::Document]s.
     pub fn render_diff(
         base: &typst::model::Document,
         change: &typst::model::Document,
@@ -64,6 +67,7 @@ impl Document {
         }
     }
 
+    /// Returns a reference to the pages in this document.
     pub fn pages(&self) -> &[Pixmap] {
         &self.pages
     }
