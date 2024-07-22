@@ -123,6 +123,13 @@ fn main() -> ExitCode {
     match ctx.run() {
         Ok(()) => {}
         Err(_) if ctx.is_operation_failure() => {}
+        // NOTE: we ignore broken pipes as these occur when programs close the
+        // pipe before we're done writing
+        Err(err)
+            if err
+                .root_cause()
+                .downcast_ref()
+                .is_some_and(|err: &io::Error| err.kind() == io::ErrorKind::BrokenPipe) => {}
         Err(err) => {
             ctx.unexpected_error(|r| {
                 writeln!(
