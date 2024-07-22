@@ -4,6 +4,9 @@ typst-test. The entries are ordered in decending relevance, i.e. last breaking c
 
 This file will be removed on the first release, as from then on, a changelog shall be curated.
 
+## CI semi stable tag pre-deprecation notice
+The `ci-semi-stable` tag has received it's last bump to a pre-rewrite commit. It will soon be deprecated on the release of 0.1.0 of `typst-test`. The repository will likely be archived in ffavor of a new name.
+
 ## Rewrite
 The rewrite is now complete and the following things have changed and will be gradually tested, refined and stabilized until `0.1.0` is released:
 - `edit` exists but has no implementation anymore it will soon serve to edit tests's meta data like their reference kind instead of opening the tests
