@@ -97,12 +97,21 @@ fn main() -> ExitCode {
     }
 
     // TODO: simpler output when using plain
-    let reporter = Reporter::new(
+    let mut reporter = Reporter::new(
         color_stream(args.global.output.color, IS_OUTPUT_STDERR),
         args.global.output.format,
     );
 
     if let Some(jobs) = args.global.jobs {
+        let jobs = if jobs < 2 {
+            reporter
+                .warning("at least 2 threads are needed, using 2")
+                .unwrap();
+            2
+        } else {
+            jobs
+        };
+
         rayon::ThreadPoolBuilder::new()
             .num_threads(jobs)
             .build_global()
