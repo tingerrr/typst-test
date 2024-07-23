@@ -195,24 +195,19 @@ impl Project {
             return Err(Error::TestAlreadyExists(id));
         }
 
-        let source = if !use_template {
-            DEFAULT_TEST_INPUT
-        } else if let Some(template) = &self.template {
-            template
-        } else {
-            DEFAULT_TEST_INPUT
+        let source = match (use_template, &self.template) {
+            (true, Some(template)) => template,
+            (_, None) | (false, _) => DEFAULT_TEST_INPUT,
         };
 
         let reference = match kind {
             Some(ReferenceKind::Ephemeral) => Some(References::Ephemeral(source.into())),
             Some(ReferenceKind::Persistent) if use_template && self.template.is_some() => {
-                Some(References::Persistent(Document::new(vec![
-                    Pixmap::decode_png(DEFAULT_TEST_OUTPUT).unwrap(),
-                ])))
-            }
-            Some(ReferenceKind::Persistent) => {
                 todo!("compile")
             }
+            Some(ReferenceKind::Persistent) => Some(References::Persistent(Document::new(vec![
+                Pixmap::decode_png(DEFAULT_TEST_OUTPUT).unwrap(),
+            ]))),
             None => None,
         };
 
