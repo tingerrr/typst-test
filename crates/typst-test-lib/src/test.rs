@@ -77,11 +77,11 @@ impl Annotation {
     /// # Examples
     /// ```
     /// # use typst_test_lib::test::Annotation;
-    /// let annot = Annotation::parse_line("///   [ ignored   ] ")?;
-    /// assert_eq!(Annotation::Ignored);
-    /// assert!(Annotation::parse_line("// [ignored]").is_err());
-    /// assert!(Annotation::parse_line("/// [ignored").is_err());
-    /// # Ok::<_, Box<dyn std::error::Error>(())
+    /// let annot = Annotation::parse_line("///   [ ignore  ] ")?;
+    /// assert_eq!(annot, Annotation::Ignored);
+    /// assert!(Annotation::parse_line("// [ignore]").is_err());
+    /// assert!(Annotation::parse_line("/// [ignore").is_err());
+    /// # Ok::<_, Box<dyn std::error::Error>>(())
     /// ```
     pub fn parse_line(line: &str) -> Result<Self, ParseAnnotationError> {
         let Some(rest) = line.strip_prefix("///") else {
