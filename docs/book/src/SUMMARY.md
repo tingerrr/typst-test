@@ -2,7 +2,7 @@
 [Introduction](./README.md)
 
 # Quickstart
-- [Installation]()
+- [Installation](./quickstart/install.md)
 - [Usage]()
 - [Concepts]()
 - [Configuration]()
