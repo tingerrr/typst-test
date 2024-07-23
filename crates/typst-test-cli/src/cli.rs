@@ -263,7 +263,7 @@ static AFTER_LONG_ABOUT: &str = concat!(
 #[derive(clap::Args, Debug, Clone)]
 pub struct Global {
     /// The project root directory
-    #[arg(long, short, global = true)]
+    #[arg(long, short, env = "TYPST_ROOT", global = true)]
     pub root: Option<PathBuf>,
 
     /// The amount of threads to use.
