@@ -62,8 +62,10 @@ pub struct Git {
 
 impl Git {
     /// Creates a new git vcs abstraction with the given git root directory.
-    pub fn new<P: Into<PathBuf>>(root: P) -> Self {
-        Self { root: root.into() }
+    pub fn new<P: Into<PathBuf>>(root: P) -> io::Result<Self> {
+        Ok(Self {
+            root: root.into().canonicalize()?,
+        })
     }
 
     pub fn ensure_no_escape(&self, in_root: &Path) -> io::Result<()> {
@@ -182,7 +184,7 @@ mod tests {
         _dev::fs::TempEnv::run(
             |root| root,
             |root| {
-                let vcs = Git::new(root);
+                let vcs = Git::new(root).unwrap();
                 assert_eq!(vcs.ignore(root).unwrap_err().kind(), io::ErrorKind::Other);
             },
             |root| root,
@@ -194,7 +196,7 @@ mod tests {
         _dev::fs::TempEnv::run(
             |root| root.setup_dir("fancy/out"),
             |root| {
-                let vcs = Git::new(root);
+                let vcs = Git::new(root).unwrap();
                 vcs.ignore(&root.join("fancy/out")).unwrap();
             },
             |root| {
@@ -212,7 +214,7 @@ mod tests {
                     .setup_file("fancy/out/.gitignore", "ref.pdf")
             },
             |root| {
-                let vcs = Git::new(root);
+                let vcs = Git::new(root).unwrap();
                 vcs.ignore(&root.join("fancy/out")).unwrap();
             },
             |root| {
@@ -230,7 +232,7 @@ mod tests {
                     .setup_file("fancy/out/.gitignore", "**")
             },
             |root| {
-                let vcs = Git::new(root);
+                let vcs = Git::new(root).unwrap();
                 vcs.ignore(&root.join("fancy/out")).unwrap();
             },
             |root| {
@@ -245,7 +247,7 @@ mod tests {
         _dev::fs::TempEnv::run(
             |root| root.setup_file_empty("fancy/out.txt"),
             |root| {
-                let vcs = Git::new(root);
+                let vcs = Git::new(root).unwrap();
                 vcs.ignore(&root.join("fancy/out.txt")).unwrap();
             },
             |root| {
@@ -263,7 +265,7 @@ mod tests {
                     .setup_file("fancy/.gitignore", "ref.pdf")
             },
             |root| {
-                let vcs = Git::new(root);
+                let vcs = Git::new(root).unwrap();
                 vcs.ignore(&root.join("fancy/out.txt")).unwrap();
             },
             |root| {
@@ -281,7 +283,7 @@ mod tests {
                     .setup_file("fancy/.gitignore", "out.txt")
             },
             |root| {
-                let vcs = Git::new(root);
+                let vcs = Git::new(root).unwrap();
                 vcs.ignore(&root.join("fancy/out.txt")).unwrap();
             },
             |root| {
@@ -299,7 +301,7 @@ mod tests {
                     .setup_file("fancy/out/.gitignore", "ref.pdf\n**")
             },
             |root| {
-                let vcs = Git::new(root);
+                let vcs = Git::new(root).unwrap();
                 vcs.unignore(&root.join("fancy/out")).unwrap();
             },
             |root| {
@@ -317,7 +319,7 @@ mod tests {
                     .setup_file("fancy/out/.gitignore", "**")
             },
             |root| {
-                let vcs = Git::new(root);
+                let vcs = Git::new(root).unwrap();
                 vcs.unignore(&root.join("fancy/out")).unwrap();
             },
             |root| root.expect_dir("fancy/out"),
@@ -332,7 +334,7 @@ mod tests {
                     .setup_file("fancy/out/.gitignore", "ref.pdf\n")
             },
             |root| {
-                let vcs = Git::new(root);
+                let vcs = Git::new(root).unwrap();
                 vcs.unignore(&root.join("fancy/out")).unwrap();
             },
             |root| {
@@ -347,7 +349,7 @@ mod tests {
         _dev::fs::TempEnv::run(
             |root| root.setup_dir("fancy/out"),
             |root| {
-                let vcs = Git::new(root);
+                let vcs = Git::new(root).unwrap();
                 vcs.unignore(&root.join("fancy/out")).unwrap();
             },
             |root| root.expect_dir("fancy/out"),
@@ -362,7 +364,7 @@ mod tests {
                     .setup_file_empty("fancy/out.txt")
             },
             |root| {
-                let vcs = Git::new(root);
+                let vcs = Git::new(root).unwrap();
                 vcs.unignore(&root.join("fancy/out.txt")).unwrap();
             },
             |root| {
@@ -380,7 +382,7 @@ mod tests {
                     .setup_file_empty("fancy/out.txt")
             },
             |root| {
-                let vcs = Git::new(root);
+                let vcs = Git::new(root).unwrap();
                 vcs.unignore(&root.join("fancy/out.txt")).unwrap();
             },
             |root| root.expect_file_empty("fancy/out.txt"),
@@ -395,7 +397,7 @@ mod tests {
                     .setup_file("fancy/.gitignore", "ref.pdf\n")
             },
             |root| {
-                let vcs = Git::new(root);
+                let vcs = Git::new(root).unwrap();
                 vcs.unignore(&root.join("fancy/out.txt")).unwrap();
             },
             |root| {
@@ -410,7 +412,7 @@ mod tests {
         _dev::fs::TempEnv::run(
             |root| root.setup_file_empty("fancy/out.txt"),
             |root| {
-                let vcs = Git::new(root);
+                let vcs = Git::new(root).unwrap();
                 vcs.unignore(&root.join("fancy/out.txt")).unwrap();
             },
             |root| root.expect_dir("fancy/out.txt"),
