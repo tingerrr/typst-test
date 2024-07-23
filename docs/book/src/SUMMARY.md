@@ -3,7 +3,7 @@
 
 # Quickstart
 - [Installation](./quickstart/install.md)
-- [Usage]()
+- [Usage](./quickstart/usage.md)
 - [Concepts]()
 - [Configuration]()
 
