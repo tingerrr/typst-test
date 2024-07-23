@@ -42,10 +42,6 @@ impl Summary {
         self.passed == self.run()
     }
 
-    pub fn is_partial_fail(&self) -> bool {
-        self.passed < self.run()
-    }
-
     pub fn is_total_fail(&self) -> bool {
         self.passed == 0
     }
@@ -197,11 +193,6 @@ impl Reporter {
             self.test_success(test, annot)?;
         }
 
-        Ok(())
-    }
-
-    pub fn tests_added(&mut self, project: &Project) -> io::Result<()> {
-        self.tests_success(project, "added")?;
         Ok(())
     }
 

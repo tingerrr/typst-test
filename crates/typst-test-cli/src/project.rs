@@ -84,6 +84,7 @@ impl Project {
         &self.tests
     }
 
+    #[allow(dead_code)]
     pub fn matched_mut(&mut self) -> &mut BTreeMap<Identifier, Test> {
         &mut self.tests
     }
@@ -92,6 +93,7 @@ impl Project {
         &self.filtered
     }
 
+    #[allow(dead_code)]
     pub fn filtered_mut(&mut self) -> &mut BTreeMap<Identifier, Test> {
         &mut self.filtered
     }
@@ -119,6 +121,7 @@ impl Project {
         self.resolver.test_root()
     }
 
+    #[allow(dead_code)]
     pub fn root_exists(&self) -> io::Result<bool> {
         self.resolver.project_root().try_exists()
     }
@@ -127,6 +130,7 @@ impl Project {
         self.resolver.test_root().try_exists()
     }
 
+    #[allow(dead_code)]
     pub fn unique_test(&self) -> Result<&Test, ()> {
         if self.tests.len() != 1 {
             return Err(());
