@@ -82,7 +82,7 @@ impl Vcs for Git {
         let path = path.canonicalize()?;
         let is_dir = path.metadata()?.is_dir();
         let parent = path.parent().expect(EXPECT_NOT_ROOT_MSG);
-        self.ensure_no_escape(&parent)?;
+        self.ensure_no_escape(parent)?;
 
         let gitignore = if is_dir {
             path.join(GITIGNORE_NAME)
@@ -128,7 +128,7 @@ impl Vcs for Git {
         let path = path.canonicalize()?;
         let is_dir = path.metadata()?.is_dir();
         let parent = path.parent().expect(EXPECT_NOT_ROOT_MSG);
-        self.ensure_no_escape(&parent)?;
+        self.ensure_no_escape(parent)?;
 
         let gitignore = if is_dir {
             path.join(GITIGNORE_NAME)
@@ -183,7 +183,7 @@ mod tests {
             |root| root,
             |root| {
                 let vcs = Git::new(root);
-                assert_eq!(vcs.ignore(&root).unwrap_err().kind(), io::ErrorKind::Other);
+                assert_eq!(vcs.ignore(root).unwrap_err().kind(), io::ErrorKind::Other);
             },
             |root| root,
         );

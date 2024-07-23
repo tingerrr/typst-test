@@ -106,7 +106,7 @@ impl FromStr for Annotation {
 
         let (id, args) = rest
             .trim()
-            .split_once(":")
+            .split_once(':')
             .map(|(id, args)| (id.trim_end(), Some(args.trim_start())))
             .unwrap_or((rest.trim(), None));
 

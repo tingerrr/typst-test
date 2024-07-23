@@ -24,11 +24,12 @@ static PRATT_PARSER: Lazy<PrattParser<Rule>> = Lazy::new(|| {
 pub struct TestSetParser;
 
 /// Parses a given input string into a test set expression.
-pub fn parse_test_set_expr(input: &str) -> Result<Expr, Error<Rule>> {
+pub fn parse_test_set_expr(input: &str) -> Result<Expr, Box<Error<Rule>>> {
     use pest::Parser;
 
     Ok(parse_expr(
-        TestSetParser::parse(Rule::main, input)?
+        TestSetParser::parse(Rule::main, input)
+            .map_err(Box::new)?
             .next()
             .expect("main is not optional")
             .into_inner(),

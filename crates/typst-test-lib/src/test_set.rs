@@ -94,7 +94,7 @@ pub struct TestSetExpr {
 }
 
 impl FromStr for TestSetExpr {
-    type Err = Error<Rule>;
+    type Err = Box<Error<Rule>>;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         parsing::parse_test_set_expr(s).map(|root| Self { root })

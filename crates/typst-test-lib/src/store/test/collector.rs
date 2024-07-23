@@ -61,7 +61,7 @@ impl<'p, R: Resolver + Sync> Collector<'p, R> {
 
     /// Returns a reference to the [`Resolver`] used by this collector.
     pub fn resolver(&self) -> &'p R {
-        &self.resolver
+        self.resolver
     }
 
     /// Returns a reference to the matcher used by this collector.
@@ -226,7 +226,7 @@ impl<'p, R: Resolver + Sync> Collector<'p, R> {
         let reader = BufReader::new(
             File::options()
                 .read(true)
-                .open(self.resolver.resolve(&id, TestTarget::TestScript))?,
+                .open(self.resolver.resolve(id, TestTarget::TestScript))?,
         );
 
         let mut annotations = eco_vec![];

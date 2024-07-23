@@ -199,7 +199,7 @@ where
                                 }
                             }
 
-                            for (_, (test, msg)) in &tests {
+                            for (test, msg) in tests.values() {
                                 reporter.test_progress(test, msg).unwrap();
                             }
 

@@ -203,7 +203,7 @@ impl<'a> Context<'a> {
         f: impl FnOnce(&mut Reporter) -> io::Result<()>,
     ) -> io::Result<()> {
         self.set_test_failure();
-        f(&mut *self.reporter.lock().unwrap())
+        f(&mut self.reporter.lock().unwrap())
     }
 
     pub fn run(&mut self) -> anyhow::Result<()> {
@@ -219,7 +219,7 @@ impl<'a> Context<'a> {
         f: impl FnOnce(&mut Reporter) -> io::Result<()>,
     ) -> io::Result<()> {
         self.set_unexpected_error();
-        f(&mut *self.reporter.lock().unwrap())
+        f(&mut self.reporter.lock().unwrap())
     }
 
     pub fn is_operation_failure(&self) -> bool {
@@ -310,7 +310,7 @@ pub struct OperationArgs {
 impl OperationArgs {
     pub fn test_set(&self) -> anyhow::Result<DynTestSet> {
         Ok(match self.expression.clone() {
-            Some(expr) => expr.build(&*test_set::BUILTIN_TESTSETS)?,
+            Some(expr) => expr.build(&test_set::BUILTIN_TESTSETS)?,
             None => {
                 if self.tests.is_empty() {
                     test_set::builtin::default()

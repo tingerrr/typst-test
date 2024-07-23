@@ -84,7 +84,7 @@ impl Test {
 
     /// Returns whether this test is not compared, but only compiled.
     pub fn is_compile_only(&self) -> bool {
-        matches!(self.ref_kind, None)
+        self.ref_kind.is_none()
     }
 
     /// Returns a reference to this test's anotations.

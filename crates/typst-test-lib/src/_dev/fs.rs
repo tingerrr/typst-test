@@ -18,7 +18,7 @@ pub struct Setup(TempEnv);
 impl Setup {
     pub fn setup_dir<P: AsRef<Path>>(&mut self, path: P) -> &mut Self {
         let abs_path = self.0.root.path().join(path.as_ref());
-        util::fs::create_dir(&abs_path, true).unwrap();
+        util::fs::create_dir(abs_path, true).unwrap();
         self
     }
 

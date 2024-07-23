@@ -30,7 +30,7 @@ pub fn default_template() -> PathBuf {
 ///
 /// This struct deliberately only supports deserialization and will be phased
 /// out in favor of a toml-edit solution.
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Default, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 pub struct Config {
@@ -71,18 +71,5 @@ impl Config {
         self.template
             .as_deref()
             .unwrap_or(Path::new(DEFAULT_TEMPLATE))
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            tests_root: None,
-            template: None,
-            prepare: None,
-            prepare_each: None,
-            cleanup: None,
-            cleanup_each: None,
-        }
     }
 }

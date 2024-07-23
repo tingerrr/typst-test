@@ -148,7 +148,7 @@ impl Project {
     pub fn init(&mut self, options: ScaffoldOptions) -> Result<(), Error> {
         let tests_root_dir = self.tests_root();
         tracing::trace!(path = ?tests_root_dir, "creating tests root dir");
-        util::fs::create_dir(&tests_root_dir, false)?;
+        util::fs::create_dir(tests_root_dir, false)?;
 
         if options.contains(ScaffoldOptions::EXAMPLE) {
             tracing::debug!("adding default test");
