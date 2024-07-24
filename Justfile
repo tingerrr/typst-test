@@ -26,7 +26,7 @@ ci $RUSTFLAGS='-Dwarnings' $RUSTDOCFLAGS='-Dwarnings':
 # clean all temporary directories and build artifacts
 clean:
 	rm -r target
-	rm -r {{ book-src / 'book' }}
+	rm -r {{ book-src / 'build' }}
 
 # install typst-test using cargo
 install:
