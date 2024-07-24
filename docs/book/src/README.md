@@ -1,6 +1,8 @@
 # Introduction
 `typst-test` is a test runner for [Typst](https://typst.app/) projects. It helps you worry less about regressions and speeds up your development.
 
+<script src="https://asciinema.org/a/669405.js" id="asciicast-669405" async="true"></script>
+
 ## Bird's-Eye View
 Out of the box `typst-test` supports the following features:
 - locate the project it is invoked in

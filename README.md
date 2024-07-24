@@ -1,42 +1,37 @@
 # typst test
-`typst-test` is a program to compile, compare and update references of tests scripts for typst.
-It is currently work in progress and is aimed at providing automated visual regression testing for
-typst packages.
+`typst-test` is a test runner for [Typst] projects. It helps you worry less about regressions and speeds up your development.
 
 ## Features
-- auto discovery of current project using `typst.toml`
-- overriding of typst binary to test typst PRs or multiple versions
-- automatic compilation and optional visual comparison of test output for all tests
-- diff image generation for visual aid
-- project setup with git support
-- updating and optimizing of reference images
+Out of the box `typst-test` supports the following features:
+- locate the project it is invoked in
+- collect and manage test scripts and references
+- compile and run tests
+- compare test output to references
+- provide extra scripting functionality
+- running custom scripts for test automation
 
 ## Stability
-This is work in progress, as such no stability guarantees are made, any commit may change the
-behavior of various commands. Such changes will be documented in the [migration log][migrating].
+`typst-test` currently makes no stability guarantees, it is considered pre-0.1.0, see the [Milestones] for it's progress towards a first release.
+However, all PRs and pushes to main are tested in CI.
+A reasonably "stable" version of `typst-test` is available at the `ci-semi-stable` tag.
+This version is already used in the CI of various Typst packages, such as cetz, codly, valkyrie, hydra or subpar.
+Some prior changes impacting users of `typst-test` are documented in the [migration log][migrating].
 
-The branch `ci-semi-stable` is available to use typst-test in CI, see [`tests.yml`][ci-workflow] for
-an example workflow which will run typst-test for PRs and pushes to your repo. This branch will only
-be moved when critical bugs related to existing functionality are fixed. It will be retired once
-typst-test reaches `0.1.0`.
+## Documentation
+To see how to get started with `typst-test`, check out the [Book].
+It provides a few chapters aimed to get you started with `typst-test`.
 
-## Tutorial
-You can install typst-test by running:
-```bash
-cargo install typst-test --git https://github.com/tingerrr/typst-test
-```
+[![An asciicast showing typst-test running the full cetz test suite.][demo-thumb]][demo]
 
-Assuming typst-test is in your path and you're in a package project, this is how you use it on a
-new project:
-```bash
-typst-test init
-typst-test run
-```
-
-[![An asciicast showing typs-test running with one test failing.][demo-thumb]][demo]
-
-[ci-workflow]: assets/workflows/tests.yml
+## Contribution
+See [CONTRIBUTING.md][contrib] if you want to contribute to `typst-test`.
 
 [migrating]: migrating.md
-[demo-thumb]: https://asciinema.org/a/tbjXoYpZ0UPSiFxtO2vOaAW8v.svg
-[demo]: https://asciinema.org/a/tbjXoYpZ0UPSiFxtO2vOaAW8v
+[contrib]: CONTRIBUTING.md
+
+[Typst]: https://typst.app
+[Book]: https://tingerrr.github.io/typst-test/index.html
+[Milestones]: https://github.com/tingerrr/typst-test/milestones
+
+[demo-thumb]: https://asciinema.org/a/669405.svg
+[demo]: https://asciinema.org/a/669405
