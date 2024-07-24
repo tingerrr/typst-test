@@ -1,18 +1,32 @@
+book-src := justfile_directory() / 'docs' / 'book'
+
 [private]
 default:
-	@just --list
+	@just --unsorted --list --list-submodules
 
-# run a full test harness
-test *args:
-	cargo nextest run {{ args }}
-	# TODO: re-enable this once we know why this make my CPU skyrocket to 100%
-	# usage
-	# cargo test --doc
+# documentation
+mod doc 'just/doc.just'
 
-# compile the documentation
-docs:
-	cargo doc
-	typst compile docs/test-set-dsl.typ docs/test-set-dsl.pdf
+# testing
+mod test 'just/test.just'
+
+# checks and lints
+mod check 'just/check.just'
+
+# compile and run typst-test
+run *args='--release':
+	cargo run {{ args }}
+
+# run tests and checks similar to CI
+ci $RUSTFLAGS='-Dwarnings' $RUSTDOCFLAGS='-Dwarnings':
+	just check clippy
+	just check format
+	cargo doc --workspace --no-deps
+
+# clean all temporary directories and build artifacts
+clean:
+	rm -r target
+	rm -r {{ book-src / 'book' }}
 
 # install typst-test using cargo
 install:
