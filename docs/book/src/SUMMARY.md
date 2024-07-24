@@ -10,7 +10,7 @@
 # Guides
 - [Automation]()
 - [Using Test Sets](./guides/test-sets.md)
-- [Setting Up CI]()
+- [Setting Up CI](./guides/ci.md)
 
 # Reference
 - [Tests]()
