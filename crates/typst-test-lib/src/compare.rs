@@ -32,7 +32,7 @@ pub struct Error {
     /// The output page count.
     pub output: usize,
 
-    /// The refernce page count.
+    /// The reference page count.
     pub reference: usize,
 
     /// The page failures if there are any.

@@ -19,20 +19,20 @@ use crate::test_set::TestSet;
 /// An error that can occur during [`Test`] collection using a [`Collector`].
 #[derive(Debug, thiserror::Error)]
 pub enum CollectError {
-    /// An error occured while traversing directories.
-    #[error("an error occured while traversing directories")]
+    /// An error occurred while traversing directories.
+    #[error("an error occurred while traversing directories")]
     WalkDir(#[from] ignore::Error),
 
     /// An io error occurred.
     #[error("an io error occurred")]
     Io(#[from] io::Error),
 
-    /// An error occured while trying to parse a test identifier.
-    #[error("an error occured while collecting a test")]
+    /// An error occurred while trying to parse a test identifier.
+    #[error("an error occurred while collecting a test")]
     Test(#[from] ParseIdentifierError),
 
-    /// An error occured while trying parsing a test's annotations.
-    #[error("an error occured while parsing a test's annotations")]
+    /// An error occurred while trying parsing a test's annotations.
+    #[error("an error occurred while parsing a test's annotations")]
     Annotation(#[from] ParseAnnotationError),
 }
 
@@ -83,7 +83,7 @@ impl<'p, R: Resolver + Sync> Collector<'p, R> {
     /// Returns a reference to the test root used by this collector.
     ///
     /// The errors may contain the path of the directory at which the error
-    /// occured.
+    /// occurred.
     pub fn errors(&self) -> &[(Option<PathBuf>, CollectError)] {
         &self.errors
     }
@@ -102,7 +102,7 @@ impl<'p, R: Resolver + Sync> Collector<'p, R> {
     /// Takes ownership of the test root used by this collector.
     ///
     /// The errors may contain the path of the directory at which the error
-    /// occured.
+    /// occurred.
     pub fn take_errors(&mut self) -> Vec<(Option<PathBuf>, CollectError)> {
         std::mem::take(&mut self.errors)
     }
@@ -249,7 +249,7 @@ mod tests {
     use crate::_dev;
     use crate::store::project::v1::ResolverV1;
 
-    const REFERNCE_BYTES: &[u8] = include_bytes!("../../../../../assets/default-test/test.png");
+    const REFERENCE_BYTES: &[u8] = include_bytes!("../../../../../assets/default-test/test.png");
 
     #[test]
     fn test_collect() {
@@ -267,13 +267,13 @@ mod tests {
                         "/// [custom: foo]\nHello World",
                     )
                     .setup_file("tests/compare/ephemeral-store/ref.typ", "Hello\nWorld")
-                    .setup_file("tests/compare/ephemeral-store/ref", REFERNCE_BYTES)
+                    .setup_file("tests/compare/ephemeral-store/ref", REFERENCE_BYTES)
                     // persistent
                     .setup_file(
                         "tests/compare/persistent/test.typ",
                         "/// [custom: foo]\nHello World",
                     )
-                    .setup_file("tests/compare/persistent/ref", REFERNCE_BYTES)
+                    .setup_file("tests/compare/persistent/ref", REFERENCE_BYTES)
                     // not a test
                     .setup_file_empty("tests/not-a-test/test.txt")
                     // ignored test

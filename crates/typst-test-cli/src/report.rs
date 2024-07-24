@@ -87,7 +87,7 @@ pub struct Reporter {
     need_indent: bool,
     spec: Option<ColorSpec>,
 
-    // other confiuration
+    // other configuration
     format: OutputFormat,
 }
 

@@ -11,7 +11,7 @@ use super::Context;
 pub struct Args {
     /// Whether this test creates it's references on the fly
     ///
-    /// An ephemeral test consistes of two scripts which are compared
+    /// An ephemeral test consists of two scripts which are compared
     /// against each other. The reference script must be called `ref.typ`.
     #[arg(long, short)]
     pub ephemeral: bool,

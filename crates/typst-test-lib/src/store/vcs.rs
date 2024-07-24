@@ -38,7 +38,7 @@ pub trait Vcs {
     }
 }
 
-/// An no-op implementation of [`Vcs`] used for porjects which have no vcs.
+/// An no-op implementation of [`Vcs`] used for projects which have no vcs.
 #[derive(Debug, Clone, Copy)]
 pub struct NoVcs;
 

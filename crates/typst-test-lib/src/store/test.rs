@@ -87,7 +87,7 @@ impl Test {
         self.ref_kind.is_none()
     }
 
-    /// Returns a reference to this test's anotations.
+    /// Returns a reference to this test's annotations.
     pub fn annotations(&self) -> &[Annotation] {
         &self.annotations
     }

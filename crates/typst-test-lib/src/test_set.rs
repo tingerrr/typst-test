@@ -102,7 +102,7 @@ impl FromStr for TestSetExpr {
 }
 
 impl TestSetExpr {
-    /// Build the test set exression into a [`DynTestSet`].
+    /// Build the test set expression into a [`DynTestSet`].
     pub fn build(self, test_sets: &TestSets) -> Result<DynTestSet, BuildTestSetError> {
         expr::build_test_set(self.root, test_sets)
     }
@@ -245,7 +245,7 @@ pub mod builtin {
     use super::*;
 
     use eval::{
-        AllTestSet, CustomTestSet, FnTestSet, IdentiferTarget, IdentifierPattern,
+        AllTestSet, CustomTestSet, FnTestSet, IdentifierPattern, IdentifierTarget,
         IdentifierTestSet, IgnoredTestSet, KindTestSet, NoneTestSet,
     };
 
@@ -287,25 +287,25 @@ pub mod builtin {
     /// Returns a string based identifier matcher test set which targets the
     /// full identifier.
     pub fn id_string<S: Into<EcoString>>(term: S, exact: bool) -> DynTestSet {
-        id_string_impl(IdentiferTarget::Full, term.into(), exact)
+        id_string_impl(IdentifierTarget::Full, term.into(), exact)
     }
 
     /// Returns a string based identifier matcher test set which targets the
     /// test name.
     pub fn name_string<S: Into<EcoString>>(term: S, exact: bool) -> DynTestSet {
-        id_string_impl(IdentiferTarget::Name, term.into(), exact)
+        id_string_impl(IdentifierTarget::Name, term.into(), exact)
     }
 
     /// Returns a string based identifier matcher test set which targets the
     /// module.
     pub fn mod_string<S: Into<EcoString>>(term: S, exact: bool) -> DynTestSet {
-        id_string_impl(IdentiferTarget::Module, term.into(), exact)
+        id_string_impl(IdentifierTarget::Module, term.into(), exact)
     }
 
     /// Returns an id test set using a contains or exact matcher for the given
     /// target.
     fn id_string_impl<S: Into<EcoString>>(
-        target: IdentiferTarget,
+        target: IdentifierTarget,
         term: S,
         exact: bool,
     ) -> DynTestSet {
@@ -322,23 +322,23 @@ pub mod builtin {
     /// Returns a regex based identifier matcher test set which targets the full
     /// identifier.
     pub fn id_regex(term: Regex) -> DynTestSet {
-        id_regex_impl(IdentiferTarget::Full, term)
+        id_regex_impl(IdentifierTarget::Full, term)
     }
 
     /// Returns a regex based identifier matcher test set which targets the test
     /// name.
     pub fn name_regex(term: Regex) -> DynTestSet {
-        id_regex_impl(IdentiferTarget::Name, term)
+        id_regex_impl(IdentifierTarget::Name, term)
     }
 
     /// Returns a regex based identifier matcher test set which targets the
     /// module.
     pub fn mod_regex(term: Regex) -> DynTestSet {
-        id_regex_impl(IdentiferTarget::Module, term)
+        id_regex_impl(IdentifierTarget::Module, term)
     }
 
     /// Returns an id test set using a regex matcher for the given target.
-    fn id_regex_impl(target: IdentiferTarget, pattern: Regex) -> DynTestSet {
+    fn id_regex_impl(target: IdentifierTarget, pattern: Regex) -> DynTestSet {
         Arc::new(IdentifierTestSet {
             pattern: IdentifierPattern::Regex(pattern),
             target,
@@ -351,7 +351,7 @@ pub mod builtin {
         Arc::new(CustomTestSet { id })
     }
 
-    /// Creates a new test set wich is defined by the given matcher function.
+    /// Creates a new test set which is defined by the given matcher function.
     pub fn from_fn<F: Fn(&Test) -> bool + Send + Sync + 'static>(f: F) -> DynTestSet {
         Arc::new(FnTestSet::new(f))
     }

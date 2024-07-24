@@ -81,7 +81,7 @@ pub enum Expr {
     Atom(Atom),
 }
 
-/// A unary prefix expresssion token.
+/// A unary prefix expression token.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnaryExpr {
     /// The unary prefix operator.
@@ -91,7 +91,7 @@ pub struct UnaryExpr {
     pub expr: Box<Expr>,
 }
 
-/// A binary expresssion token.
+/// A binary expression token.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BinaryExpr {
     /// The binary infix operator.
@@ -146,7 +146,7 @@ pub struct Arguments {
     pub arg: Argument,
 }
 
-/// A single function argument token. This curently only holds a name matcher
+/// A single function argument token. This currently only holds a name matcher
 /// but may hold other values in the future.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Argument {

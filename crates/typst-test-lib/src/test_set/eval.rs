@@ -92,12 +92,12 @@ pub struct IdentifierTestSet {
     pub pattern: IdentifierPattern,
 
     /// The target to match on.
-    pub target: IdentiferTarget,
+    pub target: IdentifierTarget,
 }
 
 /// The target to apply the identifier pattern to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IdentiferTarget {
+pub enum IdentifierTarget {
     /// Match on the whole identifier.
     Full,
 
@@ -125,9 +125,9 @@ impl super::TestSet for IdentifierTestSet {
     fn contains(&self, test: &Test) -> bool {
         let id = test.id();
         let part = match self.target {
-            IdentiferTarget::Full => id.as_str(),
-            IdentiferTarget::Name => id.name(),
-            IdentiferTarget::Module => id.module(),
+            IdentifierTarget::Full => id.as_str(),
+            IdentifierTarget::Name => id.name(),
+            IdentifierTarget::Module => id.module(),
         };
 
         match &self.pattern {
@@ -189,7 +189,7 @@ pub fn default() -> DynTestSet {
     Arc::new(UnaryTestSet::Complement(Arc::new(IgnoredTestSet)))
 }
 
-/// A test set for running an arbitray function on tests to check if they're
+/// A test set for running an arbitrary function on tests to check if they're
 /// contained in the test set.
 #[derive(Clone)]
 pub struct FnTestSet {
@@ -284,19 +284,19 @@ mod tests {
     fn test_name_regex() {
         let m = IdentifierTestSet {
             pattern: IdentifierPattern::Regex(Regex::new(r#"mod/.+/test"#).unwrap()),
-            target: IdentiferTarget::Full,
+            target: IdentifierTarget::Full,
         };
         assert_matcher!(m, [false, false, true, true, false, false]);
 
         let m = IdentifierTestSet {
             pattern: IdentifierPattern::Regex(Regex::new(r#"mod/.+"#).unwrap()),
-            target: IdentiferTarget::Module,
+            target: IdentifierTarget::Module,
         };
         assert_matcher!(m, [false, false, true, true, false, false]);
 
         let m = IdentifierTestSet {
             pattern: IdentifierPattern::Regex(Regex::new(r#"test-\d"#).unwrap()),
-            target: IdentiferTarget::Name,
+            target: IdentifierTarget::Name,
         };
         assert_matcher!(m, [true, true, true, true, false, false]);
     }
@@ -305,19 +305,19 @@ mod tests {
     fn test_name_contains() {
         let m = IdentifierTestSet {
             pattern: IdentifierPattern::Contains("-".into()),
-            target: IdentiferTarget::Full,
+            target: IdentifierTarget::Full,
         };
         assert_matcher!(m, [true, true, true, true, true, false]);
 
         let m = IdentifierTestSet {
             pattern: IdentifierPattern::Contains("d".into()),
-            target: IdentiferTarget::Module,
+            target: IdentifierTarget::Module,
         };
         assert_matcher!(m, [true, true, true, true, false, false]);
 
         let m = IdentifierTestSet {
             pattern: IdentifierPattern::Contains("d".into()),
-            target: IdentiferTarget::Name,
+            target: IdentifierTarget::Name,
         };
         assert_matcher!(m, [false, false, false, false, false, true]);
     }
@@ -326,19 +326,19 @@ mod tests {
     fn test_name_exact() {
         let m = IdentifierTestSet {
             pattern: IdentifierPattern::Exact("mod/test-1".into()),
-            target: IdentiferTarget::Full,
+            target: IdentifierTarget::Full,
         };
         assert_matcher!(m, [true, false, false, false, false, false]);
 
         let m = IdentifierTestSet {
             pattern: IdentifierPattern::Exact("mod".into()),
-            target: IdentiferTarget::Module,
+            target: IdentifierTarget::Module,
         };
         assert_matcher!(m, [true, true, false, false, false, false]);
 
         let m = IdentifierTestSet {
             pattern: IdentifierPattern::Exact("test-1".into()),
-            target: IdentiferTarget::Name,
+            target: IdentifierTarget::Name,
         };
         assert_matcher!(m, [true, false, true, false, false, false]);
     }
@@ -384,7 +384,7 @@ mod tests {
         let m = BinaryTestSet::Union(
             Arc::new(IdentifierTestSet {
                 pattern: IdentifierPattern::Regex(Regex::new(r#"test-\d"#).unwrap()),
-                target: IdentiferTarget::Full,
+                target: IdentifierTarget::Full,
             }),
             Arc::new(KindTestSet::compile_only()),
         );
@@ -393,7 +393,7 @@ mod tests {
         let m = BinaryTestSet::Intersect(
             Arc::new(IdentifierTestSet {
                 pattern: IdentifierPattern::Regex(Regex::new(r#"test-\d"#).unwrap()),
-                target: IdentiferTarget::Full,
+                target: IdentifierTarget::Full,
             }),
             Arc::new(KindTestSet::compile_only()),
         );
@@ -402,7 +402,7 @@ mod tests {
         let m = BinaryTestSet::Difference(
             Arc::new(IdentifierTestSet {
                 pattern: IdentifierPattern::Regex(Regex::new(r#"test-\d"#).unwrap()),
-                target: IdentiferTarget::Full,
+                target: IdentifierTarget::Full,
             }),
             Arc::new(KindTestSet::compile_only()),
         );
@@ -411,7 +411,7 @@ mod tests {
         let m = BinaryTestSet::SymmetricDifference(
             Arc::new(IdentifierTestSet {
                 pattern: IdentifierPattern::Regex(Regex::new(r#"test-\d"#).unwrap()),
-                target: IdentiferTarget::Full,
+                target: IdentifierTarget::Full,
             }),
             Arc::new(KindTestSet::compile_only()),
         );

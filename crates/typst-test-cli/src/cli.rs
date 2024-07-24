@@ -41,7 +41,7 @@ pub const EXIT_TEST_FAILURE: u8 = 1;
 /// The requested operation failed gracefully.
 pub const EXIT_OPERATION_FAILURE: u8 = 2;
 
-/// An unexpected error occured.
+/// An unexpected error occurred.
 pub const EXIT_ERROR: u8 = 3;
 
 pub struct Context<'a> {
@@ -130,7 +130,7 @@ impl<'a> Context<'a> {
             reporter.operation_failure(|r| {
                 write!(r, "Project '{}' was not initialized", project.name())
             })?;
-            anyhow::bail!("Project was not initalized");
+            anyhow::bail!("Project was not initialized");
         }
 
         Ok(project)
@@ -257,7 +257,7 @@ static AFTER_LONG_ABOUT: &str = concat!(
     "  ", ansi!("0"; b), "  Success\n",
     "  ", ansi!("1"; b), "  At least one test failed\n",
     "  ", ansi!("2"; b), "  The requested operation failed\n",
-    "  ", ansi!("3"; b), "  An unexpected error occured",
+    "  ", ansi!("3"; b), "  An unexpected error occurred",
 );
 
 #[derive(clap::Args, Debug, Clone)]
@@ -293,7 +293,7 @@ pub struct OperationArgs {
 
     /// Allow operating on more than one test if multiple tests match
     ///
-    /// This is not requried for comparing or compiling, but for editing,
+    /// This is not required for comparing or compiling, but for editing,
     /// updating or removing tests.
     #[arg(long, short)]
     pub all: bool,
@@ -405,7 +405,7 @@ pub struct OutputArgs {
 // TODO: add json
 #[derive(clap::ValueEnum, Debug, Clone, Copy)]
 pub enum OutputFormat {
-    /// Pretty human-readible color output
+    /// Pretty human-readable color output
     Pretty,
 
     /// Plain output for script processing

@@ -26,8 +26,8 @@ pub enum Error {
     #[error("the hook did not run successfully (exit code: {:?})", .0.status)]
     Hook(Output),
 
-    /// An io error occured.
-    #[error("an io error occured")]
+    /// An io error occurred.
+    #[error("an io error occurred")]
     Io(#[from] io::Error),
 }
 

@@ -52,7 +52,7 @@ impl PageFormat for Png {
 /// A generic loading error for a format.
 #[derive(Error)]
 pub enum LoadError<F: PageFormat> {
-    #[error("an io error occured")]
+    #[error("an io error occurred")]
     Io(#[from] io::Error),
 
     #[error("a page could not be loaded")]
@@ -74,7 +74,7 @@ where
 /// A generic saving error for a format.
 #[derive(Error)]
 pub enum SaveError<F: PageFormat> {
-    #[error("an io error occured")]
+    #[error("an io error occurred")]
     Io(#[from] io::Error),
 
     #[error("a page could not be saved")]
@@ -93,7 +93,7 @@ where
     }
 }
 
-/// Counts all pages in the given direcory of a given format. Any files which do
+/// Counts all pages in the given directory of a given format. Any files which do
 /// not have ascii numerals are their file name and the format extension are
 /// ignored.
 pub fn count_pages<F: PageFormat>(dir: &Path) -> Result<usize, LoadError<F>> {
@@ -107,7 +107,7 @@ pub fn count_pages<F: PageFormat>(dir: &Path) -> Result<usize, LoadError<F>> {
     Ok(count)
 }
 
-/// Loads all pages in the given direcory of a given format. Any files which do
+/// Loads all pages in the given directory of a given format. Any files which do
 /// not have ascii numerals are their file name and the format extension are
 /// ignored.
 pub fn load_pages<F: PageFormat>(dir: &Path) -> Result<Vec<F::Type>, LoadError<F>> {
@@ -152,8 +152,8 @@ fn load_pages_internal<F: PageFormat>(
     Ok(())
 }
 
-/// Loads all pages in the given direcory in the given format. The file names
-/// for the indiviual pages are their 1-based index without any 0-padding.
+/// Loads all pages in the given directory in the given format. The file names
+/// for the individual pages are their 1-based index without any 0-padding.
 pub fn save_pages<'p, F>(
     dir: &Path,
     pages: impl IntoIterator<Item = &'p F::Type>,

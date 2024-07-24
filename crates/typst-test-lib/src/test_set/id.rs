@@ -56,7 +56,7 @@ impl Identifier {
 
     /// Returns whether the given string is a valid identifier.
     ///
-    /// # Exmaples
+    /// # Examples
     /// ```
     /// # use typst_test_lib::test_set::id::Identifier;
     /// assert!( Identifier::is_valid("abc"));

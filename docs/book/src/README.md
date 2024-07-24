@@ -20,7 +20,7 @@ This book contains a few sections aimed at answering the most common questions r
 After the quick start, a few guides delve deeper into some advanced topics.
 - [Automation](./guides/automation.md) explains the ins and outs of hooks and how they can be used for testing typst preprocessors or formatters.
 - [Using Test Sets](./guides/test-sets.md) delves into the test set language and how it can be used to isolate tests and speed up your TDD workflow.
-- [Setting Up CI](./guides/ci.md) shows how to set up `typst-test` to continously test all changes to your package.
+- [Setting Up CI](./guides/ci.md) shows how to set up `typst-test` to continuously test all changes to your package.
 
 The later sections of the book are a technical reference to `typst-test` and its various features or concepts.
 - [Tests](./reference/tests.md) outlines which types of tests `typst-test` supports, how they can be customized and which features are offered within the test scripts.

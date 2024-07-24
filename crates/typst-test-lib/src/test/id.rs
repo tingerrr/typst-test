@@ -15,7 +15,7 @@ use thiserror::Error;
 pub enum ParseIdentifierError {
     /// An identifier contained an invalid fragment.
     #[error("identifier contained an invalid fragment")]
-    InvalidFrament,
+    InvalidFragment,
 
     /// An identifier contained empty or no fragments.
     #[error("identifier contained empty or no fragments")]
@@ -81,10 +81,10 @@ impl Identifier {
 
                             id.push_str(comp);
                         } else {
-                            return Err(ParseIdentifierError::InvalidFrament);
+                            return Err(ParseIdentifierError::InvalidFragment);
                         }
                     }
-                    _ => return Err(ParseIdentifierError::InvalidFrament),
+                    _ => return Err(ParseIdentifierError::InvalidFragment),
                 }
             }
 
@@ -105,7 +105,7 @@ impl Identifier {
 
     /// Returns whether the given string is a valid identifier.
     ///
-    /// # Exmaples
+    /// # Examples
     /// ```
     /// # use typst_test_lib::test::id::Identifier;
     /// assert!( Identifier::is_valid("a/b/c"));
@@ -128,7 +128,7 @@ impl Identifier {
 
     /// Returns whether the given string is a valid identifier component.
     ///
-    /// # Exmaples
+    /// # Examples
     /// ```
     /// # use typst_test_lib::test::id::Identifier;
     /// assert!( Identifier::is_component_valid("a"));
@@ -147,13 +147,13 @@ impl Identifier {
 
         let mut chars = component.chars().peekable();
         if !chars.next().unwrap().is_ascii_alphabetic() {
-            return Err(ParseIdentifierError::InvalidFrament);
+            return Err(ParseIdentifierError::InvalidFragment);
         }
 
         if chars.peek().is_some()
             && !chars.all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
         {
-            return Err(ParseIdentifierError::InvalidFrament);
+            return Err(ParseIdentifierError::InvalidFragment);
         }
 
         Ok(())

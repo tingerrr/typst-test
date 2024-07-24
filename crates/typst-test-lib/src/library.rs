@@ -37,7 +37,7 @@ pub fn define_test_module(scope: &mut Scope) {
     define_prelude(scope)
 }
 
-/// Retruns a new test module with the items defined by [`define_test_module`].
+/// Returns a new test module with the items defined by [`define_test_module`].
 pub fn test_module() -> Module {
     let mut scope = Scope::new();
     define_test_module(&mut scope);

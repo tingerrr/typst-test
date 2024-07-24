@@ -43,7 +43,7 @@ pub struct RunnerConfig {
     /// Whether to compare ephemeral or persistent tests.
     compare: bool,
 
-    /// The strategy to use when comparing docuemnts.
+    /// The strategy to use when comparing documents.
     compare_strategy: Option<compare::Strategy>,
 
     /// The hook to run once before all tests.
@@ -781,7 +781,7 @@ impl<'t> TestRunner<'_, '_, 't> {
         let document = self
             .store_document
             .as_ref()
-            .context("Output docuemnt not rendered")?;
+            .context("Output document not rendered")?;
 
         self.test
             .create_reference_documents(self.project_runner.project.resolver(), document)?;

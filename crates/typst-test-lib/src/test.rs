@@ -1,4 +1,4 @@
-//! In memory test represention.
+//! In memory test representation.
 
 use std::str::FromStr;
 
@@ -32,7 +32,7 @@ pub enum ParseAnnotationError {
     #[error("the annotation {id} had unexpected arguments: {args:?}")]
     UnexpectedArguments { id: EcoString, args: EcoString },
 
-    /// The anotation expected arguments but received none.
+    /// The annotation expected arguments but received none.
     #[error("the annotation {0} expected arguments but received none")]
     MissingArguments(EcoString),
 
@@ -160,6 +160,6 @@ mod tests {
         );
 
         assert!(Annotation::from_str("[ ignored  ").is_err());
-        assert!(Annotation::from_str("[custom : fo o]").is_err());
+        assert!(Annotation::from_str("[custom : foo bar]").is_err());
     }
 }

@@ -1,6 +1,6 @@
 # Migrating
 This file documents breaking changes and how to handle them while using the main branch of
-typst-test. The entries are ordered in decending relevance, i.e. last breaking change first.
+typst-test. The entries are ordered in descending relevance, i.e. last breaking change first.
 
 This file will be removed on the first release, as from then on, a changelog shall be curated.
 
@@ -41,7 +41,7 @@ Simply change your CI step to use the branch option instead:
 ```
 
 ## Folder Structure
-The folder structure changed from having all tests in a dediacted folder with referencs and the like
+The folder structure changed from having all tests in a dediacted folder with references and the like
 in different dedicated folders to having a dedicated folder per test. To use your existing project's
 tests, the scripts have to be moved and renamed. Previously tests were be arranged like follows:
 ```

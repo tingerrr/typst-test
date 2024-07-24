@@ -17,24 +17,24 @@ pub mod vcs;
 /// An error that may occur during saving of a document.
 #[derive(Debug, thiserror::Error)]
 pub enum SaveError {
-    #[error("an io error occured")]
+    #[error("an io error occurred")]
     Io(#[from] io::Error),
 
-    #[error("a page error occured")]
+    #[error("a page error occurred")]
     Page(#[from] page::SaveError<page::Png>),
 }
 
 /// An error that may occur during loading of a document.
 #[derive(Debug, thiserror::Error)]
 pub enum LoadError {
-    #[error("an io error occured")]
+    #[error("an io error occurred")]
     Io(#[from] io::Error),
 
-    #[error("a page error occured")]
+    #[error("a page error occurred")]
     Page(#[from] page::LoadError<page::Png>),
 }
 
-/// In-memory representation of a Typst document wich can be saved and loaded
+/// In-memory representation of a Typst document which can be saved and loaded
 /// from disk.
 #[derive(Debug, Clone)]
 pub struct Document {

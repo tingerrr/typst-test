@@ -57,7 +57,7 @@ impl Debug for Paths {
 }
 
 /// An interner for commonly accessed paths following the current project
-/// strucutre. This is the default implementation for [`Resolver`].
+/// structure. This is the default implementation for [`Resolver`].
 #[derive(Debug)]
 pub struct ResolverV1 {
     root: PathBuf,

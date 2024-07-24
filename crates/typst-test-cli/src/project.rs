@@ -52,11 +52,11 @@ pub struct Project {
 
 impl Project {
     pub fn new(root: PathBuf, config: Config, manifest: Option<Manifest>) -> Self {
-        let resovler = ResolverV1::new(root, config.tests_root_fallback());
+        let resolver = ResolverV1::new(root, config.tests_root_fallback());
         Self {
             config,
             manifest,
-            resolver: resovler,
+            resolver,
             // TODO: vcs support
             vcs: None,
             tests: BTreeMap::new(),
@@ -254,7 +254,7 @@ pub enum Error {
     #[error("invalid manifest")]
     InvalidManifest(#[from] toml::de::Error),
 
-    #[error("test already exsits: {0:?}")]
+    #[error("test already exists: {0:?}")]
     TestAlreadyExists(Identifier),
 
     #[error("an io error occurred")]
