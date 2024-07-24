@@ -9,7 +9,7 @@
 
 # Guides
 - [Automation]()
-- [Using Test Sets]()
+- [Using Test Sets](./guides/test-sets.md)
 - [Setting Up CI]()
 
 # Reference
@@ -17,9 +17,9 @@
   - [Reference Kinds]()
   - [Annotations]()
   - [Directory Structure]()
-- [Test Set Language]()
-  - [Grammar]()
-  - [Built-in Test Sets]()
+- [Test Set Language](./test-sets/README.md)
+  - [Grammar](./test-sets/grammar.md)
+  - [Built-in Test Sets](./test-sets/built-in.md)
 - [Configuration Schema]()
   - [Template]()
   - [Hooks]()
