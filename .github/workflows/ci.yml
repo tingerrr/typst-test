@@ -55,6 +55,15 @@ jobs:
         cd docs/book
         mdbook test
 
+  check-msrv:
+    name: Check mininum supported Rust version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.79.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace
+
   checks:
     name: Check clippy, formatting, and documentation
     runs-on: ubuntu-latest
