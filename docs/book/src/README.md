@@ -25,8 +25,8 @@ After the quick start, a few guides delve deeper into some advanced topics.
 - [Setting Up CI](./guides/ci.md) shows how to set up `typst-test` to continuously test all changes to your package.
 
 The later sections of the book are a technical reference to `typst-test` and its various features or concepts.
-- [Tests](./reference/tests.md) outlines which types of tests `typst-test` supports, how they can be customized and which features are offered within the test scripts.
-- [Test Set Language](./reference/test-set-dsl.md) defines the test set language and its built in test sets.
+- [Tests](./reference/tests/index.md) outlines which types of tests `typst-test` supports, how they can be customized and which features are offered within the test scripts.
+- [Test Set Language](./reference/test-sets/index.md) defines the test set language and its built in test sets.
 - [Configuration Schema](./reference/config.md) lists all existing config options, their expected types and default values.
-- [Command Line Tool](./reference/cli.md) goes over `typst-test`s various sub commands, arguments and options.
+- [Command Line Tool](./reference/cli/index.md) goes over `typst-test`s various sub commands, arguments and options.
 

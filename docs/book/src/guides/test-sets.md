@@ -38,7 +38,7 @@ Tying it all together, we can describe what this expression matches in a sentenc
 
 > Select all tests which are not marked ignore and are inside a module starting with `foo-`, include also the test `bar/baz`.
 
-Trying to describe this relationship using options on the command line would be cumbersome, error prone and, depending on the options present, impossible.
+Trying to describe this relationship using options on the command line would be cumbersome, error prone and, depending on the options present, impossible. [^ref]
 
 ## Default Test Sets
 Many operations take either a set of tests as positional arguments, which are matched exactly, or a test set expression.
@@ -99,3 +99,5 @@ Specifically the `all` and `none` test sets can be used as identity sets for cer
 
 Some of the syntax used in test sets may interfere with your shell, especially the use of whitespace.
 Use non-interpreting quotes around the test set expression (commonly single quotes `'...'`) to avoid interpreting them as shell specific sequences.
+
+[^ref]: To get a more complete look at test sets, take a look at the [reference](../reference/test-sets.md).
