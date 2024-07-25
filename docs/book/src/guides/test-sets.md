@@ -52,13 +52,14 @@ See [#40](https://github.com/tingerrr/typst-test/issues/40).
 </div>
 
 More concretely given the invocation
+
 ```bash
 tt list test1 test2 ...
 ```
 
 is equivalent to the following invocation
 
-```txt
+```bash
 tt list --expression 'default & (id(=test1) | id(=test2) | ...)'
 ```
 
