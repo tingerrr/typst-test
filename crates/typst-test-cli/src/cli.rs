@@ -4,21 +4,23 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 
+use chrono::{DateTime, Utc};
 use clap::ColorChoice;
 use termcolor::{Color, WriteColor};
 use typst_test_lib::store::vcs::{Git, Vcs};
 use typst_test_lib::test::id::Identifier;
-use typst_test_lib::test_set;
 use typst_test_lib::test_set::{DynTestSet, TestSetExpr};
+use typst_test_lib::{compare, render, test_set};
 
 use crate::fonts::FontSearcher;
+use crate::package::PackageStorage;
 use crate::project;
 use crate::project::Project;
 use crate::report::Reporter;
+use crate::test::runner::RunnerConfig;
+use crate::world::SystemWorld;
 
 pub mod add;
-pub mod compare;
-pub mod compile;
 pub mod edit;
 pub mod init;
 pub mod list;
@@ -293,7 +295,7 @@ static AFTER_LONG_ABOUT: &str = concat!(
 );
 
 #[derive(clap::Args, Debug, Clone)]
-pub struct Global {
+pub struct GlobalArgs {
     /// The project root directory
     #[arg(long, short, env = "TYPST_ROOT", global = true)]
     pub root: Option<PathBuf>,
@@ -369,6 +371,256 @@ impl OperationArgs {
 
         tracing::trace!(?test_set, "built test set");
         Ok(test_set)
+    }
+}
+
+trait Configure {
+    fn configure(
+        &self,
+        ctx: &mut Context,
+        project: &Project,
+        config: &mut RunnerConfig,
+    ) -> anyhow::Result<()>;
+}
+
+trait Run: Configure {
+    fn compile_args(&self) -> &CompileArgs;
+
+    fn run_args(&self) -> &RunArgs;
+
+    fn op_args(&self) -> &OperationArgs;
+
+    fn collect_tests(&self, ctx: &mut Context) -> anyhow::Result<Project> {
+        ctx.collect_tests(self.op_args(), None)
+    }
+
+    fn run(&self, ctx: &mut Context) -> anyhow::Result<()> {
+        let project = self.collect_tests(ctx)?;
+
+        let mut config = RunnerConfig::default();
+        self.configure(ctx, &project, &mut config)?;
+
+        let world = SystemWorld::new(
+            project.root().to_path_buf(),
+            ctx.args.global.fonts.searcher(),
+            PackageStorage::from_args(&ctx.args.global.package),
+            self.compile_args().now,
+        )?;
+
+        run::run_impl(ctx, config.build(&project, &world), self.run_args())
+    }
+}
+
+fn parse_source_date_epoch(raw: &str) -> Result<DateTime<Utc>, String> {
+    let timestamp: i64 = raw
+        .parse()
+        .map_err(|err| format!("timestamp must be decimal integer ({err})"))?;
+    DateTime::from_timestamp(timestamp, 0).ok_or_else(|| "timestamp out of range".to_string())
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct CompileArgs {
+    /// The timestamp used for compilation.
+    ///
+    /// For more information, see
+    /// <https://reproducible-builds.org/specs/source-date-epoch/>.
+    #[clap(
+        long = "creation-timestamp",
+        env = "SOURCE_DATE_EPOCH",
+        value_name = "UNIX_TIMESTAMP",
+        value_parser = parse_source_date_epoch,
+        global = true,
+    )]
+    pub now: Option<DateTime<Utc>>,
+}
+
+impl Configure for CompileArgs {
+    fn configure(
+        &self,
+        _ctx: &mut Context,
+        _project: &Project,
+        config: &mut RunnerConfig,
+    ) -> anyhow::Result<()> {
+        tracing::trace!(compile = ?true, "configuring runner");
+        config.with_compile(true);
+        Ok(())
+    }
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct ExportArgs {
+    /// Whether to save temporary output, such as ephemeral references
+    #[arg(long, global = true)]
+    pub no_save_temporary: bool,
+
+    /// Whether to output raster images
+    #[arg(long, global = true)]
+    pub raster: bool,
+
+    /// Whether to putput svg images [currently unsupported]
+    // reason: escaping this is not ignored by clap
+    #[allow(rustdoc::broken_intra_doc_links)]
+    #[arg(long, global = true)]
+    pub svg: bool,
+
+    /// Whether to output pdf documents [currently unsupported]
+    // reason: escaping this is not ignored by clap
+    #[allow(rustdoc::broken_intra_doc_links)]
+    #[arg(long, global = true)]
+    pub pdf: bool,
+
+    /// The pixel per inch to use for raster export
+    #[arg(
+        long,
+        visible_alias = "ppi",
+        requires = "raster",
+        default_value_t = 144.0,
+        global = true
+    )]
+    pub pixel_per_inch: f32,
+}
+
+impl Configure for ExportArgs {
+    fn configure(
+        &self,
+        ctx: &mut Context,
+        _project: &Project,
+        config: &mut RunnerConfig,
+    ) -> anyhow::Result<()> {
+        let render_strategy = render::Strategy {
+            pixel_per_pt: render::ppi_to_ppp(self.pixel_per_inch),
+            fill: typst::visualize::Color::WHITE,
+        };
+
+        if self.pdf || self.svg {
+            ctx.operation_failure(|r| writeln!(r, "PDF and SVGF export are not yet supported"))?;
+            anyhow::bail!("Unsupported export mode used");
+        }
+
+        config
+            .with_render_strategy(Some(render_strategy))
+            .with_no_save_temporary(self.no_save_temporary);
+
+        tracing::trace!(
+            export_render_strategy = ?config.render_strategy(),
+            no_save_temporary = ?config.no_save_temporary(),
+            "configuring runner",
+        );
+
+        Ok(())
+    }
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct CompareArgs {
+    /// The maximum delta in each channel of a pixel
+    ///
+    /// If a single channel (red/green/blue/alpha component) of a pixel differs
+    /// by this much between reference and output the pixel is counted as a
+    /// deviation.
+    #[arg(long, default_value_t = 0, global = true)]
+    pub max_delta: u8,
+
+    /// The maximum deviation per reference
+    ///
+    /// If a reference and output image have more than the given deviations it's
+    /// counted as a failure.
+    #[arg(long, default_value_t = 0, global = true)]
+    pub max_deviation: usize,
+}
+
+impl Configure for CompareArgs {
+    fn configure(
+        &self,
+        _ctx: &mut Context,
+        _project: &Project,
+        config: &mut RunnerConfig,
+    ) -> anyhow::Result<()> {
+        let compare_strategy = compare::Strategy::Visual(compare::visual::Strategy::Simple {
+            max_delta: self.max_delta,
+            max_deviation: self.max_deviation,
+        });
+
+        config.with_compare_strategy(Some(compare_strategy));
+        tracing::trace!(
+            compare_strategy = ?config.compare_strategy(),
+            "configuring runner"
+        );
+
+        Ok(())
+    }
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct RunArgs {
+    /// Show a summary of the test run instead of the individual test results
+    #[arg(long, global = true)]
+    pub summary: bool,
+
+    /// Do not run hooks
+    #[arg(long, global = true)]
+    pub no_hooks: bool,
+
+    /// Whether to abort after the first failure
+    ///
+    /// Keep in mind that because tests are run in parallel, this may not stop
+    /// immediately. But it will not schedule any new tests to run after one
+    /// failure has been detected.
+    #[arg(long, global = true)]
+    pub no_fail_fast: bool,
+}
+
+impl Configure for RunArgs {
+    fn configure(
+        &self,
+        _ctx: &mut Context,
+        project: &Project,
+        config: &mut RunnerConfig,
+    ) -> anyhow::Result<()> {
+        let root = project.root();
+
+        config.with_no_fail_fast(self.no_fail_fast);
+        if !self.no_hooks {
+            config.with_prepare_hook(
+                project
+                    .config()
+                    .prepare
+                    .as_deref()
+                    .map(|rel| root.join(rel)),
+            );
+            config.with_prepare_each_hook(
+                project
+                    .config()
+                    .prepare_each
+                    .as_deref()
+                    .map(|rel| root.join(rel)),
+            );
+            config.with_cleanup_hook(
+                project
+                    .config()
+                    .cleanup
+                    .as_deref()
+                    .map(|rel| root.join(rel)),
+            );
+            config.with_cleanup_each_hook(
+                project
+                    .config()
+                    .cleanup_each
+                    .as_deref()
+                    .map(|rel| root.join(rel)),
+            );
+        }
+
+        tracing::trace!(
+            hooks.prepare = ?config.prepare_hook(),
+            hooks.prepare_each = ?config.prepare_each_hook(),
+            hooks.cleanup = ?config.cleanup_hook(),
+            hooks.cleanup_each = ?config.cleanup_each_hook(),
+            no_fail_fast = ?config.no_fail_fast(),
+            "configuring runner",
+        );
+
+        Ok(())
     }
 }
 
@@ -475,7 +727,7 @@ impl OutputFormat {
 #[clap(after_long_help = AFTER_LONG_ABOUT)]
 pub struct Args {
     #[command(flatten)]
-    pub global: Global,
+    pub global: GlobalArgs,
 
     /// The command to run
     #[command(subcommand)]
@@ -500,13 +752,9 @@ pub enum Command {
     #[command(visible_alias = "ls")]
     List(list::Args),
 
-    /// Compile tests
-    #[command(visible_alias = "c")]
-    Compile(compile::Args),
-
     /// Compile and compare tests
-    #[command(name = "run", visible_alias = "r")]
-    Compare(compare::Args),
+    #[command(visible_alias = "r")]
+    Run(run::Args),
 
     /// Compile and update tests
     #[command(visible_alias = "u")]
@@ -519,9 +767,9 @@ pub enum Command {
     #[command(visible_alias = "a")]
     Add(add::Args),
 
+    /// Edit existing tests [disabled]
     // reason: escaping this is not ignored by clap
     #[allow(rustdoc::broken_intra_doc_links)]
-    /// Edit existing tests [disabled]
     #[command()]
     Edit(edit::Args),
 
@@ -545,8 +793,7 @@ impl Command {
             Command::Status => status::run(ctx),
             Command::List(args) => list::run(ctx, args),
             Command::Update(args) => update::run(ctx, args),
-            Command::Compare(args) => compare::run(ctx, args),
-            Command::Compile(args) => compile::run(ctx, args),
+            Command::Run(args) => run::run(ctx, args),
             Command::Util(args) => args.cmd.run(ctx),
         }
     }

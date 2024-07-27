@@ -10,7 +10,6 @@ use ecow::EcoVec;
 use typst::eval::Tracer;
 use typst::model::Document as TypstDocument;
 use typst::syntax::Source;
-use typst::World;
 use typst_test_lib::store::project::{Resolver, TestTarget};
 use typst_test_lib::store::test::Test;
 use typst_test_lib::store::Document;
@@ -19,6 +18,7 @@ use typst_test_lib::{compare, compile, hook, render};
 
 use super::{CompareFailure, CompileFailure, Stage, TestFailure};
 use crate::project::Project;
+use crate::world::SystemWorld;
 
 #[derive(Debug, Clone, Default)]
 pub struct RunnerConfig {
@@ -168,7 +168,7 @@ impl RunnerConfig {
         self
     }
 
-    pub fn build<'p>(self, project: &'p Project, world: &'p (dyn World + Sync)) -> Runner<'p> {
+    pub fn build<'p>(self, project: &'p Project, world: &'p SystemWorld) -> Runner<'p> {
         Runner {
             project,
             world,
@@ -196,7 +196,7 @@ pub enum EventPayload {
 
 pub struct Runner<'p> {
     project: &'p Project,
-    world: &'p (dyn World + Sync),
+    world: &'p SystemWorld,
     config: Arc<RunnerConfig>,
 }
 
@@ -219,6 +219,14 @@ pub struct TestRunner<'c, 'p, 't> {
 }
 
 impl<'p> Runner<'p> {
+    pub fn project(&self) -> &'p Project {
+        self.project
+    }
+
+    pub fn world(&self) -> &'p SystemWorld {
+        self.world
+    }
+
     pub fn config(&self) -> &RunnerConfig {
         &self.config
     }

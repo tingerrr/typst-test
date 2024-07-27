@@ -4,109 +4,82 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::Instant;
 
-use chrono::{DateTime, Utc};
 use rayon::prelude::*;
-use termcolor::Color;
 
-use super::{Context, OperationArgs};
-use crate::package::PackageStorage;
+use super::{
+    CompareArgs, CompileArgs, Configure, Context, ExportArgs, OperationArgs, Run, RunArgs,
+};
 use crate::project::Project;
 use crate::report::{Summary, ANNOT_PADDING};
-use crate::test::runner::{Event, EventPayload, RunnerConfig};
+use crate::test::runner::{Event, EventPayload, Runner, RunnerConfig};
 use crate::test::Stage;
-use crate::world::SystemWorld;
-
-fn parse_source_date_epoch(raw: &str) -> Result<DateTime<Utc>, String> {
-    let timestamp: i64 = raw
-        .parse()
-        .map_err(|err| format!("timestamp must be decimal integer ({err})"))?;
-    DateTime::from_timestamp(timestamp, 0).ok_or_else(|| "timestamp out of range".to_string())
-}
 
 #[derive(clap::Args, Debug, Clone)]
 #[group(id = "run-args")]
 pub struct Args {
-    /// The timestamp used for compilation.
-    ///
-    /// For more information, see
-    /// <https://reproducible-builds.org/specs/source-date-epoch/>.
-    #[clap(
-        long = "creation-timestamp",
-        env = "SOURCE_DATE_EPOCH",
-        value_name = "UNIX_TIMESTAMP",
-        value_parser = parse_source_date_epoch,
-    )]
-    pub now: Option<DateTime<Utc>>,
+    #[command(flatten)]
+    pub compile_args: CompileArgs,
 
-    /// Whether to abort after the first failure
-    ///
-    /// Keep in mind that because tests are run in parallel, this may not stop
-    /// immediately. But it will not schedule any new tests to run after one
-    /// failure has been detected.
-    #[arg(long)]
-    pub no_fail_fast: bool,
+    /// Do not compare tests
+    #[arg(long, short = 'C')]
+    pub no_compare: bool,
 
-    /// Do not run hooks
-    #[arg(long)]
-    pub no_hooks: bool,
+    #[command(flatten)]
+    pub compare_args: CompareArgs,
 
-    /// Show a summary of the test run instead of the individual test results
-    #[arg(long)]
-    pub summary: bool,
+    /// Do not export any documents
+    #[arg(long, short = 'E')]
+    pub no_export: bool,
+
+    #[command(flatten)]
+    pub export_args: ExportArgs,
+
+    #[command(flatten)]
+    pub run_args: RunArgs,
 
     #[command(flatten)]
     pub op_args: OperationArgs,
 }
 
-pub fn run<F>(ctx: &mut Context, project: Project, args: &Args, f: F) -> anyhow::Result<()>
-where
-    F: FnOnce(&mut RunnerConfig) -> &mut RunnerConfig,
-{
-    let world = SystemWorld::new(
-        project.root().to_path_buf(),
-        ctx.args.global.fonts.searcher(),
-        PackageStorage::from_args(&ctx.args.global.package),
-        args.now,
-    )?;
+impl Configure for Args {
+    fn configure(
+        &self,
+        ctx: &mut Context,
+        project: &Project,
+        config: &mut RunnerConfig,
+    ) -> anyhow::Result<()> {
+        self.compile_args.configure(ctx, project, config)?;
+        if !self.no_compare {
+            self.compare_args.configure(ctx, project, config)?;
+        }
+        if !self.no_export {
+            self.export_args.configure(ctx, project, config)?;
+        }
+        self.run_args.configure(ctx, project, config)?;
 
-    let root = project.root();
-
-    let mut config = RunnerConfig::default();
-    config.with_no_fail_fast(args.no_fail_fast);
-    if !args.no_hooks {
-        config.with_prepare_hook(
-            project
-                .config()
-                .prepare
-                .as_deref()
-                .map(|rel| root.join(rel)),
-        );
-        config.with_prepare_each_hook(
-            project
-                .config()
-                .prepare_each
-                .as_deref()
-                .map(|rel| root.join(rel)),
-        );
-        config.with_cleanup_hook(
-            project
-                .config()
-                .cleanup
-                .as_deref()
-                .map(|rel| root.join(rel)),
-        );
-        config.with_cleanup_each_hook(
-            project
-                .config()
-                .cleanup_each
-                .as_deref()
-                .map(|rel| root.join(rel)),
-        );
+        Ok(())
     }
-    f(&mut config);
-    tracing::trace!(?config, "prepared project config");
-    let runner = config.build(&project, &world);
+}
 
+impl Run for Args {
+    fn compile_args(&self) -> &CompileArgs {
+        &self.compile_args
+    }
+
+    fn run_args(&self) -> &RunArgs {
+        &self.run_args
+    }
+
+    fn op_args(&self) -> &OperationArgs {
+        &self.op_args
+    }
+}
+
+pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
+    args.run(ctx)
+}
+
+pub fn run_impl(ctx: &mut Context, runner: Runner<'_>, run_args: &RunArgs) -> anyhow::Result<()> {
     let done_annot = if runner.config().compare() {
         "ok"
     } else if runner.config().update() {
@@ -123,7 +96,7 @@ where
     let start = Instant::now();
     runner.run_prepare_hook()?;
 
-    let len = project.matched().len();
+    let len = runner.project().matched().len();
 
     let failed_compilation = AtomicUsize::new(0);
     let failed_comparison = AtomicUsize::new(0);
@@ -139,7 +112,7 @@ where
                 let failed_comparison = &failed_comparison;
                 let failed_otherwise = &failed_otherwise;
                 let passed = &passed;
-                let world = &world;
+                let world = runner.world();
 
                 move |_| {
                     reporter.lock().unwrap().with_indent(2, |reporter| {
@@ -204,15 +177,20 @@ where
                             }
 
                             reporter
-                                .write_annotated("tested", Color::Cyan, ANNOT_PADDING, |reporter| {
-                                    writeln!(
-                                        reporter,
-                                        "{} / {} ({} tests running)",
-                                        count,
-                                        len,
-                                        tests.len(),
-                                    )
-                                })
+                                .write_annotated(
+                                    "tested",
+                                    termcolor::Color::Cyan,
+                                    ANNOT_PADDING,
+                                    |reporter| {
+                                        writeln!(
+                                            reporter,
+                                            "{} / {} ({} tests running)",
+                                            count,
+                                            len,
+                                            tests.len(),
+                                        )
+                                    },
+                                )
                                 .unwrap();
 
                             // clear the progress lines
@@ -223,7 +201,7 @@ where
             });
         }
 
-        let res = project.matched().par_iter().try_for_each(
+        let res = runner.project().matched().par_iter().try_for_each(
             |(_, test)| -> Result<(), Option<anyhow::Error>> {
                 match runner.test(test).run(tx.clone()) {
                     Ok(Ok(_)) => Ok(()),
@@ -251,13 +229,13 @@ where
 
         runner.run_cleanup_hook()?;
 
-        if !args.summary {
+        if !run_args.summary {
             writeln!(ctx.reporter.lock().unwrap())?;
         }
 
         let summary = Summary {
-            total: project.matched().len() + project.filtered().len(),
-            filtered: project.filtered().len(),
+            total: runner.project().matched().len() + runner.project().filtered().len(),
+            filtered: runner.project().filtered().len(),
             failed_compilation: failed_compilation.load(Ordering::SeqCst),
             failed_comparison: failed_comparison.load(Ordering::SeqCst),
             failed_otherwise: failed_otherwise.load(Ordering::SeqCst),
@@ -269,7 +247,7 @@ where
         ctx.reporter.lock().unwrap().test_summary(
             summary,
             runner.config().update(),
-            args.summary,
+            run_args.summary,
         )?;
 
         if !is_ok {

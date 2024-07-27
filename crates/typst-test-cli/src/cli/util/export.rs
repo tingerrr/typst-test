@@ -1,59 +1,54 @@
-use std::io::Write;
+use crate::cli::{CompileArgs, Configure, ExportArgs, OperationArgs, Run, RunArgs};
+use crate::project::Project;
+use crate::test::runner::RunnerConfig;
 
-use typst::visualize::Color;
-use typst_test_lib::render;
-
-use super::super::run;
 use super::Context;
 
 #[derive(clap::Args, Debug, Clone)]
 #[group(id = "export-args")]
 pub struct Args {
     #[command(flatten)]
-    pub run_args: run::Args,
+    pub compile_args: CompileArgs,
 
-    /// Whether to save temporary output, such as ephemeral references
-    #[arg(long)]
-    pub no_save_temporary: bool,
+    #[command(flatten)]
+    pub export_args: ExportArgs,
 
-    /// Whether to output raster images
-    #[arg(long)]
-    pub raster: bool,
+    #[command(flatten)]
+    pub run_args: RunArgs,
 
-    /// Whether to putput svg images
-    #[arg(long)]
-    pub svg: bool,
+    #[command(flatten)]
+    pub op_args: OperationArgs,
+}
 
-    /// Whether to output pdf documents
-    #[arg(long)]
-    pub pdf: bool,
+impl Configure for Args {
+    fn configure(
+        &self,
+        ctx: &mut Context,
+        project: &Project,
+        config: &mut RunnerConfig,
+    ) -> anyhow::Result<()> {
+        self.compile_args.configure(ctx, project, config)?;
+        self.export_args.configure(ctx, project, config)?;
+        self.run_args.configure(ctx, project, config)?;
 
-    /// The pixel per inch to use for raster export
-    #[arg(
-        long,
-        visible_alias = "ppi",
-        requires = "raster",
-        default_value_t = 144.0
-    )]
-    pub pixel_per_inch: f32,
+        Ok(())
+    }
+}
+
+impl Run for Args {
+    fn compile_args(&self) -> &CompileArgs {
+        &self.compile_args
+    }
+
+    fn run_args(&self) -> &RunArgs {
+        &self.run_args
+    }
+
+    fn op_args(&self) -> &OperationArgs {
+        &self.op_args
+    }
 }
 
 pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
-    let project = ctx.collect_tests(&args.run_args.op_args, None)?;
-
-    let strategy = render::Strategy {
-        pixel_per_pt: render::ppi_to_ppp(args.pixel_per_inch),
-        fill: Color::WHITE,
-    };
-
-    if args.pdf || args.svg {
-        ctx.operation_failure(|r| writeln!(r, "PDF and SVGF export are not yet supported"))?;
-        anyhow::bail!("Unsupported export mode used");
-    }
-
-    // TODO: with pdf + with svg export
-    run::run(ctx, project, &args.run_args, |ctx| {
-        ctx.with_render_strategy(Some(strategy))
-            .with_no_save_temporary(args.no_save_temporary)
-    })
+    args.run(ctx)
 }
