@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use clap::ColorChoice;
 use termcolor::{Color, WriteColor};
-use typst_test_lib::config::Config;
+use typst_test_lib::store::vcs::{Git, Vcs};
 use typst_test_lib::test::id::Identifier;
 use typst_test_lib::test_set;
 use typst_test_lib::test_set::{DynTestSet, TestSetExpr};
@@ -61,6 +61,25 @@ impl<'a> Context<'a> {
         }
     }
 
+    pub fn try_discover_vcs(&mut self) -> anyhow::Result<Option<Box<dyn Vcs + Sync>>> {
+        tracing::debug!("looking for vcs root");
+
+        let start = if let Some(root) = &self.args.global.root {
+            root.canonicalize()?
+        } else {
+            std::env::current_dir()?
+        };
+
+        for ancestor in start.ancestors() {
+            if ancestor.join(".git").try_exists()? {
+                tracing::info!(root = ?ancestor, "found git root");
+                return Ok(Some(Box::new(Git::new(ancestor.to_path_buf())?)));
+            }
+        }
+
+        Ok(None)
+    }
+
     pub fn ensure_project(&mut self) -> anyhow::Result<Project> {
         tracing::debug!("looking for project");
 
@@ -111,20 +130,9 @@ impl<'a> Context<'a> {
             }
         };
 
-        tracing::info!("reading manifest config");
-        let config = manifest
-            .as_ref()
-            .and_then(|m| {
-                m.tool
-                    .as_ref()
-                    .map(|t| t.get_section::<Config>("typst-test"))
-            })
-            .transpose()?
-            .flatten();
+        let vcs = self.try_discover_vcs()?;
 
-        tracing::trace!(?config, "read manifest config");
-
-        Ok(Project::new(root, config.unwrap_or_default(), manifest))
+        Project::new(root, vcs, manifest)
     }
 
     pub fn ensure_init(&mut self) -> anyhow::Result<Project> {

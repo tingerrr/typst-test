@@ -1,5 +1,6 @@
-//! Version control support. Contains a git and no-vcs implementation.
+//! Version control support. Contains a default git implementation.
 
+use std::fmt::{Debug, Display};
 use std::fs;
 use std::fs::File;
 use std::io;
@@ -11,7 +12,7 @@ use crate::test::id::Identifier;
 
 /// A trait for version control systems, this is primarily used to ensure that
 /// temporary storage directories are not tracked by the vcs.
-pub trait Vcs {
+pub trait Vcs: Debug + Display {
     /// Returns the root of the repository.
     fn root(&self) -> &Path;
 
@@ -46,6 +47,12 @@ impl Git {
         Ok(Self {
             root: root.into().canonicalize()?,
         })
+    }
+}
+
+impl Display for Git {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Git")
     }
 }
 

@@ -14,6 +14,9 @@ pub const DEFAULT_TESTS_ROOT: &str = "tests";
 /// The default template path relative to the _project root_.
 pub const DEFAULT_TEMPLATE: &str = "tests/template.typ";
 
+/// The default vcs used within the project.
+pub const DEFAULT_VCS: &str = "git";
+
 /// The default [`Config::tests_root`], see also [`DEFAULT_TESTS_ROOT`].
 pub fn default_tests_root() -> PathBuf {
     DEFAULT_TESTS_ROOT.into()
@@ -22,6 +25,11 @@ pub fn default_tests_root() -> PathBuf {
 /// The default [`Config::template`], see also [`DEFAULT_TEMPLATE`].
 pub fn default_template() -> PathBuf {
     DEFAULT_TEMPLATE.into()
+}
+
+/// The default [`Config::vcs`], see also [`DEFAULT_VCS`].
+pub fn default_vcs() -> String {
+    DEFAULT_VCS.into()
 }
 
 /// The config which can be read from the `tool.typst-test` section of a
@@ -50,6 +58,11 @@ pub struct Config {
     ///
     /// Defaults to [`DEFAULT_TEMPLATE`].
     pub template: Option<String>,
+
+    /// The vcs to use, supports `git` or `none`.
+    ///
+    /// Defaults to [`DEFAULT_VCS`].
+    pub vcs: Option<String>,
 
     /// The path to a prepare hook.
     pub prepare: Option<String>,
@@ -98,6 +111,11 @@ impl Config {
     /// Returns the template path, or the default fallback value.
     pub fn template_fallback(&self) -> &str {
         self.template.as_deref().unwrap_or(DEFAULT_TEMPLATE)
+    }
+
+    /// Returns the vcs, or the default fallback value.
+    pub fn vcs_fallback(&self) -> &str {
+        self.vcs.as_deref().unwrap_or(DEFAULT_VCS)
     }
 
     /// Writes the current config into the given manifest document overriding
@@ -174,6 +192,7 @@ impl Config {
         }
 
         optional_field!(tt; "tests" => &self.tests_root);
+        optional_field!(tt; "vcs" => &self.vcs);
         optional_field!(tt; "template" => &self.template);
         optional_field!(tt; "prepare" => &self.prepare);
         optional_field!(tt; "prepare-each" => &self.prepare_each);

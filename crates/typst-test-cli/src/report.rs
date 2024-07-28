@@ -323,10 +323,20 @@ impl Reporter {
             )?;
             writeln!(self)?;
 
-            // TODO: list config settings + if it is manifest or file
+            // TODO: list config settings
             let _config = project.config();
         } else {
             write!(self, "{:>align$}{}", "Project", delims.open)?;
+            write_bold_colored(self, "none", Color::Yellow)?;
+            writeln!(self)?;
+        }
+
+        if let Some(vcs) = project.vcs() {
+            write!(self, "{:>align$}{}", "Vcs", delims.middle)?;
+            write_bold_colored(self, vcs, Color::Green)?;
+            writeln!(self)?;
+        } else {
+            write!(self, "{:>align$}{}", "Vcs", delims.middle)?;
             write_bold_colored(self, "none", Color::Yellow)?;
             writeln!(self)?;
         }

@@ -1,10 +1,13 @@
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::{fs, io};
 
 use rayon::prelude::*;
 use tiny_skia::Pixmap;
+use toml_edit::DocumentMut;
+use tracing::Level;
 use typst_project::manifest::Manifest;
 use typst_test_lib::config::Config;
 use typst_test_lib::store::project::v1::ResolverV1;
@@ -17,6 +20,8 @@ use typst_test_lib::test::id::Identifier;
 use typst_test_lib::test::ReferenceKind;
 use typst_test_lib::test_set::TestSet;
 use typst_test_lib::util;
+
+use crate::cli;
 
 const DEFAULT_TEST_INPUT: &str = include_str!("../../../assets/default-test/test.typ");
 const DEFAULT_TEST_OUTPUT: &[u8] = include_bytes!("../../../assets/default-test/test.png");
@@ -33,38 +38,59 @@ pub fn try_open_manifest(root: &Path) -> anyhow::Result<Option<Manifest>> {
     }
 }
 
-bitflags::bitflags! {
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub struct ScaffoldOptions: u32 {
-        /// Create a default example test.
-        const EXAMPLE = 0;
-    }
-}
-
 #[derive(Debug)]
 pub struct Project {
     config: Config,
     manifest: Option<Manifest>,
     resolver: ResolverV1,
-    vcs: Option<Git>,
+    vcs: Option<Box<dyn Vcs + Sync>>,
     tests: BTreeMap<Identifier, Test>,
     filtered: BTreeMap<Identifier, Test>,
     template: Option<String>,
 }
 
 impl Project {
-    pub fn new(root: PathBuf, config: Config, manifest: Option<Manifest>) -> Self {
-        let resolver = ResolverV1::new(root, config.tests_root_fallback());
-        Self {
+    pub fn new(
+        root: PathBuf,
+        vcs: Option<Box<dyn Vcs + Sync>>,
+        manifest: Option<Manifest>,
+    ) -> anyhow::Result<Self> {
+        let config = manifest
+            .as_ref()
+            .and_then(|m| {
+                m.tool
+                    .as_ref()
+                    .map(|t| t.get_section::<Config>("typst-test"))
+            })
+            .transpose()?
+            .flatten()
+            .inspect(|config| {
+                tracing::trace!(?config, "read manifest config");
+            })
+            .unwrap_or_default();
+
+        let resolver = ResolverV1::new(&root, config.tests_root_fallback());
+
+        // NOTE: config value has precedence over discovered vcs
+        let vcs = config
+            .vcs
+            .as_deref()
+            .map(|vcs| match vcs {
+                "git" => Ok(Box::new(Git::new(&root)?) as _),
+                _ => anyhow::bail!("Unknown vcs set in config: {vcs:?}"),
+            })
+            .transpose()?
+            .or(vcs);
+
+        Ok(Self {
             config,
             manifest,
             resolver,
-            // TODO: vcs support
-            vcs: None,
+            vcs,
             tests: BTreeMap::new(),
             filtered: BTreeMap::new(),
             template: None,
-        }
+        })
     }
 
     pub fn name(&self) -> &str {
@@ -116,7 +142,7 @@ impl Project {
     }
 
     pub fn vcs(&self) -> Option<&dyn Vcs> {
-        self.vcs.as_ref().map(|vcs| vcs as _)
+        self.vcs.as_deref().map(|vcs| vcs as _)
     }
 
     pub fn root(&self) -> &Path {
@@ -151,14 +177,20 @@ impl Project {
         self.test_root_exists()
     }
 
-    pub fn init(&mut self, options: ScaffoldOptions) -> anyhow::Result<()> {
+    pub fn init(&mut self, no_example: bool, vcs: cli::init::Vcs) -> anyhow::Result<()> {
         let tests_root_dir = self.tests_root();
         let _span = tracing::debug_span!("initalizing project", root = ?tests_root_dir);
 
         tracing::debug!(path = ?tests_root_dir, "creating tests root");
         util::fs::create_dir(tests_root_dir, false)?;
 
-        if options.contains(ScaffoldOptions::EXAMPLE) {
+        if vcs == cli::init::Vcs::Git {
+            tracing::debug!("writing vcs config");
+            self.config.vcs = Some("git".into());
+            self.write_config()?;
+        }
+
+        if !no_example {
             tracing::debug!("adding example test");
             self.create_test(
                 Identifier::new("example").unwrap(),
@@ -264,6 +296,21 @@ impl Project {
         self.tests = collector.take_tests();
         self.filtered = collector.take_filtered();
 
+        Ok(())
+    }
+
+    #[tracing::instrument(level = Level::DEBUG, skip(self), fields(config = ?self.config))]
+    pub fn write_config(&self) -> anyhow::Result<()> {
+        let path = self.root().join(typst_project::heuristics::MANIFEST_FILE);
+
+        let content =
+            typst_test_lib::util::result::ignore_default(std::fs::read_to_string(&path), |err| {
+                err.kind() == io::ErrorKind::NotFound
+            })?;
+
+        let mut doc = DocumentMut::from_str(&content)?;
+        self.config.write_into(&mut doc)?;
+        std::fs::write(&path, doc.to_string())?;
         Ok(())
     }
 }

@@ -1,7 +1,6 @@
 use std::io::Write;
 
 use super::Context;
-use crate::project::ScaffoldOptions;
 
 #[derive(clap::Parser, Debug, Clone)]
 #[group(id = "init-args")]
@@ -9,6 +8,19 @@ pub struct Args {
     /// Do not create a default example test
     #[arg(long)]
     no_example: bool,
+
+    /// Which VCS to use for ignoring files
+    #[arg(long, default_value = "git")]
+    vcs: Vcs,
+}
+
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Vcs {
+    /// The git VCS.
+    Git,
+
+    /// No VCS.
+    None,
 }
 
 pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
@@ -18,13 +30,10 @@ pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
         ctx.operation_failure(|r| {
             writeln!(r, "Project '{}' was already initialized", project.name(),)
         })?;
-        anyhow::bail!("");
+        anyhow::bail!("Project was already initalized");
     }
 
-    let mut options = ScaffoldOptions::empty();
-    options.set(ScaffoldOptions::EXAMPLE, !args.no_example);
-
-    project.init(options)?;
+    project.init(args.no_example, args.vcs)?;
     writeln!(
         ctx.reporter.lock().unwrap(),
         "Initialized project '{}'",
