@@ -18,9 +18,9 @@ pub trait Vcs {
     fn unignore(&self, path: &Path) -> io::Result<()>;
 
     /// Ignore the given test target within the project.
-    fn ignore_target<R: Resolver>(
+    fn ignore_target(
         &self,
-        project: &R,
+        project: &dyn Resolver,
         id: &Identifier,
         target: TestTarget,
     ) -> io::Result<()> {
@@ -28,27 +28,13 @@ pub trait Vcs {
     }
 
     /// No longer ignore the given test target within the project.
-    fn unignore_target<R: Resolver>(
+    fn unignore_target(
         &self,
-        project: &R,
+        project: &dyn Resolver,
         id: &Identifier,
         target: TestTarget,
     ) -> io::Result<()> {
         self.unignore(project.resolve(id, target))
-    }
-}
-
-/// An no-op implementation of [`Vcs`] used for projects which have no vcs.
-#[derive(Debug, Clone, Copy)]
-pub struct NoVcs;
-
-impl Vcs for NoVcs {
-    fn ignore(&self, _path: &Path) -> io::Result<()> {
-        Ok(())
-    }
-
-    fn unignore(&self, _path: &Path) -> io::Result<()> {
-        Ok(())
     }
 }
 

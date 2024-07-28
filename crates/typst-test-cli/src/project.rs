@@ -11,7 +11,7 @@ use typst_test_lib::store::project::v1::ResolverV1;
 use typst_test_lib::store::project::Resolver;
 use typst_test_lib::store::test::collector::Collector;
 use typst_test_lib::store::test::{References, Test};
-use typst_test_lib::store::vcs::{Git, NoVcs};
+use typst_test_lib::store::vcs::{Git, Vcs};
 use typst_test_lib::store::Document;
 use typst_test_lib::test::id::Identifier;
 use typst_test_lib::test::ReferenceKind;
@@ -111,6 +111,10 @@ impl Project {
 
     pub fn resolver(&self) -> &ResolverV1 {
         &self.resolver
+    }
+
+    pub fn vcs(&self) -> Option<&dyn Vcs> {
+        self.vcs.as_ref().map(|vcs| vcs as _)
     }
 
     pub fn root(&self) -> &Path {
@@ -216,13 +220,7 @@ impl Project {
         };
 
         // TODO: error handling
-        let test = if let Some(git) = &self.vcs {
-            Test::create(&self.resolver, git, id, source, reference)
-        } else {
-            Test::create(&self.resolver, &NoVcs, id, source, reference)
-        }
-        .unwrap();
-
+        let test = Test::create(&self.resolver, self.vcs(), id, source, reference).unwrap();
         self.tests.insert(test.id().clone(), test);
 
         Ok(())

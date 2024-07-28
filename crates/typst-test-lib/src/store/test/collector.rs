@@ -39,17 +39,17 @@ pub enum CollectError {
 /// Recursively collects tests, applying test set matchers and respecting ignore
 /// files.
 #[derive(Debug)]
-pub struct Collector<'p, R> {
-    resolver: &'p R,
+pub struct Collector<'p> {
+    resolver: &'p (dyn Resolver + Sync),
     matcher: Arc<dyn TestSet>,
     tests: BTreeMap<Identifier, Test>,
     filtered: BTreeMap<Identifier, Test>,
     errors: Vec<(Option<PathBuf>, CollectError)>,
 }
 
-impl<'p, R: Resolver + Sync> Collector<'p, R> {
+impl<'p> Collector<'p> {
     /// Creates a new collector for the given test root.
-    pub fn new(project: &'p R) -> Self {
+    pub fn new(project: &'p (dyn Resolver + Sync)) -> Self {
         Self {
             resolver: project,
             matcher: test_set::builtin::default(),
@@ -60,7 +60,7 @@ impl<'p, R: Resolver + Sync> Collector<'p, R> {
     }
 
     /// Returns a reference to the [`Resolver`] used by this collector.
-    pub fn resolver(&self) -> &'p R {
+    pub fn resolver(&self) -> &'p (dyn Resolver + Sync) {
         self.resolver
     }
 
@@ -119,6 +119,7 @@ impl<'p, R: Resolver + Sync> Collector<'p, R> {
         // TODO: filtering is currently very project specific which will require
         // more than one collector per project structure version
         // the same applies to collect_single
+        let reserved = self.resolver.reserved();
         for entry in ignore::WalkBuilder::new(self.resolver.test_root())
             .filter_entry(|entry| {
                 if !entry.file_type().is_some_and(|t| t.is_dir()) {
@@ -131,7 +132,7 @@ impl<'p, R: Resolver + Sync> Collector<'p, R> {
                     return false;
                 };
 
-                if R::RESERVED.contains(&name) {
+                if reserved.contains(&name) {
                     // ignore reserved directories
                     return false;
                 }

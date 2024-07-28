@@ -1,5 +1,6 @@
 //! Project and test path resolving.
 
+use std::fmt::Debug;
 use std::path::Path;
 
 use crate::test::id::Identifier;
@@ -39,10 +40,10 @@ pub enum TestTarget {
 
 /// A type which resolves and stores commonly accessed paths to tests of a
 /// project.
-pub trait Resolver {
+pub trait Resolver: Debug {
     /// The reserved path names for this project, these will be ignored when
     /// loading.
-    const RESERVED: &'static [&'static str];
+    fn reserved(&self) -> &'static [&'static str];
 
     /// Returns the project root.
     fn project_root(&self) -> &Path;

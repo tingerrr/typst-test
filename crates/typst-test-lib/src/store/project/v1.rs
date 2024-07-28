@@ -133,7 +133,9 @@ impl Drop for ResolverV1 {
 }
 
 impl Resolver for ResolverV1 {
-    const RESERVED: &'static [&'static str] = &[REF_NAME, TEST_NAME, OUT_NAME, DIFF_NAME];
+    fn reserved(&self) -> &'static [&'static str] {
+        &[REF_NAME, TEST_NAME, OUT_NAME, DIFF_NAME]
+    }
 
     fn project_root(&self) -> &Path {
         &self.root
