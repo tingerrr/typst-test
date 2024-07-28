@@ -66,10 +66,9 @@ impl Test {
         &self.id
     }
 
-    /// Returns a reference to the reference kind of this test, if this test has
-    /// references.
-    pub fn ref_kind(&self) -> Option<&ReferenceKind> {
-        self.ref_kind.as_ref()
+    /// Returns the reference kind of this test, if this test has references.
+    pub fn ref_kind(&self) -> Option<ReferenceKind> {
+        self.ref_kind
     }
 
     /// Returns whether this test is compared to a reference script.

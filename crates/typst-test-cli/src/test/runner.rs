@@ -15,6 +15,7 @@ use typst::syntax::Source;
 use typst_test_lib::store::project::{Resolver, TestTarget};
 use typst_test_lib::store::test::Test;
 use typst_test_lib::store::Document;
+use typst_test_lib::test::ReferenceKind;
 use typst_test_lib::{compare, compile, hook, render};
 
 use super::{CompareFailure, CompileFailure, Stage, TestFailure};
@@ -37,6 +38,9 @@ pub struct RunnerConfig {
 
     /// Whether to update persistent tests.
     update: bool,
+
+    /// Whether to edit test's kind.
+    edit_kind: Option<Option<ReferenceKind>>,
 
     /// The strategy to use when updating persistent tests.
     update_strategy: Option<render::Strategy>,
@@ -79,6 +83,10 @@ impl RunnerConfig {
 
     pub fn update(&self) -> bool {
         self.update
+    }
+
+    pub fn edit_kind(&self) -> Option<Option<ReferenceKind>> {
+        self.edit_kind
     }
 
     pub fn update_strategy(&self) -> Option<render::Strategy> {
@@ -137,6 +145,11 @@ impl RunnerConfig {
     pub fn with_update_strategy(&mut self, strategy: Option<render::Strategy>) -> &mut Self {
         self.update_strategy = strategy;
         self.with_update(true)
+    }
+
+    pub fn with_edit_kind(&mut self, value: Option<Option<ReferenceKind>>) -> &mut Self {
+        self.edit_kind = value;
+        self
     }
 
     pub fn with_compare(&mut self, yes: bool) -> &mut Self {
@@ -326,7 +339,7 @@ impl<'p> Runner<'p> {
         Arc::make_mut(&mut self.config)
     }
 
-    pub fn test<'c, 't>(&'c self, test: &'t Test) -> TestRunner<'c, 'p, 't> {
+    pub fn test<'c>(&'c self, test: Test) -> TestRunner<'c, 'p> {
         let mut config = Arc::clone(&self.config);
 
         if test.is_compile_only() {
@@ -364,9 +377,9 @@ impl<'p> Runner<'p> {
         self.progress_mut().start();
         self.run_prepare_hook()?;
 
-        let res = self.project().matched().par_iter().try_for_each(
+        let res = self.project.matched().par_iter().try_for_each(
             |(_, test)| -> Result<(), Option<anyhow::Error>> {
-                match self.test(test).run() {
+                match self.test(test.clone()).run() {
                     Ok(Ok(_)) => Ok(()),
                     Ok(Err(_)) => {
                         if self.config().no_fail_fast() {
@@ -400,9 +413,9 @@ macro_rules! bail_inner {
     };
 }
 
-pub struct TestRunner<'c, 'p, 't> {
+pub struct TestRunner<'c, 'p> {
     project_runner: &'c Runner<'p>,
-    test: &'t Test,
+    test: Test,
     config: Arc<RunnerConfig>,
 
     test_cache: Cache,
@@ -413,7 +426,7 @@ pub struct TestRunner<'c, 'p, 't> {
     saved_difference_document: bool,
 }
 
-impl TestRunner<'_, '_, '_> {
+impl TestRunner<'_, '_> {
     pub fn config(&self) -> &RunnerConfig {
         &self.config
     }
@@ -431,7 +444,7 @@ impl TestRunner<'_, '_, '_> {
     }
 }
 
-impl<'t> TestRunner<'_, '_, 't> {
+impl TestRunner<'_, '_> {
     fn run_stage<R, F: FnOnce(&mut Self) -> anyhow::Result<R>>(
         &mut self,
         progress: &Progress,
@@ -472,22 +485,34 @@ impl<'t> TestRunner<'_, '_, 't> {
     pub fn run(&mut self) -> anyhow::Result<Result<(), TestFailure>> {
         let test = self.test.clone();
 
-        let diff_src_needs_save = !self.test.is_compile_only() && !self.config.no_save_temporary;
-        let diff_src_needs_render = diff_src_needs_save;
+        let test_kind_needs_edit = self
+            .config
+            .edit_kind
+            .is_some_and(|kind| kind != self.test.ref_kind());
+
+        let diff_src_needs_save =
+            !test_kind_needs_edit && !self.test.is_compile_only() && !self.config.no_save_temporary;
+        let diff_src_needs_render = !test_kind_needs_edit && diff_src_needs_save;
 
         let ref_doc_needs_save = self.test.is_ephemeral() && !self.config.no_save_temporary;
         let ref_doc_needs_render = self.test.is_ephemeral()
+            && !test_kind_needs_edit
             && (diff_src_needs_render || ref_doc_needs_save || self.config.compare);
-        let ref_doc_needs_load =
-            self.test.is_persistent() && (diff_src_needs_render || self.config.compare);
+        let ref_doc_needs_load = self.test.is_persistent()
+            && !test_kind_needs_edit
+            && (diff_src_needs_render || self.config.compare);
 
         let test_doc_needs_save = !self.config.no_save_temporary;
-        let test_doc_needs_render =
-            diff_src_needs_render || test_doc_needs_save || self.config.compare;
+        let test_doc_needs_render = diff_src_needs_render
+            || test_doc_needs_save
+            || test_kind_needs_edit
+            || self.config.compare;
 
-        let ref_src_needs_compile =
-            self.test.is_ephemeral() && (ref_doc_needs_render || self.config.compile);
-        let ref_src_needs_load = self.test.is_ephemeral() && ref_src_needs_compile;
+        let ref_src_needs_compile = self.test.is_ephemeral()
+            && !test_kind_needs_edit
+            && (ref_doc_needs_render || self.config.compile);
+        let ref_src_needs_load =
+            self.test.is_ephemeral() && !test_kind_needs_edit && ref_src_needs_compile;
 
         let test_src_needs_compile = test_doc_needs_render || self.config.compile;
         let test_src_needs_load = test_src_needs_compile;
@@ -539,6 +564,12 @@ impl<'t> TestRunner<'_, '_, 't> {
                 self.run_stage(progress, Stage::Rendering, |this| {
                     this.render_reference_document()
                         .context("Rendering reference")
+                })?;
+            }
+
+            if test_kind_needs_edit {
+                self.run_stage(progress, Stage::Update, |this| {
+                    this.update_test_kind().context("Updating test kind")
                 })?;
             }
 
@@ -802,6 +833,31 @@ impl<'t> TestRunner<'_, '_, 't> {
                 .map(|(base, change)| render::render_page_diff(base, change))
                 .collect::<EcoVec<_>>(),
         ));
+
+        Ok(())
+    }
+
+    pub fn update_test_kind(&mut self) -> anyhow::Result<()> {
+        tracing::trace!(test = ?self.test.id(), "updating test kind");
+
+        let new_kind = self.config.edit_kind.context("No reference kind given")?;
+
+        let resolver = self.project_runner.project.resolver();
+        let vcs = self.project_runner.project.vcs();
+
+        match new_kind {
+            Some(ReferenceKind::Ephemeral) => self.test.make_ephemeral(resolver, vcs)?,
+            Some(ReferenceKind::Persistent) => {
+                let output = self
+                    .test_cache
+                    .store_document
+                    .as_ref()
+                    .context("Output document not rendered")?;
+
+                self.test.make_persistent(resolver, vcs, output)?
+            }
+            None => self.test.make_compile_only(resolver, vcs)?,
+        };
 
         Ok(())
     }

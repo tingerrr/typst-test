@@ -81,7 +81,7 @@ impl KindTestSet {
 
 impl super::TestSet for KindTestSet {
     fn contains(&self, test: &Test) -> bool {
-        test.ref_kind() == self.kind.as_ref()
+        test.ref_kind() == self.kind
     }
 }
 
