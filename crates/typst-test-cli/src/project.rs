@@ -21,7 +21,7 @@ use typst_test_lib::util;
 const DEFAULT_TEST_INPUT: &str = include_str!("../../../assets/default-test/test.typ");
 const DEFAULT_TEST_OUTPUT: &[u8] = include_bytes!("../../../assets/default-test/test.png");
 
-pub fn try_open_manifest(root: &Path) -> Result<Option<Manifest>, Error> {
+pub fn try_open_manifest(root: &Path) -> anyhow::Result<Option<Manifest>> {
     if typst_project::is_project_root(root)? {
         let content = std::fs::read_to_string(root.join(typst_project::heuristics::MANIFEST_FILE))?;
         let manifest = Manifest::from_str(&content)?;
@@ -149,7 +149,7 @@ impl Project {
         self.test_root_exists()
     }
 
-    pub fn init(&mut self, options: ScaffoldOptions) -> Result<(), Error> {
+    pub fn init(&mut self, options: ScaffoldOptions) -> anyhow::Result<()> {
         let tests_root_dir = self.tests_root();
         tracing::trace!(path = ?tests_root_dir, "creating tests root dir");
         util::fs::create_dir(tests_root_dir, false)?;
@@ -168,12 +168,12 @@ impl Project {
         }
     }
 
-    pub fn uninit(&self) -> Result<(), Error> {
+    pub fn uninit(&self) -> anyhow::Result<()> {
         util::fs::remove_dir(self.tests_root(), true)?;
         Ok(())
     }
 
-    pub fn clean_artifacts(&self) -> Result<(), Error> {
+    pub fn clean_artifacts(&self) -> anyhow::Result<()> {
         self.tests
             .par_iter()
             .try_for_each(|(_, test)| test.delete_temporary_directories(&self.resolver))?;
@@ -181,12 +181,12 @@ impl Project {
         Ok(())
     }
 
-    pub fn load_template(&mut self) -> Result<(), Error> {
+    pub fn load_template(&mut self) -> anyhow::Result<()> {
         if let Some(template) = self.template_path() {
             match fs::read_to_string(template) {
                 Ok(template) => self.template = Some(template),
                 Err(err) if err.kind() == io::ErrorKind::NotFound => {}
-                Err(err) => return Err(Error::Io(err)),
+                Err(err) => anyhow::bail!(err),
             }
         }
 
@@ -198,9 +198,9 @@ impl Project {
         id: Identifier,
         kind: Option<ReferenceKind>,
         use_template: bool,
-    ) -> Result<(), Error> {
+    ) -> anyhow::Result<()> {
         if self.tests.contains_key(&id) {
-            return Err(Error::TestAlreadyExists(id));
+            anyhow::bail!("Test '{id}' alreayd exists");
         }
 
         let source = match (use_template, &self.template) {
@@ -219,14 +219,13 @@ impl Project {
             None => None,
         };
 
-        // TODO: error handling
-        let test = Test::create(&self.resolver, self.vcs(), id, source, reference).unwrap();
+        let test = Test::create(&self.resolver, self.vcs(), id, source, reference)?;
         self.tests.insert(test.id().clone(), test);
 
         Ok(())
     }
 
-    pub fn delete_tests(&mut self) -> Result<(), Error> {
+    pub fn delete_tests(&mut self) -> anyhow::Result<()> {
         self.tests
             .par_iter()
             .try_for_each(|(_, test)| test.delete(&self.resolver))?;
@@ -235,7 +234,7 @@ impl Project {
         Ok(())
     }
 
-    pub fn collect_tests<T: TestSet + 'static>(&mut self, test_set: T) -> Result<(), Error> {
+    pub fn collect_tests<T: TestSet + 'static>(&mut self, test_set: T) -> anyhow::Result<()> {
         // TODO: error handling
         let mut collector = Collector::new(&self.resolver);
         collector.with_test_set(test_set);
@@ -245,16 +244,4 @@ impl Project {
 
         Ok(())
     }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("invalid manifest")]
-    InvalidManifest(#[from] toml::de::Error),
-
-    #[error("test already exists: {0:?}")]
-    TestAlreadyExists(Identifier),
-
-    #[error("an io error occurred")]
-    Io(#[from] io::Error),
 }

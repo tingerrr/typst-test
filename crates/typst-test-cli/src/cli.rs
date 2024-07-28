@@ -87,21 +87,23 @@ impl<'a> Context<'a> {
 
         let manifest = match project::try_open_manifest(&root) {
             Ok(manifest) => manifest,
-            Err(project::Error::InvalidManifest(err)) => {
-                self.reporter.lock().unwrap().write_annotated(
-                    "warning:",
-                    Color::Yellow,
-                    None,
-                    |this| {
-                        tracing::error!(?err, "Couldn't parse manifest");
-                        writeln!(this, "Error while parsing manifest, skipping")?;
-                        writeln!(this, "{}", err.message())
-                    },
-                )?;
-
-                None
+            Err(err) => {
+                if let Some(err) = err.root_cause().downcast_ref::<toml::de::Error>() {
+                    self.reporter.lock().unwrap().write_annotated(
+                        "warning:",
+                        Color::Yellow,
+                        None,
+                        |this| {
+                            tracing::error!(?err, "Couldn't parse manifest");
+                            writeln!(this, "Error while parsing manifest, skipping")?;
+                            writeln!(this, "{}", err.message())
+                        },
+                    )?;
+                    None
+                } else {
+                    anyhow::bail!(err)
+                }
             }
-            Err(err) => anyhow::bail!(err),
         };
 
         let manifest_config = manifest
