@@ -2,11 +2,13 @@
 
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use ecow::EcoVec;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use typst::eval::Tracer;
 use typst::model::Document as TypstDocument;
 use typst::syntax::Source;
@@ -167,12 +169,95 @@ impl RunnerConfig {
         self
     }
 
-    pub fn build<'p>(self, project: &'p Project, world: &'p SystemWorld) -> Runner<'p> {
+    pub fn build<'p>(
+        self,
+        progress: Progress,
+        project: &'p Project,
+        world: &'p SystemWorld,
+    ) -> Runner<'p> {
         Runner {
             project,
+            progress,
             world,
             config: Arc::new(self),
         }
+    }
+}
+
+pub struct Progress {
+    tx: mpsc::Sender<Event>,
+    failed_compilation: AtomicUsize,
+    failed_comparison: AtomicUsize,
+    failed_otherwise: AtomicUsize,
+    passed: AtomicUsize,
+    total: usize,
+    filtered: usize,
+    start: Instant,
+    stop: Instant,
+}
+
+impl Progress {
+    pub fn new(project: &Project) -> (Self, mpsc::Receiver<Event>) {
+        let (tx, rx) = mpsc::channel();
+
+        (
+            Self {
+                tx,
+                failed_compilation: AtomicUsize::new(0),
+                failed_comparison: AtomicUsize::new(0),
+                failed_otherwise: AtomicUsize::new(0),
+                passed: AtomicUsize::new(0),
+                total: project.matched().len() + project.filtered().len(),
+                filtered: project.filtered().len(),
+                start: Instant::now(),
+                stop: Instant::now(),
+            },
+            rx,
+        )
+    }
+
+    pub fn start(&mut self) {
+        self.start = Instant::now();
+    }
+
+    pub fn stop(&mut self) {
+        self.stop = Instant::now();
+    }
+
+    pub fn to_summary(&self) -> Summary {
+        Summary {
+            total: self.total,
+            filtered: self.filtered,
+            failed_compilation: self.failed_compilation.load(Ordering::SeqCst),
+            failed_comparison: self.failed_comparison.load(Ordering::SeqCst),
+            failed_otherwise: self.failed_otherwise.load(Ordering::SeqCst),
+            passed: self.passed.load(Ordering::SeqCst),
+            time: self.stop.duration_since(self.start),
+        }
+    }
+}
+
+pub struct Summary {
+    pub total: usize,
+    pub filtered: usize,
+    pub failed_compilation: usize,
+    pub failed_comparison: usize,
+    pub failed_otherwise: usize,
+    pub passed: usize,
+    pub time: Duration,
+}
+
+impl Summary {
+    pub fn run(&self) -> usize {
+        self.total - self.filtered
+    }
+
+    pub fn is_ok(&self) -> bool {
+        self.passed == self.run()
+    }
+
+    pub fn is_total_fail(&self) -> bool {
+        self.passed == 0
     }
 }
 
@@ -195,6 +280,7 @@ pub enum EventPayload {
 
 pub struct Runner<'p> {
     project: &'p Project,
+    progress: Progress,
     world: &'p SystemWorld,
     config: Arc<RunnerConfig>,
 }
@@ -218,6 +304,14 @@ impl Cache {
 impl<'p> Runner<'p> {
     pub fn project(&self) -> &'p Project {
         self.project
+    }
+
+    pub fn progress(&self) -> &Progress {
+        &self.progress
+    }
+
+    pub fn progress_mut(&mut self) -> &mut Progress {
+        &mut self.progress
     }
 
     pub fn world(&self) -> &'p SystemWorld {
@@ -265,6 +359,38 @@ impl<'p> Runner<'p> {
 
         Ok(())
     }
+
+    pub fn run(mut self) -> anyhow::Result<Summary> {
+        self.progress_mut().start();
+        self.run_prepare_hook()?;
+
+        let res = self.project().matched().par_iter().try_for_each(
+            |(_, test)| -> Result<(), Option<anyhow::Error>> {
+                match self.test(test).run() {
+                    Ok(Ok(_)) => Ok(()),
+                    Ok(Err(_)) => {
+                        if self.config().no_fail_fast() {
+                            Ok(())
+                        } else {
+                            Err(None)
+                        }
+                    }
+                    Err(err) => Err(Some(
+                        err.context(format!("Fatal error when running test {}", test.id())),
+                    )),
+                }
+            },
+        );
+
+        if let Err(Some(err)) = res {
+            return Err(err);
+        }
+
+        self.run_cleanup_hook()?;
+        self.progress_mut().stop();
+
+        Ok(self.progress().to_summary())
+    }
 }
 
 macro_rules! bail_inner {
@@ -308,45 +434,42 @@ impl TestRunner<'_, '_, '_> {
 impl<'t> TestRunner<'_, '_, 't> {
     fn run_stage<R, F: FnOnce(&mut Self) -> anyhow::Result<R>>(
         &mut self,
-        progress: &mpsc::Sender<Event>,
+        progress: &Progress,
         stage: Stage,
         f: F,
     ) -> anyhow::Result<R> {
         let start = Instant::now();
 
-        progress.send(Event {
+        let _ = progress.tx.send(Event {
             test: self.test.clone(),
             instant: start,
             message: None,
             payload: EventPayload::StartedStage(stage),
-        })?;
+        });
 
         let res = f(self);
         let end = Instant::now();
 
         if res.is_ok() {
-            progress.send(Event {
+            let _ = progress.tx.send(Event {
                 test: self.test.clone(),
                 instant: end,
                 message: None,
                 payload: EventPayload::FinishedStage(stage),
-            })?;
+            });
         } else {
-            progress.send(Event {
+            let _ = progress.tx.send(Event {
                 test: self.test.clone(),
                 instant: end,
                 message: None,
                 payload: EventPayload::FailedStage(stage),
-            })?;
+            });
         }
 
         res
     }
 
-    pub fn run(
-        &mut self,
-        progress: mpsc::Sender<Event>,
-    ) -> anyhow::Result<Result<(), TestFailure>> {
+    pub fn run(&mut self) -> anyhow::Result<Result<(), TestFailure>> {
         let test = self.test.clone();
 
         let diff_src_needs_save = !self.test.is_compile_only() && !self.config.no_save_temporary;
@@ -369,27 +492,29 @@ impl<'t> TestRunner<'_, '_, 't> {
         let test_src_needs_compile = test_doc_needs_render || self.config.compile;
         let test_src_needs_load = test_src_needs_compile;
 
+        let progress = &self.project_runner.progress;
+
         // TODO: parallelize test and ref steps
         let mut inner = || -> anyhow::Result<Result<(), TestFailure>> {
-            self.run_stage(&progress, Stage::Preparation, |this| this.prepare())?;
+            self.run_stage(progress, Stage::Preparation, |this| this.prepare())?;
 
-            self.run_stage(&progress, Stage::Hooks, |this| this.run_prepare_each_hook())?;
+            self.run_stage(progress, Stage::Hooks, |this| this.run_prepare_each_hook())?;
 
             if test_src_needs_load {
-                self.run_stage(&progress, Stage::Loading, |this| {
+                self.run_stage(progress, Stage::Loading, |this| {
                     this.load_source().context("Loading test source")
                 })?;
             }
 
             if ref_src_needs_load {
-                self.run_stage(&progress, Stage::Loading, |this| {
+                self.run_stage(progress, Stage::Loading, |this| {
                     this.load_reference_source()
                         .context("Loading reference source")
                 })?;
             }
 
             if test_src_needs_compile {
-                if let Err(err) = self.run_stage(&progress, Stage::Compilation, |this| {
+                if let Err(err) = self.run_stage(progress, Stage::Compilation, |this| {
                     this.compile().context("Compiling test")
                 })? {
                     bail_inner!(err);
@@ -397,7 +522,7 @@ impl<'t> TestRunner<'_, '_, 't> {
             }
 
             if ref_src_needs_compile {
-                if let Err(err) = self.run_stage(&progress, Stage::Compilation, |this| {
+                if let Err(err) = self.run_stage(progress, Stage::Compilation, |this| {
                     this.compile_reference().context("Compiling reference")
                 })? {
                     bail_inner!(err);
@@ -405,47 +530,47 @@ impl<'t> TestRunner<'_, '_, 't> {
             }
 
             if test_doc_needs_render {
-                self.run_stage(&progress, Stage::Rendering, |this| {
+                self.run_stage(progress, Stage::Rendering, |this| {
                     this.render_document().context("Rendering test")
                 })?;
             }
 
             if ref_doc_needs_render {
-                self.run_stage(&progress, Stage::Rendering, |this| {
+                self.run_stage(progress, Stage::Rendering, |this| {
                     this.render_reference_document()
                         .context("Rendering reference")
                 })?;
             }
 
             if test_doc_needs_save {
-                self.run_stage(&progress, Stage::Saving, |this| {
+                self.run_stage(progress, Stage::Saving, |this| {
                     this.save_document().context("Saving test document")
                 })?;
             }
 
             if ref_doc_needs_save {
-                self.run_stage(&progress, Stage::Saving, |this| {
+                self.run_stage(progress, Stage::Saving, |this| {
                     this.save_reference_document()
                         .context("Saving reference document")
                 })?;
             }
 
             if ref_doc_needs_load {
-                self.run_stage(&progress, Stage::Loading, |this| {
+                self.run_stage(progress, Stage::Loading, |this| {
                     this.load_reference_document()
                         .context("Loading reference document")
                 })?;
             }
 
             if diff_src_needs_render {
-                self.run_stage(&progress, Stage::Rendering, |this| {
+                self.run_stage(progress, Stage::Rendering, |this| {
                     this.render_difference_document()
                         .context("Rendering difference")
                 })?;
             }
 
             if diff_src_needs_save {
-                self.run_stage(&progress, Stage::Saving, |this| {
+                self.run_stage(progress, Stage::Saving, |this| {
                     this.save_difference_document()
                         .context("Saving difference document")
                 })?;
@@ -453,58 +578,69 @@ impl<'t> TestRunner<'_, '_, 't> {
 
             if self.config.compare {
                 if let Err(err) =
-                    self.run_stage(&progress, Stage::Comparison, |this| this.compare())?
+                    self.run_stage(progress, Stage::Comparison, |this| this.compare())?
                 {
                     bail_inner!(err);
                 }
             }
 
             if self.config.update {
-                self.run_stage(&progress, Stage::Update, |this| {
+                self.run_stage(progress, Stage::Update, |this| {
                     this.update().context("Updating reference document")
                 })?;
             }
 
-            self.run_stage(&progress, Stage::Hooks, |this| this.run_cleanup_each_hook())?;
+            self.run_stage(progress, Stage::Hooks, |this| this.run_cleanup_each_hook())?;
 
-            self.run_stage(&progress, Stage::Cleanup, |this| this.cleanup())?;
+            self.run_stage(progress, Stage::Cleanup, |this| this.cleanup())?;
 
             Ok(Ok(()))
         };
 
         let start = Instant::now();
-        progress.send(Event {
+        let _ = progress.tx.send(Event {
             test,
             instant: start,
             message: None,
             payload: EventPayload::StartedTest,
-        })?;
+        });
 
         let res = inner();
         let end = Instant::now();
 
         match res {
             Ok(Ok(_)) => {
-                progress.send(Event {
+                progress.passed.fetch_add(1, Ordering::SeqCst);
+                let _ = progress.tx.send(Event {
                     test: self.test.clone(),
                     instant: end,
                     message: None,
                     payload: EventPayload::FinishedTest,
-                })?;
+                });
 
                 Ok(Ok(()))
             }
             Ok(Err(err)) => {
-                progress.send(Event {
+                let counter = match err.stage() {
+                    Stage::Compilation => &progress.failed_compilation,
+                    Stage::Comparison => &progress.failed_comparison,
+                    _ => &progress.failed_otherwise,
+                };
+
+                counter.fetch_add(1, Ordering::SeqCst);
+                let _ = progress.tx.send(Event {
                     test: self.test.clone(),
                     instant: end,
                     message: None,
                     payload: EventPayload::FailedTest(err.clone()),
-                })?;
+                });
 
                 Ok(Err(err))
             }
-            Err(err) => { Err(err) }?,
+            Err(err) => {
+                progress.failed_otherwise.fetch_add(1, Ordering::SeqCst);
+                Err(err)
+            }?,
         }
     }
 

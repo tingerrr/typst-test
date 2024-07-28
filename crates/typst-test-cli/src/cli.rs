@@ -2,7 +2,7 @@ use std::io;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 
 use chrono::{DateTime, Utc};
 use clap::ColorChoice;
@@ -17,7 +17,7 @@ use crate::package::PackageStorage;
 use crate::project;
 use crate::project::Project;
 use crate::report::Reporter;
-use crate::test::runner::RunnerConfig;
+use crate::test::runner::{Event, Progress, Runner, RunnerConfig};
 use crate::world::SystemWorld;
 
 pub mod add;
@@ -207,6 +207,34 @@ impl<'a> Context<'a> {
         Ok(project)
     }
 
+    pub fn build_world(
+        &mut self,
+        project: &Project,
+        compile_args: &CompileArgs,
+    ) -> anyhow::Result<SystemWorld> {
+        let world = SystemWorld::new(
+            project.root().to_path_buf(),
+            self.args.global.fonts.searcher(),
+            PackageStorage::from_args(&self.args.global.package),
+            compile_args.now,
+        )?;
+
+        Ok(world)
+    }
+
+    pub fn build_runner<'p, C: Configure>(
+        &mut self,
+        project: &'p Project,
+        world: &'p SystemWorld,
+        args: &C,
+    ) -> anyhow::Result<(Runner<'p>, mpsc::Receiver<Event>)> {
+        let mut config = RunnerConfig::default();
+        args.configure(self, project, &mut config)?;
+
+        let (progress, rx) = Progress::new(project);
+        Ok((config.build(progress, project, world), rx))
+    }
+
     fn set_operation_failure(&mut self) {
         self.exit_code = EXIT_OPERATION_FAILURE;
     }
@@ -226,6 +254,7 @@ impl<'a> Context<'a> {
         self.exit_code = EXIT_TEST_FAILURE;
     }
 
+    #[allow(dead_code)]
     pub fn test_failure(
         &mut self,
         f: impl FnOnce(&mut Reporter) -> io::Result<()>,
@@ -374,41 +403,13 @@ impl OperationArgs {
     }
 }
 
-trait Configure {
+pub trait Configure {
     fn configure(
         &self,
         ctx: &mut Context,
         project: &Project,
         config: &mut RunnerConfig,
     ) -> anyhow::Result<()>;
-}
-
-trait Run: Configure {
-    fn compile_args(&self) -> &CompileArgs;
-
-    fn run_args(&self) -> &RunArgs;
-
-    fn op_args(&self) -> &OperationArgs;
-
-    fn collect_tests(&self, ctx: &mut Context) -> anyhow::Result<Project> {
-        ctx.collect_tests(self.op_args(), None)
-    }
-
-    fn run(&self, ctx: &mut Context) -> anyhow::Result<()> {
-        let project = self.collect_tests(ctx)?;
-
-        let mut config = RunnerConfig::default();
-        self.configure(ctx, &project, &mut config)?;
-
-        let world = SystemWorld::new(
-            project.root().to_path_buf(),
-            ctx.args.global.fonts.searcher(),
-            PackageStorage::from_args(&ctx.args.global.package),
-            self.compile_args().now,
-        )?;
-
-        run::run_impl(ctx, config.build(&project, &world), self.run_args())
-    }
 }
 
 fn parse_source_date_epoch(raw: &str) -> Result<DateTime<Utc>, String> {

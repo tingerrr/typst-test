@@ -1,5 +1,8 @@
-use super::{CompileArgs, Configure, Context, ExportArgs, OperationArgs, Run, RunArgs};
+use std::io::Write;
+
+use super::{CompileArgs, Configure, Context, ExportArgs, OperationArgs, RunArgs};
 use crate::project::Project;
+use crate::report::LiveReporterState;
 use crate::test::runner::RunnerConfig;
 
 #[derive(clap::Args, Debug, Clone)]
@@ -33,24 +36,43 @@ impl Configure for Args {
     }
 }
 
-impl Run for Args {
-    fn compile_args(&self) -> &CompileArgs {
-        &self.compile_args
+pub fn run(mut ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
+    let project = ctx.collect_tests(&args.op_args, "update")?;
+    let world = ctx.build_world(&project, &args.compile_args)?;
+    let (runner, rx) = ctx.build_runner(&project, &world, args)?;
+
+    ctx.reporter.lock().unwrap().run_start("Updating")?;
+
+    let summary = if !args.run_args.summary {
+        rayon::scope(|scope| {
+            let ctx = &mut ctx;
+            let world = &world;
+            let project = &project;
+
+            scope.spawn(move |_| {
+                let mut reporter = ctx.reporter.lock().unwrap();
+                let mut state = LiveReporterState::new("updated", project.matched().len());
+                while let Ok(event) = rx.recv() {
+                    state.event(&mut reporter, world, event).unwrap();
+                }
+
+                writeln!(reporter).unwrap();
+            });
+
+            runner.run()
+        })?
+    } else {
+        runner.run()?
+    };
+
+    if !summary.is_ok() {
+        ctx.set_test_failure();
     }
 
-    fn run_args(&self) -> &RunArgs {
-        &self.run_args
-    }
+    ctx.reporter
+        .lock()
+        .unwrap()
+        .run_summary(summary, "updated", args.run_args.summary)?;
 
-    fn op_args(&self) -> &OperationArgs {
-        &self.op_args
-    }
-
-    fn collect_tests(&self, ctx: &mut Context) -> anyhow::Result<Project> {
-        ctx.collect_tests(self.op_args(), "update")
-    }
-}
-
-pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
-    args.run(ctx)
+    Ok(())
 }

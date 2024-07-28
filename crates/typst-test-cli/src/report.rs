@@ -1,6 +1,6 @@
+use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
 use std::io::Write;
-use std::time::Duration;
 use std::{fmt, io};
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
@@ -13,39 +13,17 @@ use typst::syntax::{FileId, Source, Span};
 use typst::WorldExt;
 use typst_test_lib::compare;
 use typst_test_lib::store::test::Test;
+use typst_test_lib::test::id::Identifier;
 use typst_test_lib::test::ReferenceKind;
 use typst_test_lib::util;
 
 use crate::cli::OutputFormat;
 use crate::project::Project;
-use crate::test::{CompareFailure, TestFailure};
+use crate::test::runner::{Event, EventPayload, Summary};
+use crate::test::{CompareFailure, Stage, TestFailure};
 use crate::world::SystemWorld;
 
 pub const ANNOT_PADDING: usize = 8;
-
-pub struct Summary {
-    pub total: usize,
-    pub filtered: usize,
-    pub failed_compilation: usize,
-    pub failed_comparison: usize,
-    pub failed_otherwise: usize,
-    pub passed: usize,
-    pub time: Duration,
-}
-
-impl Summary {
-    pub fn run(&self) -> usize {
-        self.total - self.filtered
-    }
-
-    pub fn is_ok(&self) -> bool {
-        self.passed == self.run()
-    }
-
-    pub fn is_total_fail(&self) -> bool {
-        self.passed == 0
-    }
-}
 
 fn write_with<W: WriteColor + ?Sized>(
     w: &mut W,
@@ -393,25 +371,15 @@ impl Reporter {
         Ok(())
     }
 
-    pub fn test_start(&mut self, is_update: bool) -> io::Result<()> {
-        if !self.format.is_pretty() {
-            return Ok(());
-        }
-
-        write_bold(self, |w| {
-            writeln!(
-                w,
-                "{} tests",
-                if is_update { "Updating" } else { "Running" }
-            )
-        })
+    pub fn run_start(&mut self, operation: &str) -> io::Result<()> {
+        write_bold(self, |w| writeln!(w, "{operation} tests"))
     }
 
     // TODO: the force option is not a pretty solution
-    pub fn test_summary(
+    pub fn run_summary(
         &mut self,
         summary: Summary,
-        is_update: bool,
+        operation: &str,
         force: bool,
     ) -> io::Result<()> {
         if !self.format.is_pretty() && !force {
@@ -431,7 +399,7 @@ impl Reporter {
             write_bold_colored(this, summary.passed, color)?;
             write!(this, " / ")?;
             write_bold(this, |w| write!(w, "{}", summary.run()))?;
-            write!(this, " {}.", if is_update { "updated" } else { "passed" })?;
+            write!(this, " {operation}.")?;
 
             if summary.failed_compilation != 0 {
                 write!(this, " ")?;
@@ -586,6 +554,90 @@ impl WriteColor for Reporter {
 
     fn supports_hyperlinks(&self) -> bool {
         self.writer.supports_hyperlinks()
+    }
+}
+
+pub struct LiveReporterState {
+    progress_annot: &'static str,
+    tests: BTreeMap<Identifier, (Test, &'static str)>,
+    count: usize,
+    total: usize,
+}
+
+impl LiveReporterState {
+    pub fn new(progress_annot: &'static str, total: usize) -> Self {
+        Self {
+            progress_annot,
+            tests: BTreeMap::new(),
+            count: 0,
+            total,
+        }
+    }
+
+    pub fn event(
+        &mut self,
+        reporter: &mut Reporter,
+        world: &SystemWorld,
+        event: Event,
+    ) -> io::Result<()> {
+        reporter.with_indent(2, |reporter| {
+            // TODO: track times by comparing stage instants
+            let id = event.test.id();
+            match event.payload {
+                EventPayload::StartedTest => {
+                    self.tests.insert(id.clone(), (event.test, "start"));
+                }
+                EventPayload::StartedStage(stage) => {
+                    self.tests.get_mut(id).unwrap().1 = match stage {
+                        Stage::Preparation => "prepare",
+                        Stage::Hooks => "hook",
+                        Stage::Loading => "load",
+                        Stage::Compilation => "compile",
+                        Stage::Saving => "save",
+                        Stage::Rendering => "render",
+                        Stage::Comparison => "compare",
+                        Stage::Update => "update",
+                        Stage::Cleanup => "cleanup",
+                    };
+                }
+                EventPayload::FinishedStage(_) => {}
+                EventPayload::FailedStage(_) => {}
+                EventPayload::FinishedTest => {
+                    self.tests.remove(id);
+                    reporter.test_success(&event.test, "ok")?;
+                    self.count += 1;
+                }
+                EventPayload::FailedTest(failure) => {
+                    self.tests.remove(id);
+                    reporter.test_failure(&event.test, failure, world)?;
+                    self.count += 1;
+                }
+            }
+
+            for (test, msg) in self.tests.values() {
+                reporter.test_progress(test, msg)?;
+            }
+
+            reporter.write_annotated(
+                self.progress_annot,
+                Color::Cyan,
+                ANNOT_PADDING,
+                |reporter| {
+                    writeln!(
+                        reporter,
+                        "{} / {} ({} tests running)",
+                        self.count,
+                        self.total,
+                        self.tests.len(),
+                    )
+                },
+            )?;
+
+            // clear the progress lines
+            reporter.clear_last_lines(self.tests.len() + 1)?;
+
+            Ok(())
+        })
     }
 }
 

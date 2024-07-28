@@ -45,6 +45,14 @@ pub enum TestFailure {
     Compilation(#[from] CompileFailure),
     Comparison(#[from] CompareFailure),
 }
+impl TestFailure {
+    fn stage(&self) -> Stage {
+        match self {
+            TestFailure::Compilation(_) => Stage::Compilation,
+            TestFailure::Comparison(_) => Stage::Comparison,
+        }
+    }
+}
 
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("compilation failed")]

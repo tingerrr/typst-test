@@ -1,5 +1,8 @@
-use crate::cli::{CompileArgs, Configure, ExportArgs, OperationArgs, Run, RunArgs};
+use std::io::Write;
+
+use crate::cli::{CompileArgs, Configure, ExportArgs, OperationArgs, RunArgs};
 use crate::project::Project;
+use crate::report::LiveReporterState;
 use crate::test::runner::RunnerConfig;
 
 use super::Context;
@@ -35,20 +38,43 @@ impl Configure for Args {
     }
 }
 
-impl Run for Args {
-    fn compile_args(&self) -> &CompileArgs {
-        &self.compile_args
+pub fn run(mut ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
+    let project = ctx.collect_tests(&args.op_args, None)?;
+    let world = ctx.build_world(&project, &args.compile_args)?;
+    let (runner, rx) = ctx.build_runner(&project, &world, args)?;
+
+    ctx.reporter.lock().unwrap().run_start("Exporting")?;
+
+    let summary = if !args.run_args.summary {
+        rayon::scope(|scope| {
+            let ctx = &mut ctx;
+            let world = &world;
+            let project = &project;
+
+            scope.spawn(move |_| {
+                let mut reporter = ctx.reporter.lock().unwrap();
+                let mut state = LiveReporterState::new("exported", project.matched().len());
+                while let Ok(event) = rx.recv() {
+                    state.event(&mut reporter, world, event).unwrap();
+                }
+
+                writeln!(reporter).unwrap();
+            });
+
+            runner.run()
+        })?
+    } else {
+        runner.run()?
+    };
+
+    if !summary.is_ok() {
+        ctx.set_test_failure();
     }
 
-    fn run_args(&self) -> &RunArgs {
-        &self.run_args
-    }
+    ctx.reporter
+        .lock()
+        .unwrap()
+        .run_summary(summary, "exported", args.run_args.summary)?;
 
-    fn op_args(&self) -> &OperationArgs {
-        &self.op_args
-    }
-}
-
-pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
-    args.run(ctx)
+    Ok(())
 }
