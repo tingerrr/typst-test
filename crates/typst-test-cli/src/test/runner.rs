@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc};
 use std::time::Instant;
@@ -13,7 +13,6 @@ use typst::syntax::Source;
 use typst_test_lib::store::project::{Resolver, TestTarget};
 use typst_test_lib::store::test::Test;
 use typst_test_lib::store::Document;
-use typst_test_lib::test::ReferenceKind;
 use typst_test_lib::{compare, compile, hook, render};
 
 use super::{CompareFailure, CompileFailure, Stage, TestFailure};
@@ -200,22 +199,20 @@ pub struct Runner<'p> {
     config: Arc<RunnerConfig>,
 }
 
-pub struct TestRunner<'c, 'p, 't> {
-    project_runner: &'c Runner<'p>,
-    test: &'t Test,
-    config: Arc<RunnerConfig>,
+pub struct Cache {
+    pub source: Option<Source>,
+    pub document: Option<TypstDocument>,
+    pub store_document: Option<Document>,
+}
 
-    source: Option<Source>,
-    document: Option<TypstDocument>,
-    store_document: Option<Document>,
-
-    reference_source: Option<Option<Source>>,
-    reference_document: Option<Option<TypstDocument>>,
-    reference_store_document: Option<Option<Document>>,
-
-    difference_store_document: Option<Option<Document>>,
-
-    saved_difference_document: bool,
+impl Cache {
+    fn new() -> Self {
+        Self {
+            source: None,
+            document: None,
+            store_document: None,
+        }
+    }
 }
 
 impl<'p> Runner<'p> {
@@ -246,12 +243,8 @@ impl<'p> Runner<'p> {
             project_runner: self,
             test,
             config,
-            source: None,
-            document: None,
-            store_document: None,
-            reference_source: None,
-            reference_document: None,
-            reference_store_document: None,
+            test_cache: Cache::new(),
+            reference_cache: Cache::new(),
             difference_store_document: None,
             saved_difference_document: false,
         }
@@ -281,6 +274,19 @@ macro_rules! bail_inner {
     };
 }
 
+pub struct TestRunner<'c, 'p, 't> {
+    project_runner: &'c Runner<'p>,
+    test: &'t Test,
+    config: Arc<RunnerConfig>,
+
+    test_cache: Cache,
+    reference_cache: Cache,
+
+    difference_store_document: Option<Document>,
+
+    saved_difference_document: bool,
+}
+
 impl TestRunner<'_, '_, '_> {
     pub fn config(&self) -> &RunnerConfig {
         &self.config
@@ -288,6 +294,14 @@ impl TestRunner<'_, '_, '_> {
 
     pub fn config_mut(&mut self) -> &mut RunnerConfig {
         Arc::make_mut(&mut self.config)
+    }
+
+    pub fn test_cache(&self) -> &Cache {
+        &self.test_cache
+    }
+
+    pub fn reference_cache(&self) -> &Cache {
+        &self.reference_cache
     }
 }
 
@@ -533,7 +547,7 @@ impl<'t> TestRunner<'_, '_, 't> {
     pub fn load_source(&mut self) -> anyhow::Result<()> {
         tracing::trace!(test = ?self.test.id(), "loading test source");
 
-        self.source = Some(
+        self.test_cache.source = Some(
             self.test
                 .load_source(self.project_runner.project.resolver())?,
         );
@@ -544,9 +558,17 @@ impl<'t> TestRunner<'_, '_, 't> {
     pub fn load_reference_source(&mut self) -> anyhow::Result<()> {
         tracing::trace!(test = ?self.test.id(), "loading reference source");
 
-        self.reference_source = Some(
+        #[cfg(debug_assertions)]
+        if !self.test.is_ephemeral() {
+            anyhow::bail!("attempted to load reference source for non-ephemeral test");
+        }
+
+        self.reference_cache.source = Some(
             self.test
-                .load_reference_source(self.project_runner.project.resolver())?,
+                .load_reference_source(self.project_runner.project.resolver())?
+                .with_context(|| {
+                    format!("couldn't find reference source for test {}", self.test.id())
+                })?,
         );
 
         Ok(())
@@ -555,9 +577,20 @@ impl<'t> TestRunner<'_, '_, 't> {
     pub fn load_reference_document(&mut self) -> anyhow::Result<()> {
         tracing::trace!(test = ?self.test.id(), "loading reference document");
 
-        self.reference_store_document = Some(
+        #[cfg(debug_assertions)]
+        if !self.test.is_persistent() {
+            anyhow::bail!("attempted to load reference source for non-persistent test");
+        }
+
+        self.reference_cache.store_document = Some(
             self.test
-                .load_reference_documents(self.project_runner.project.resolver())?,
+                .load_reference_documents(self.project_runner.project.resolver())?
+                .with_context(|| {
+                    format!(
+                        "couldn't find reference document for test {}",
+                        self.test.id()
+                    )
+                })?,
         );
 
         Ok(())
@@ -567,6 +600,7 @@ impl<'t> TestRunner<'_, '_, 't> {
         tracing::trace!(test = ?self.test.id(), "rendering test document");
 
         let document = self
+            .test_cache
             .document
             .as_ref()
             .context("Output document not compiled")?;
@@ -577,7 +611,7 @@ impl<'t> TestRunner<'_, '_, 't> {
             .render_strategy
             .unwrap_or_default();
 
-        self.store_document = Some(Document::render(document, strategy));
+        self.test_cache.store_document = Some(Document::render(document, strategy));
 
         Ok(())
     }
@@ -585,13 +619,16 @@ impl<'t> TestRunner<'_, '_, 't> {
     pub fn render_reference_document(&mut self) -> anyhow::Result<()> {
         tracing::trace!(test = ?self.test.id(), "rendering reference document");
 
+        #[cfg(debug_assertions)]
+        if !self.test.is_ephemeral() {
+            anyhow::bail!("attempted to render reference document for non-ephemeral test");
+        }
+
         let document = self
-            .reference_document
+            .reference_cache
+            .document
             .as_ref()
-            .context("Reference document not compiled")?
-            .as_ref()
-            .ok_or_else(|| IncorrectKind(self.test.ref_kind().copied()))
-            .context("Only ephemeral tests can have their reference rendered")?;
+            .context("Reference document not compiled")?;
 
         let strategy = self
             .project_runner
@@ -599,7 +636,7 @@ impl<'t> TestRunner<'_, '_, 't> {
             .render_strategy
             .unwrap_or_default();
 
-        self.reference_store_document = Some(Some(Document::render(document, strategy)));
+        self.reference_cache.store_document = Some(Document::render(document, strategy));
 
         Ok(())
     }
@@ -607,29 +644,38 @@ impl<'t> TestRunner<'_, '_, 't> {
     pub fn render_difference_document(&mut self) -> anyhow::Result<()> {
         tracing::trace!(test = ?self.test.id(), "rendering difference document");
 
+        #[cfg(debug_assertions)]
+        if self.test.is_compile_only() {
+            anyhow::bail!("attempted to render difference document for compile-only test");
+        }
+
         let output = self
+            .test_cache
             .store_document
             .as_ref()
             .context("Output document not rendered")?;
 
         let reference = self
-            .reference_store_document
+            .reference_cache
+            .store_document
             .as_ref()
-            .context("Reference document not rendered or loaded")?
-            .as_ref()
-            .ok_or_else(|| IncorrectKind(self.test.ref_kind().copied()))
-            .context("Compile only tests cannot be compared")?;
+            .context("Reference document not rendered or loaded")?;
 
-        self.difference_store_document = Some(Some(Document::new(
+        self.difference_store_document = Some(Document::new(
             Iterator::zip(reference.pages().iter(), output.pages())
                 .map(|(base, change)| render::render_page_diff(base, change))
                 .collect::<EcoVec<_>>(),
-        )));
+        ));
 
         Ok(())
     }
 
     pub fn compile_reference(&mut self) -> anyhow::Result<Result<(), CompileFailure>> {
+        #[cfg(debug_assertions)]
+        if self.test.is_compile_only() {
+            anyhow::bail!("attempted to compile reference for compile-only test");
+        }
+
         self.compile_inner(true)
     }
 
@@ -645,14 +691,15 @@ impl<'t> TestRunner<'_, '_, 't> {
         );
 
         let source = if is_reference {
-            self.reference_source
+            self.reference_cache
+                .source
                 .as_ref()
                 .context("Reference source not loaded")?
-                .as_ref()
-                .ok_or_else(|| IncorrectKind(self.test.ref_kind().copied()))
-                .context("Only ephemeral tests can have their reference compiled")?
         } else {
-            self.source.as_ref().context("Test source not loaded")?
+            self.test_cache
+                .source
+                .as_ref()
+                .context("Test source not loaded")?
         };
 
         match compile::compile(
@@ -662,9 +709,9 @@ impl<'t> TestRunner<'_, '_, 't> {
         ) {
             Ok(doc) => {
                 if is_reference {
-                    self.reference_document = Some(Some(doc));
+                    self.reference_cache.document = Some(doc);
                 } else {
-                    self.document = Some(doc);
+                    self.test_cache.document = Some(doc);
                 }
             }
             Err(error) => {
@@ -681,13 +728,16 @@ impl<'t> TestRunner<'_, '_, 't> {
     pub fn save_reference_document(&mut self) -> anyhow::Result<()> {
         tracing::trace!(test = ?self.test.id(), "saving reference document");
 
+        #[cfg(debug_assertions)]
+        if !self.test.is_ephemeral() {
+            anyhow::bail!("attempted to save reference document for non-ephemeral test");
+        }
+
         let document = self
-            .reference_store_document
+            .reference_cache
+            .store_document
             .as_ref()
-            .context("Reference document not rendered")?
-            .as_ref()
-            .ok_or_else(|| IncorrectKind(self.test.ref_kind().copied()))
-            .context("Only ephemeral tests can save their reference document")?;
+            .context("Reference document not rendered")?;
 
         document.save(
             self.project_runner
@@ -703,6 +753,7 @@ impl<'t> TestRunner<'_, '_, 't> {
         tracing::trace!(test = ?self.test.id(), "saving test document");
 
         let document = self
+            .test_cache
             .store_document
             .as_ref()
             .context("Output document not rendered")?;
@@ -720,13 +771,15 @@ impl<'t> TestRunner<'_, '_, 't> {
     pub fn save_difference_document(&mut self) -> anyhow::Result<()> {
         tracing::trace!(test = ?self.test.id(), "saving difference document");
 
+        #[cfg(debug_assertions)]
+        if self.test.is_compile_only() {
+            anyhow::bail!("attempted to save difference document for compile-only test");
+        }
+
         let document = self
             .difference_store_document
             .as_ref()
-            .context("Difference document not rendered")?
-            .as_ref()
-            .ok_or_else(|| IncorrectKind(self.test.ref_kind().copied()))
-            .context("Compile only tests cannot be compared")?;
+            .context("Difference document not rendered")?;
 
         document.save(
             self.project_runner
@@ -743,19 +796,22 @@ impl<'t> TestRunner<'_, '_, 't> {
     pub fn compare(&mut self) -> anyhow::Result<Result<(), CompareFailure>> {
         tracing::trace!(test = ?self.test.id(), "comparing");
 
+        #[cfg(debug_assertions)]
+        if self.test.is_compile_only() {
+            anyhow::bail!("attempted to compare compile-only test");
+        }
+
         let output = self
+            .test_cache
             .store_document
             .as_ref()
-            .context("Output document not rendered")?
-            .clone();
+            .context("Output document not rendered")?;
 
         let reference = self
-            .reference_store_document
+            .reference_cache
+            .store_document
             .as_ref()
-            .context("Reference document not rendered")?
-            .as_ref()
-            .ok_or_else(|| IncorrectKind(self.test.ref_kind().copied()))
-            .context("Compile only tests cannot be compared")?;
+            .context("Reference document not rendered")?;
 
         let compare::Strategy::Visual(strategy) = self
             .project_runner
@@ -787,6 +843,7 @@ impl<'t> TestRunner<'_, '_, 't> {
         tracing::trace!(test = ?self.test.id(), "updating references");
 
         let document = self
+            .test_cache
             .store_document
             .as_ref()
             .context("Output document not rendered")?;
@@ -795,22 +852,5 @@ impl<'t> TestRunner<'_, '_, 't> {
             .create_reference_documents(self.project_runner.project.resolver(), document)?;
 
         Ok(())
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub struct IncorrectKind(Option<ReferenceKind>);
-
-impl Display for IncorrectKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Operation invalid for {} tests",
-            match self.0 {
-                Some(ReferenceKind::Ephemeral) => "ephemeral",
-                Some(ReferenceKind::Persistent) => "persistent",
-                None => "compile-only",
-            }
-        )
     }
 }
