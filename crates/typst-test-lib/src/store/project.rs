@@ -39,7 +39,7 @@ pub enum TestTarget {
 }
 
 /// A type which resolves and stores commonly accessed paths to tests of a
-/// project.
+/// project. The paths returned by a resolver must be valid UTF-8.
 pub trait Resolver: Debug {
     /// The reserved path names for this project, these will be ignored when
     /// loading.

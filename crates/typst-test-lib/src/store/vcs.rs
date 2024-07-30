@@ -1,5 +1,6 @@
 //! Version control support. Contains a git and no-vcs implementation.
 
+use std::fs;
 use std::fs::File;
 use std::io;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -11,31 +12,24 @@ use crate::test::id::Identifier;
 /// A trait for version control systems, this is primarily used to ensure that
 /// temporary storage directories are not tracked by the vcs.
 pub trait Vcs {
-    /// Ignore the given path within the project.
-    fn ignore(&self, path: &Path) -> io::Result<()>;
-
-    /// No longer ignore the given path within the project.
-    fn unignore(&self, path: &Path) -> io::Result<()>;
+    /// Returns the root of the repository.
+    fn root(&self) -> &Path;
 
     /// Ignore the given test target within the project.
-    fn ignore_target(
+    fn ignore(
         &self,
-        project: &dyn Resolver,
+        resolver: &dyn Resolver,
         id: &Identifier,
         target: TestTarget,
-    ) -> io::Result<()> {
-        self.ignore(project.resolve(id, target))
-    }
+    ) -> io::Result<()>;
 
     /// No longer ignore the given test target within the project.
-    fn unignore_target(
+    fn unignore(
         &self,
-        project: &dyn Resolver,
+        resolver: &dyn Resolver,
         id: &Identifier,
         target: TestTarget,
-    ) -> io::Result<()> {
-        self.unignore(project.resolve(id, target))
-    }
+    ) -> io::Result<()>;
 }
 
 /// A [`Vcs`] implementation for git. This will ignore paths by creating or
@@ -53,30 +47,26 @@ impl Git {
             root: root.into().canonicalize()?,
         })
     }
-
-    pub fn ensure_no_escape(&self, in_root: &Path) -> io::Result<()> {
-        in_root.strip_prefix(&self.root).map_err(|_| {
-            io::Error::new(io::ErrorKind::Other, "Cannot ignore paths outside root")
-        })?;
-        Ok(())
-    }
 }
 
 const GITIGNORE_NAME: &str = ".gitignore";
-const EXPECT_NOT_ROOT_MSG: &str = "cannot (un)ignore the root directory";
+const EXPECT_NOT_ESCAPED: &str = "cannot (un)ignore outside the git root";
 
 impl Vcs for Git {
-    fn ignore(&self, path: &Path) -> io::Result<()> {
-        let path = path.canonicalize()?;
-        let is_dir = path.metadata()?.is_dir();
-        let parent = path.parent().expect(EXPECT_NOT_ROOT_MSG);
-        self.ensure_no_escape(parent)?;
+    fn root(&self) -> &Path {
+        &self.root
+    }
 
-        let gitignore = if is_dir {
-            path.join(GITIGNORE_NAME)
-        } else {
-            parent.join(GITIGNORE_NAME)
-        };
+    fn ignore(
+        &self,
+        resolver: &dyn Resolver,
+        id: &Identifier,
+        target: TestTarget,
+    ) -> io::Result<()> {
+        let path = resolver.resolve(id, target);
+        let parent = path.parent().expect(EXPECT_NOT_ESCAPED);
+
+        let gitignore = parent.join(GITIGNORE_NAME);
 
         let file = File::options()
             .read(true)
@@ -86,25 +76,25 @@ impl Vcs for Git {
 
         let mut reader = BufReader::new(file);
 
-        let rel = Path::new(path.file_name().expect(EXPECT_NOT_ROOT_MSG));
-        let pattern = if is_dir { Path::new("**") } else { rel };
+        // NOTE: we know that the file names created by the resolver must be
+        // valid UTF-8
+        let target = path.file_name().unwrap().to_str().unwrap();
 
         let mut exists = false;
         for line in reader.by_ref().lines() {
             let line = line?;
-            if pattern.as_os_str() == line.as_str() {
+            if target == line {
                 exists = true;
                 break;
             }
         }
 
         if !exists {
-            // NOTE: we use to_str because the OsStr encoding is not stable and we assume it's Some as we realistically only write utf-8 path patterns into this file, otherwise BufRead::lines would fail later on anyway
             let mut buf = String::new();
 
             // we add a defensive newline to ensure
             buf.push('\n');
-            buf.push_str(pattern.to_str().unwrap());
+            buf.push_str(target);
             buf.push('\n');
             reader.into_inner().write_all(buf.as_bytes())?;
         }
@@ -112,17 +102,16 @@ impl Vcs for Git {
         Ok(())
     }
 
-    fn unignore(&self, path: &Path) -> io::Result<()> {
-        let path = path.canonicalize()?;
-        let is_dir = path.metadata()?.is_dir();
-        let parent = path.parent().expect(EXPECT_NOT_ROOT_MSG);
-        self.ensure_no_escape(parent)?;
+    fn unignore(
+        &self,
+        resolver: &dyn Resolver,
+        id: &Identifier,
+        target: TestTarget,
+    ) -> io::Result<()> {
+        let path = resolver.resolve(id, target);
+        let parent = path.parent().expect(EXPECT_NOT_ESCAPED);
 
-        let gitignore = if is_dir {
-            path.join(GITIGNORE_NAME)
-        } else {
-            parent.join(GITIGNORE_NAME)
-        };
+        let gitignore = parent.join(GITIGNORE_NAME);
 
         let file = match File::options().read(true).open(&gitignore) {
             Ok(file) => file,
@@ -133,13 +122,13 @@ impl Vcs for Git {
             Err(err) => Err(err)?,
         };
 
-        let rel = Path::new(path.file_name().expect(EXPECT_NOT_ROOT_MSG));
-        let pattern = if is_dir { Path::new("**") } else { rel };
+        // NOTE: see above for unwraps
+        let pattern = path.file_name().unwrap().to_str().unwrap();
 
         let mut buf = String::new();
         for line in BufReader::new(file).lines() {
             let line = line?;
-            if pattern.as_os_str() != line.as_str() {
+            if pattern != line {
                 buf.push_str(&line);
                 buf.push('\n');
             }
@@ -153,7 +142,7 @@ impl Vcs for Git {
                 .open(&gitignore)?
                 .write_all(buf.as_bytes())?;
         } else {
-            std::fs::remove_file(gitignore)?;
+            fs::remove_file(gitignore)?;
         }
 
         Ok(())
@@ -163,31 +152,43 @@ impl Vcs for Git {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::_dev;
+    use crate::{_dev, store::project::v1::ResolverV1};
 
     #[test]
-    fn test_git_escape_from_root() {
+    fn test_git_ignore_dir_non_existent() {
         _dev::fs::TempEnv::run(
-            |root| root,
+            |root| root.setup_dir("tests/fancy"),
             |root| {
+                let resolver = ResolverV1::new(root, "tests");
                 let vcs = Git::new(root).unwrap();
-                assert_eq!(vcs.ignore(root).unwrap_err().kind(), io::ErrorKind::Other);
+                vcs.ignore(
+                    &resolver,
+                    &Identifier::new("fancy").unwrap(),
+                    TestTarget::OutDir,
+                )
+                .unwrap();
             },
-            |root| root,
+            |root| root.expect_file("tests/fancy/.gitignore", b"\nout\n"),
         );
     }
 
     #[test]
     fn test_git_ignore_dir_no_file() {
         _dev::fs::TempEnv::run(
-            |root| root.setup_dir("fancy/out"),
+            |root| root.setup_dir("tests/fancy/out"),
             |root| {
+                let resolver = ResolverV1::new(root, "tests");
                 let vcs = Git::new(root).unwrap();
-                vcs.ignore(&root.join("fancy/out")).unwrap();
+                vcs.ignore(
+                    &resolver,
+                    &Identifier::new("fancy").unwrap(),
+                    TestTarget::OutDir,
+                )
+                .unwrap();
             },
             |root| {
-                root.expect_dir("fancy/out")
-                    .expect_file("fancy/out/.gitignore", b"\n**\n")
+                root.expect_dir("tests/fancy/out")
+                    .expect_file("tests/fancy/.gitignore", b"\nout\n")
             },
         );
     }
@@ -196,16 +197,22 @@ mod tests {
     fn test_git_ignore_dir_append() {
         _dev::fs::TempEnv::run(
             |root| {
-                root.setup_dir("fancy/out")
-                    .setup_file("fancy/out/.gitignore", "ref.pdf")
+                root.setup_dir("tests/fancy/out")
+                    .setup_file("tests/fancy/.gitignore", "ref.pdf")
             },
             |root| {
+                let resolver = ResolverV1::new(root, "tests");
                 let vcs = Git::new(root).unwrap();
-                vcs.ignore(&root.join("fancy/out")).unwrap();
+                vcs.ignore(
+                    &resolver,
+                    &Identifier::new("fancy").unwrap(),
+                    TestTarget::OutDir,
+                )
+                .unwrap();
             },
             |root| {
-                root.expect_dir("fancy/out")
-                    .expect_file("fancy/out/.gitignore", b"ref.pdf\n**\n")
+                root.expect_dir("tests/fancy/out")
+                    .expect_file("tests/fancy/.gitignore", b"ref.pdf\nout\n")
             },
         );
     }
@@ -214,31 +221,67 @@ mod tests {
     fn test_git_ignore_dir_no_op() {
         _dev::fs::TempEnv::run(
             |root| {
-                root.setup_dir("fancy/out")
-                    .setup_file("fancy/out/.gitignore", "**")
+                root.setup_dir("tests/fancy/out")
+                    .setup_file("tests/fancy/.gitignore", "out")
             },
             |root| {
+                let resolver = ResolverV1::new(root, "tests");
                 let vcs = Git::new(root).unwrap();
-                vcs.ignore(&root.join("fancy/out")).unwrap();
+                vcs.ignore(
+                    &resolver,
+                    &Identifier::new("fancy").unwrap(),
+                    TestTarget::OutDir,
+                )
+                .unwrap();
             },
             |root| {
-                root.expect_dir("fancy/out")
-                    .expect_file("fancy/out/.gitignore", b"**")
+                root.expect_dir("tests/fancy/out")
+                    .expect_file("tests/fancy/.gitignore", b"out")
             },
         );
     }
 
     #[test]
-    fn test_git_ignore_file_no_file() {
+    fn test_git_ignore_file_non_existent() {
         _dev::fs::TempEnv::run(
-            |root| root.setup_file_empty("fancy/out.txt"),
             |root| {
-                let vcs = Git::new(root).unwrap();
-                vcs.ignore(&root.join("fancy/out.txt")).unwrap();
+                root.setup_file_empty("tests/fancy/ref.typ")
+                    .setup_file("tests/fancy/.gitignore", b"ref.pdf")
             },
             |root| {
-                root.expect_dir("fancy/out.txt")
-                    .expect_file("fancy/.gitignore", b"\nout.txt\n")
+                let resolver = ResolverV1::new(root, "tests");
+                let vcs = Git::new(root).unwrap();
+                vcs.ignore(
+                    &resolver,
+                    &Identifier::new("fancy").unwrap(),
+                    TestTarget::RefScript,
+                )
+                .unwrap();
+            },
+            |root| {
+                root.expect_file_empty("tests/fancy/ref.typ")
+                    .expect_file("tests/fancy/.gitignore", b"ref.pdf\nref.typ\n")
+            },
+        );
+    }
+
+    #[test]
+    fn test_git_ignore_file_no_ignore_file() {
+        _dev::fs::TempEnv::run(
+            |root| root.setup_file_empty("tests/fancy/ref.typ"),
+            |root| {
+                let resolver = ResolverV1::new(root, "tests");
+                let vcs = Git::new(root).unwrap();
+                vcs.ignore(
+                    &resolver,
+                    &Identifier::new("fancy").unwrap(),
+                    TestTarget::RefScript,
+                )
+                .unwrap();
+            },
+            |root| {
+                root.expect_file_empty("tests/fancy/ref.typ")
+                    .expect_file("tests/fancy/.gitignore", b"\nref.typ\n")
             },
         );
     }
@@ -247,16 +290,22 @@ mod tests {
     fn test_git_ignore_file_append() {
         _dev::fs::TempEnv::run(
             |root| {
-                root.setup_file_empty("fancy/out.txt")
-                    .setup_file("fancy/.gitignore", "ref.pdf")
+                root.setup_file_empty("tests/fancy/ref.typ")
+                    .setup_file("tests/fancy/.gitignore", "ref.pdf")
             },
             |root| {
+                let resolver = ResolverV1::new(root, "tests");
                 let vcs = Git::new(root).unwrap();
-                vcs.ignore(&root.join("fancy/out.txt")).unwrap();
+                vcs.ignore(
+                    &resolver,
+                    &Identifier::new("fancy").unwrap(),
+                    TestTarget::RefScript,
+                )
+                .unwrap();
             },
             |root| {
-                root.expect_dir("fancy/out.txt")
-                    .expect_file("fancy/.gitignore", b"ref.pdf\nout.txt\n")
+                root.expect_file_empty("tests/fancy/ref.typ")
+                    .expect_file("tests/fancy/.gitignore", b"ref.pdf\nref.typ\n")
             },
         );
     }
@@ -265,17 +314,41 @@ mod tests {
     fn test_git_ignore_file_no_op() {
         _dev::fs::TempEnv::run(
             |root| {
-                root.setup_file_empty("fancy/out.txt")
-                    .setup_file("fancy/.gitignore", "out.txt")
+                root.setup_file_empty("tests/fancy/ref.typ")
+                    .setup_file("tests/fancy/.gitignore", "ref.typ")
             },
             |root| {
+                let resolver = ResolverV1::new(root, "tests");
                 let vcs = Git::new(root).unwrap();
-                vcs.ignore(&root.join("fancy/out.txt")).unwrap();
+                vcs.ignore(
+                    &resolver,
+                    &Identifier::new("fancy").unwrap(),
+                    TestTarget::RefScript,
+                )
+                .unwrap();
             },
             |root| {
-                root.expect_dir("fancy/out.txt")
-                    .expect_file("fancy/.gitignore", b"out.txt")
+                root.expect_file_empty("tests/fancy/ref.typ")
+                    .expect_file("tests/fancy/.gitignore", b"ref.typ")
             },
+        );
+    }
+
+    #[test]
+    fn test_git_unignore_dir_non_existent() {
+        _dev::fs::TempEnv::run(
+            |root| root.setup_dir("tests/fancy"),
+            |root| {
+                let resolver = ResolverV1::new(root, "tests");
+                let vcs = Git::new(root).unwrap();
+                vcs.unignore(
+                    &resolver,
+                    &Identifier::new("fancy").unwrap(),
+                    TestTarget::OutDir,
+                )
+                .unwrap();
+            },
+            |root| root.expect_dir("tests/fancy"),
         );
     }
 
@@ -283,16 +356,22 @@ mod tests {
     fn test_git_unignore_dir() {
         _dev::fs::TempEnv::run(
             |root| {
-                root.setup_dir("fancy/out")
-                    .setup_file("fancy/out/.gitignore", "ref.pdf\n**")
+                root.setup_dir("tests/fancy/out")
+                    .setup_file("tests/fancy/.gitignore", "ref.pdf\nout")
             },
             |root| {
+                let resolver = ResolverV1::new(root, "tests");
                 let vcs = Git::new(root).unwrap();
-                vcs.unignore(&root.join("fancy/out")).unwrap();
+                vcs.unignore(
+                    &resolver,
+                    &Identifier::new("fancy").unwrap(),
+                    TestTarget::OutDir,
+                )
+                .unwrap();
             },
             |root| {
-                root.expect_dir("fancy/out")
-                    .expect_file("fancy/out/.gitignore", b"ref.pdf\n")
+                root.expect_dir("tests/fancy/out")
+                    .expect_file("tests/fancy/.gitignore", b"ref.pdf\n")
             },
         );
     }
@@ -301,14 +380,20 @@ mod tests {
     fn test_git_unignore_dir_remove_empty() {
         _dev::fs::TempEnv::run(
             |root| {
-                root.setup_dir("fancy/out")
-                    .setup_file("fancy/out/.gitignore", "**")
+                root.setup_dir("tests/fancy/out")
+                    .setup_file("tests/fancy/.gitignore", "out")
             },
             |root| {
+                let resolver = ResolverV1::new(root, "tests");
                 let vcs = Git::new(root).unwrap();
-                vcs.unignore(&root.join("fancy/out")).unwrap();
+                vcs.unignore(
+                    &resolver,
+                    &Identifier::new("fancy").unwrap(),
+                    TestTarget::OutDir,
+                )
+                .unwrap();
             },
-            |root| root.expect_dir("fancy/out"),
+            |root| root.expect_dir("tests/fancy/out"),
         );
     }
 
@@ -316,29 +401,59 @@ mod tests {
     fn test_git_unignore_dir_no_op() {
         _dev::fs::TempEnv::run(
             |root| {
-                root.setup_dir("fancy/out")
-                    .setup_file("fancy/out/.gitignore", "ref.pdf\n")
+                root.setup_dir("tests/fancy/out")
+                    .setup_file("tests/fancy/.gitignore", "ref.pdf\n")
             },
             |root| {
+                let resolver = ResolverV1::new(root, "tests");
                 let vcs = Git::new(root).unwrap();
-                vcs.unignore(&root.join("fancy/out")).unwrap();
+                vcs.unignore(
+                    &resolver,
+                    &Identifier::new("fancy").unwrap(),
+                    TestTarget::OutDir,
+                )
+                .unwrap();
             },
             |root| {
-                root.expect_dir("fancy/out")
-                    .expect_file("fancy/out/.gitignore", b"ref.pdf\n")
+                root.expect_dir("tests/fancy/out")
+                    .expect_file("tests/fancy/.gitignore", b"ref.pdf\n")
             },
         );
     }
 
     #[test]
-    fn test_git_unignore_dir_no_file() {
+    fn test_git_unignore_dir_no_ignore_file() {
         _dev::fs::TempEnv::run(
-            |root| root.setup_dir("fancy/out"),
+            |root| root.setup_dir("tests/fancy/out"),
             |root| {
+                let resolver = ResolverV1::new(root, "tests");
                 let vcs = Git::new(root).unwrap();
-                vcs.unignore(&root.join("fancy/out")).unwrap();
+                vcs.unignore(
+                    &resolver,
+                    &Identifier::new("fancy").unwrap(),
+                    TestTarget::OutDir,
+                )
+                .unwrap();
             },
-            |root| root.expect_dir("fancy/out"),
+            |root| root.expect_dir("tests/fancy/out"),
+        );
+    }
+
+    #[test]
+    fn test_git_unignore_file_non_existent() {
+        _dev::fs::TempEnv::run(
+            |root| root.setup_file("tests/fancy/.gitignore", "ref.pdf\nref.typ"),
+            |root| {
+                let resolver = ResolverV1::new(root, "tests");
+                let vcs = Git::new(root).unwrap();
+                vcs.unignore(
+                    &resolver,
+                    &Identifier::new("fancy").unwrap(),
+                    TestTarget::RefScript,
+                )
+                .unwrap();
+            },
+            |root| root.expect_file("tests/fancy/.gitignore", b"ref.pdf\n"),
         );
     }
 
@@ -346,16 +461,22 @@ mod tests {
     fn test_git_unignore_file() {
         _dev::fs::TempEnv::run(
             |root| {
-                root.setup_file("fancy/.gitignore", "ref.pdf\nout.txt")
-                    .setup_file_empty("fancy/out.txt")
+                root.setup_file("tests/fancy/.gitignore", "ref.pdf\nref.typ")
+                    .setup_file_empty("tests/fancy/ref.typ")
             },
             |root| {
+                let resolver = ResolverV1::new(root, "tests");
                 let vcs = Git::new(root).unwrap();
-                vcs.unignore(&root.join("fancy/out.txt")).unwrap();
+                vcs.unignore(
+                    &resolver,
+                    &Identifier::new("fancy").unwrap(),
+                    TestTarget::RefScript,
+                )
+                .unwrap();
             },
             |root| {
-                root.expect_file("fancy/.gitignore", b"ref.pdf\n")
-                    .expect_file_empty("fancy/out.txt")
+                root.expect_file("tests/fancy/.gitignore", b"ref.pdf\n")
+                    .expect_file_empty("tests/fancy/ref.typ")
             },
         );
     }
@@ -364,14 +485,20 @@ mod tests {
     fn test_git_unignore_file_remove_empty() {
         _dev::fs::TempEnv::run(
             |root| {
-                root.setup_file("fancy/.gitignore", "out.txt")
-                    .setup_file_empty("fancy/out.txt")
+                root.setup_file("tests/fancy/.gitignore", "ref.typ")
+                    .setup_file_empty("tests/fancy/ref.typ")
             },
             |root| {
+                let resolver = ResolverV1::new(root, "tests");
                 let vcs = Git::new(root).unwrap();
-                vcs.unignore(&root.join("fancy/out.txt")).unwrap();
+                vcs.unignore(
+                    &resolver,
+                    &Identifier::new("fancy").unwrap(),
+                    TestTarget::RefScript,
+                )
+                .unwrap();
             },
-            |root| root.expect_file_empty("fancy/out.txt"),
+            |root| root.expect_file_empty("tests/fancy/ref.typ"),
         );
     }
 
@@ -379,29 +506,41 @@ mod tests {
     fn test_git_unignore_file_no_op() {
         _dev::fs::TempEnv::run(
             |root| {
-                root.setup_file_empty("fancy/out.txt")
-                    .setup_file("fancy/.gitignore", "ref.pdf\n")
+                root.setup_file_empty("tests/fancy/ref.typ")
+                    .setup_file("tests/fancy/.gitignore", "ref.pdf\n")
             },
             |root| {
+                let resolver = ResolverV1::new(root, "tests");
                 let vcs = Git::new(root).unwrap();
-                vcs.unignore(&root.join("fancy/out.txt")).unwrap();
+                vcs.unignore(
+                    &resolver,
+                    &Identifier::new("fancy").unwrap(),
+                    TestTarget::RefScript,
+                )
+                .unwrap();
             },
             |root| {
-                root.expect_file_empty("fancy/out.txt")
-                    .expect_file("fancy/.gitignore", b"ref.pdf\n")
+                root.expect_file_empty("tests/fancy/ref.typ")
+                    .expect_file("tests/fancy/.gitignore", b"ref.pdf\n")
             },
         );
     }
 
     #[test]
-    fn test_git_unignore_file_no_file() {
+    fn test_git_unignore_file_no_ignore_file() {
         _dev::fs::TempEnv::run(
-            |root| root.setup_file_empty("fancy/out.txt"),
+            |root| root.setup_file_empty("tests/fancy/ref.typ"),
             |root| {
+                let resolver = ResolverV1::new(root, "tests");
                 let vcs = Git::new(root).unwrap();
-                vcs.unignore(&root.join("fancy/out.txt")).unwrap();
+                vcs.unignore(
+                    &resolver,
+                    &Identifier::new("fancy").unwrap(),
+                    TestTarget::RefScript,
+                )
+                .unwrap();
             },
-            |root| root.expect_dir("fancy/out.txt"),
+            |root| root.expect_dir("tests/fancy/ref.typ"),
         );
     }
 }

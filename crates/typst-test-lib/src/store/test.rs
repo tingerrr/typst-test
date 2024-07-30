@@ -232,11 +232,11 @@ impl Test {
     ) -> io::Result<()> {
         if let Some(vcs) = vcs {
             if self.is_ephemeral() {
-                vcs.ignore_target(resolver, &self.id, TestTarget::RefDir)?;
+                vcs.ignore(resolver, &self.id, TestTarget::RefDir)?;
             }
 
-            vcs.ignore_target(resolver, &self.id, TestTarget::OutDir)?;
-            vcs.ignore_target(resolver, &self.id, TestTarget::DiffDir)?;
+            vcs.ignore(resolver, &self.id, TestTarget::OutDir)?;
+            vcs.ignore(resolver, &self.id, TestTarget::DiffDir)?;
         }
 
         Ok(())
@@ -249,7 +249,7 @@ impl Test {
         vcs: Option<&dyn Vcs>,
     ) -> io::Result<()> {
         if let Some(vcs) = vcs {
-            vcs.ignore_target(resolver, &self.id, TestTarget::RefDir)?;
+            vcs.ignore(resolver, &self.id, TestTarget::RefDir)?;
         }
         Ok(())
     }
@@ -261,7 +261,7 @@ impl Test {
         vcs: Option<&dyn Vcs>,
     ) -> io::Result<()> {
         if let Some(vcs) = vcs {
-            vcs.unignore_target(resolver, &self.id, TestTarget::RefDir)?;
+            vcs.unignore(resolver, &self.id, TestTarget::RefDir)?;
         }
         Ok(())
     }
