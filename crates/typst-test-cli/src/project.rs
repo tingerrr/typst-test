@@ -22,6 +22,8 @@ const DEFAULT_TEST_INPUT: &str = include_str!("../../../assets/default-test/test
 const DEFAULT_TEST_OUTPUT: &[u8] = include_bytes!("../../../assets/default-test/test.png");
 
 pub fn try_open_manifest(root: &Path) -> anyhow::Result<Option<Manifest>> {
+    tracing::debug!(?root, "reading manifest");
+
     if typst_project::is_project_root(root)? {
         let content = std::fs::read_to_string(root.join(typst_project::heuristics::MANIFEST_FILE))?;
         let manifest = Manifest::from_str(&content)?;
@@ -151,11 +153,13 @@ impl Project {
 
     pub fn init(&mut self, options: ScaffoldOptions) -> anyhow::Result<()> {
         let tests_root_dir = self.tests_root();
-        tracing::trace!(path = ?tests_root_dir, "creating tests root dir");
+        let _span = tracing::debug_span!("initalizing project", root = ?tests_root_dir);
+
+        tracing::debug!(path = ?tests_root_dir, "creating tests root");
         util::fs::create_dir(tests_root_dir, false)?;
 
         if options.contains(ScaffoldOptions::EXAMPLE) {
-            tracing::debug!("adding default test");
+            tracing::debug!("adding example test");
             self.create_test(
                 Identifier::new("example").unwrap(),
                 Some(ReferenceKind::Persistent),
@@ -163,17 +167,22 @@ impl Project {
             )?;
             Ok(())
         } else {
-            tracing::debug!("skipping default test");
             Ok(())
         }
     }
 
     pub fn uninit(&self) -> anyhow::Result<()> {
-        util::fs::remove_dir(self.tests_root(), true)?;
+        let tests_root_dir = self.tests_root();
+        let _span = tracing::debug_span!("initalizing project", root = ?tests_root_dir);
+
+        tracing::trace!(path = ?tests_root_dir, "removing");
+        util::fs::remove_dir(tests_root_dir, true)?;
         Ok(())
     }
 
     pub fn clean_artifacts(&self) -> anyhow::Result<()> {
+        let _span = tracing::debug_span!("cleaning temporary directories");
+
         self.tests
             .par_iter()
             .try_for_each(|(_, test)| test.delete_temporary_directories(&self.resolver))?;
@@ -182,6 +191,8 @@ impl Project {
     }
 
     pub fn load_template(&mut self) -> anyhow::Result<()> {
+        tracing::debug!("loading template");
+
         if let Some(template) = self.template_path() {
             match fs::read_to_string(template) {
                 Ok(template) => self.template = Some(template),
@@ -199,18 +210,25 @@ impl Project {
         kind: Option<ReferenceKind>,
         use_template: bool,
     ) -> anyhow::Result<()> {
+        let _span = tracing::debug_span!("creating test", test = ?id, ?kind, ?use_template);
+
         if self.tests.contains_key(&id) {
             anyhow::bail!("Test '{id}' alreayd exists");
         }
 
         let source = match (use_template, &self.template) {
             (true, Some(template)) => template,
-            (_, None) | (false, _) => DEFAULT_TEST_INPUT,
+            (true, None) => {
+                tracing::debug!("no template loaded, falling back to default");
+                DEFAULT_TEST_INPUT
+            }
+            (false, _) => DEFAULT_TEST_INPUT,
         };
 
         let reference = match kind {
             Some(ReferenceKind::Ephemeral) => Some(References::Ephemeral(source.into())),
             Some(ReferenceKind::Persistent) if use_template && self.template.is_some() => {
+                let _span = tracing::debug_span!("compiling non default persistent test");
                 todo!("compile")
             }
             Some(ReferenceKind::Persistent) => Some(References::Persistent(Document::new(vec![
@@ -226,6 +244,8 @@ impl Project {
     }
 
     pub fn delete_tests(&mut self) -> anyhow::Result<()> {
+        let _span = tracing::debug_span!("deleting tests");
+
         self.tests
             .par_iter()
             .try_for_each(|(_, test)| test.delete(&self.resolver))?;
@@ -235,6 +255,8 @@ impl Project {
     }
 
     pub fn collect_tests<T: TestSet + 'static>(&mut self, test_set: T) -> anyhow::Result<()> {
+        let _span = tracing::debug_span!("collecting tests", ?test_set);
+
         // TODO: error handling
         let mut collector = Collector::new(&self.resolver);
         collector.with_test_set(test_set);

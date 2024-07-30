@@ -52,6 +52,8 @@ pub struct Context<'a> {
 
 impl<'a> Context<'a> {
     pub fn new(args: &'a Args, reporter: Reporter) -> Self {
+        tracing::debug!(args = ?args, "creating context");
+
         Self {
             args,
             reporter: Arc::new(Mutex::new(reporter)),
@@ -60,6 +62,8 @@ impl<'a> Context<'a> {
     }
 
     pub fn ensure_project(&mut self) -> anyhow::Result<Project> {
+        tracing::debug!("looking for project");
+
         let root = match &self.args.global.root {
             Some(root) => root.to_path_buf(),
             None => {
@@ -85,6 +89,7 @@ impl<'a> Context<'a> {
             anyhow::bail!("Root not found");
         }
 
+        tracing::info!(?root, "found project root");
         let manifest = match project::try_open_manifest(&root) {
             Ok(manifest) => manifest,
             Err(err) => {
@@ -106,7 +111,8 @@ impl<'a> Context<'a> {
             }
         };
 
-        let manifest_config = manifest
+        tracing::info!("reading manifest config");
+        let config = manifest
             .as_ref()
             .and_then(|m| {
                 m.tool
@@ -116,16 +122,15 @@ impl<'a> Context<'a> {
             .transpose()?
             .flatten();
 
-        Ok(Project::new(
-            root,
-            manifest_config.unwrap_or_default(),
-            manifest,
-        ))
+        tracing::trace!(?config, "read manifest config");
+
+        Ok(Project::new(root, config.unwrap_or_default(), manifest))
     }
 
     pub fn ensure_init(&mut self) -> anyhow::Result<Project> {
         let project = self.ensure_project()?;
 
+        tracing::debug!("ensuring project is initalized");
         if !project.is_init()? {
             self.set_operation_failure();
             let mut reporter = self.reporter.lock().unwrap();
@@ -156,6 +161,7 @@ impl<'a> Context<'a> {
             }
         };
 
+        tracing::debug!("collecting tests");
         project.collect_tests(test_set)?;
 
         match (project.matched().len(), op_requires_confirm_for_many.into()) {
@@ -169,6 +175,9 @@ impl<'a> Context<'a> {
             // Explicitly passing more than one test implies `--all`
             (_, Some(_)) if op_args.all || !op_args.tests.is_empty() => {}
             (_, Some(op)) => {
+                tracing::error!(
+                    "destructive operation with more than one test and no --all confirmation"
+                );
                 self.operation_failure(|r| {
                     writeln!(r, "Matched more than one test")?;
                     r.hint(format!("Pass `--all` to {op} more than one test at a time"))
@@ -180,6 +189,11 @@ impl<'a> Context<'a> {
             }
         }
 
+        tracing::debug!(
+            matched = ?project.matched().len(),
+            filtered = ?project.filtered().len(),
+            "collected tests",
+        );
         Ok(project)
     }
 
@@ -191,6 +205,8 @@ impl<'a> Context<'a> {
         &mut self,
         f: impl FnOnce(&mut Reporter) -> io::Result<()>,
     ) -> io::Result<()> {
+        tracing::error!("reporting operation failure");
+
         self.set_operation_failure();
         self.reporter.lock().unwrap().operation_failure(f)?;
         Ok(())
@@ -204,6 +220,8 @@ impl<'a> Context<'a> {
         &mut self,
         f: impl FnOnce(&mut Reporter) -> io::Result<()>,
     ) -> io::Result<()> {
+        tracing::error!("reporting test failure");
+
         self.set_test_failure();
         f(&mut self.reporter.lock().unwrap())
     }
@@ -220,6 +238,8 @@ impl<'a> Context<'a> {
         &mut self,
         f: impl FnOnce(&mut Reporter) -> io::Result<()>,
     ) -> io::Result<()> {
+        tracing::error!("reporting unexpected error");
+
         self.set_unexpected_error();
         f(&mut self.reporter.lock().unwrap())
     }
@@ -229,6 +249,8 @@ impl<'a> Context<'a> {
     }
 
     pub fn exit(self) -> ExitCode {
+        tracing::trace!(exit_code = ?self.exit_code, "exiting");
+
         let mut reporter = self.reporter.lock().unwrap();
         reporter.reset().unwrap();
         write!(reporter, "").unwrap();
@@ -311,12 +333,22 @@ pub struct OperationArgs {
 
 impl OperationArgs {
     pub fn test_set(&self) -> anyhow::Result<DynTestSet> {
-        Ok(match self.expression.clone() {
-            Some(expr) => expr.build(&test_set::BUILTIN_TESTSETS)?,
+        let _span = tracing::debug_span!("building test set");
+
+        let test_set = match self.expression.clone() {
+            Some(expr) => {
+                tracing::debug!("compiling test set");
+                expr.build(&test_set::BUILTIN_TESTSETS)?
+            }
             None => {
                 if self.tests.is_empty() {
+                    tracing::debug!("compiling default test set");
                     test_set::builtin::default()
                 } else {
+                    tracing::debug!(
+                        tests = ?self.tests,
+                        "building strict test set from explicit tests",
+                    );
                     self.tests
                         .iter()
                         .map(|id| test_set::builtin::name_string(id.to_inner(), true))
@@ -325,7 +357,10 @@ impl OperationArgs {
                         })
                 }
             }
-        })
+        };
+
+        tracing::trace!(?test_set, "built test set");
+        Ok(test_set)
     }
 }
 
@@ -348,12 +383,19 @@ pub struct FontArgs {
 
 impl FontArgs {
     pub fn searcher(&self) -> FontSearcher {
+        let _span = tracing::debug_span!("searching for fonts");
+
         let mut searcher = FontSearcher::new();
         searcher.search(
             self.font_paths.iter().map(PathBuf::as_path),
             !self.ignore_system_fonts,
         );
 
+        tracing::debug!(
+            fonts = ?searcher.fonts.len(),
+            included_system_fonts = ?!self.ignore_system_fonts,
+            "collected fonts",
+        );
         searcher
     }
 }
