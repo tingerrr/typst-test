@@ -25,6 +25,8 @@ use crate::world::SystemWorld;
 
 pub const ANNOT_PADDING: usize = 8;
 
+const MAX_TEST_PAD: usize = 50;
+
 fn write_with<W: WriteColor + ?Sized>(
     w: &mut W,
     set: impl FnOnce(&mut ColorSpec) -> &mut ColorSpec,
@@ -448,9 +450,19 @@ impl Reporter {
             write_bold(self, |w| writeln!(w, "Tests"))?;
         }
 
+        let pad = Ord::min(
+            project
+                .matched()
+                .keys()
+                .map(|id| id.len())
+                .max()
+                .unwrap_or(usize::MAX),
+            MAX_TEST_PAD,
+        );
+
         self.with_indent(2, |this| {
             for (name, test) in project.matched() {
-                write!(this, "{name} ")?;
+                write!(this, "{name: <pad$} ")?;
                 match test.ref_kind() {
                     Some(ReferenceKind::Ephemeral) => {
                         write_bold_colored(this, "ephemeral", Color::Yellow)?
