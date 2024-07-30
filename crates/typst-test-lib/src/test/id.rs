@@ -88,7 +88,7 @@ impl Identifier {
                 }
             }
 
-            Ok(Self(id.into()))
+            Ok(Identifier(id.into()))
         }
 
         inner(path.as_ref())

@@ -19,9 +19,10 @@ run *args='--release':
 
 # run tests and checks similar to CI
 ci $RUSTFLAGS='-Dwarnings' $RUSTDOCFLAGS='-Dwarnings':
-	just check clippy
-	just check format
-	cargo doc --workspace --no-deps
+	cargo +1.80 test --workspace
+	cargo +1.80 clippy --workspace
+	cargo +1.80 fmt --all --check
+	cargo +1.80 doc --workspace --no-deps
 
 # clean all temporary directories and build artifacts
 clean:
@@ -29,5 +30,5 @@ clean:
 	rm -r {{ book-src / 'build' }}
 
 # install typst-test using cargo
-install:
-	cargo install --path crates/typst-test-cli
+install *args='--force':
+	cargo install --path crates/typst-test-cli {{ args }}

@@ -2,6 +2,22 @@
 resolver = "2"
 members = ["crates/*"]
 
+[workspace.package]
+version = "0.1.0"
+# must match ci.yml
+rust-version = "1.80.0"
+authors = ["tingerrr <me@tinger.dev>"]
+edition = "2021"
+homepage = "https://tingerrr.github.io/typst-test/"
+repository = "https://github.com/tingerrr/typst-test"
+license = "Apache-2.0"
+categories = [
+  "command-line-utilities",
+  "development-tools::testing",
+]
+keywords = ["typst", "test"]
+readme = "README.md"
+
 [workspace.dependencies]
 typst-project = { git = "https://github.com/tingerrr/typst-project", rev = "a71db5451ebdca2174adc0a323c71ba5ab2f8120" }
 
