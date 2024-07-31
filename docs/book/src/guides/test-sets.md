@@ -60,7 +60,7 @@ tt list test1 test2 ...
 is equivalent to the following invocation
 
 ```bash
-tt list --expression 'default & (id(=test1) | id(=test2) | ...)'
+tt list --expression 'none & (id(=test1) | id(=test2) | ...)'
 ```
 
 ## An Iterative Example
