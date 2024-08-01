@@ -19,7 +19,9 @@ run *args='--release':
 
 # run tests and checks similar to CI
 ci $RUSTFLAGS='-Dwarnings' $RUSTDOCFLAGS='-Dwarnings':
-	cargo +1.80 test --workspace
+	# FIXME: See https://github.com/rust-lang/rust/issues/128538
+	# add back doc tests by removing --all-targets
+	cargo +1.80 test --workspace --all-targets
 	cargo +1.80 clippy --workspace
 	cargo +1.80 fmt --all --check
 	cargo +1.80 doc --workspace --no-deps

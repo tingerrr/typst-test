@@ -10,7 +10,7 @@ lib *args:
 
 # run the cli tests
 cli *args:
-	cargo nextest run --package typst-test {{ args }}
+	cargo nextest run --package typst-test-cli {{ args }}
 
 # run the doc tests
 doc *args:
