@@ -31,6 +31,7 @@ ecow.workspace = true
 env_proxy.workspace = true
 flate2.workspace = true
 fontdb.workspace = true
+insta = { workspace = true, features = ["yaml"] }
 native-tls.workspace = true
 once_cell.workspace = true
 rayon.workspace = true

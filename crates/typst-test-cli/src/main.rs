@@ -21,6 +21,7 @@ mod package;
 mod project;
 mod report;
 mod test;
+mod ui;
 mod world;
 
 fn color_stream(color: ColorChoice, is_stderr: bool) -> StandardStream {

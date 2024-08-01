@@ -17,6 +17,10 @@ doc *args:
 	# TODO: this currently deadlocks my pc at 100% CPU
 	# cargo test --workspace --doc {{ args }}
 
+# run cargo insta and review the snapshot changes
+review *args='--review':
+	cargo insta test --test-runner nextest {{ args }}
+
 # test the book
 book *args:
 	mdbook test {{ book-src }} {{ args }}
