@@ -19,8 +19,6 @@ use std::time::{Duration, Instant};
 use native_tls::{Certificate, TlsConnector};
 use ureq::Response;
 
-use crate::report::Reporter;
-
 /// Keep track of this many download speed samples.
 const SPEED_SAMPLES: usize = 5;
 
@@ -189,84 +187,4 @@ impl RemoteReader {
 
         Ok(data)
     }
-
-    /// Compile and format several download statistics and make an attempt at
-    /// displaying them on standard error.
-    fn display(&mut self, reporter: &mut Reporter) -> io::Result<()> {
-        let sum: usize = self.downloaded_last_few_secs.iter().sum();
-        let len = self.downloaded_last_few_secs.len();
-        let speed = if len > 0 {
-            sum / len
-        } else {
-            self.content_len.unwrap_or(0)
-        };
-
-        let total_downloaded = as_bytes_unit(self.total_downloaded);
-        let speed_h = as_throughput_unit(speed);
-        let elapsed = time_suffix(Instant::now().saturating_duration_since(self.start_time));
-
-        match self.content_len {
-            Some(content_len) => {
-                let percent = (self.total_downloaded as f64 / content_len as f64) * 100.;
-                let remaining = content_len - self.total_downloaded;
-
-                let download_size = as_bytes_unit(content_len);
-                let eta = time_suffix(Duration::from_secs(if speed == 0 {
-                    0
-                } else {
-                    (remaining / speed) as u64
-                }));
-                reporter.hint(
-                    format!("{total_downloaded} / {download_size} ({percent:3.0} %) {speed_h} in {elapsed} ETA: {eta}"),
-                )?;
-            }
-            None => reporter.hint(format!(
-                "Total downloaded: {total_downloaded} Speed: {speed_h} Elapsed: {elapsed}"
-            ))?,
-        };
-        Ok(())
-    }
-}
-
-/// Append a unit-of-time suffix.
-fn time_suffix(duration: Duration) -> String {
-    let secs = duration.as_secs();
-    match format_dhms(secs) {
-        (0, 0, 0, s) => format!("{s:2.0}s"),
-        (0, 0, m, s) => format!("{m:2.0}m {s:2.0}s"),
-        (0, h, m, s) => format!("{h:2.0}h {m:2.0}m {s:2.0}s"),
-        (d, h, m, s) => format!("{d:3.0}d {h:2.0}h {m:2.0}m {s:2.0}s"),
-    }
-}
-
-/// Format the total amount of seconds into the amount of days, hours, minutes
-/// and seconds.
-fn format_dhms(sec: u64) -> (u64, u8, u8, u8) {
-    let (mins, sec) = (sec / 60, (sec % 60) as u8);
-    let (hours, mins) = (mins / 60, (mins % 60) as u8);
-    let (days, hours) = (hours / 24, (hours % 24) as u8);
-    (days, hours, mins, sec)
-}
-
-/// Format a given size as a unit of time.
-fn as_bytes_unit(size: usize) -> String {
-    const KI: f64 = 1024.0;
-    const MI: f64 = KI * KI;
-    const GI: f64 = KI * KI * KI;
-
-    let size = size as f64;
-
-    if size >= GI {
-        format!("{:5.1} GiB", size / GI)
-    } else if size >= MI {
-        format!("{:5.1} MiB", size / MI)
-    } else if size >= KI {
-        format!("{:5.1} KiB", size / KI)
-    } else {
-        format!("{size:3.0} B")
-    }
-}
-
-fn as_throughput_unit(size: usize) -> String {
-    as_bytes_unit(size) + "/s"
 }

@@ -1,6 +1,13 @@
+use std::io;
 use std::io::Write;
 
+use serde::Serialize;
+use termcolor::{Color, WriteColor};
+
 use super::Context;
+use crate::report::reports::ProjectJson;
+use crate::report::{Report, Verbosity};
+use crate::ui;
 
 #[derive(clap::Parser, Debug, Clone)]
 #[group(id = "init-args")]
@@ -23,22 +30,45 @@ pub enum Vcs {
     None,
 }
 
+#[derive(Debug, Serialize)]
+pub struct InitReport<'p> {
+    #[serde(flatten)]
+    inner: ProjectJson<'p>,
+}
+
+impl Report for InitReport<'_> {
+    fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> io::Result<()> {
+        write!(writer, "Initialized project ")?;
+        let (color, name) = match &self.inner.package {
+            Some(package) => (Color::Cyan, package.name),
+            None => (Color::Yellow, "<unnamed>"),
+        };
+        ui::write_colored(&mut writer, color, |w| write!(w, "{}", name))?;
+        writeln!(writer)?;
+
+        Ok(())
+    }
+}
+
 pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
     let mut project = ctx.ensure_project()?;
 
     if project.is_init()? {
         ctx.operation_failure(|r| {
-            writeln!(r, "Project '{}' was already initialized", project.name(),)
+            r.ui().error_with(|w| {
+                writeln!(w, "Project ")?;
+                ui::write_colored(w, Color::Cyan, |w| write!(w, "{}", project.name()))?;
+                writeln!(w, " was already initialized")
+            })
         })?;
         anyhow::bail!("Project was already initalized");
     }
 
     project.init(args.no_example, args.vcs)?;
-    writeln!(
-        ctx.reporter.lock().unwrap(),
-        "Initialized project '{}'",
-        project.name()
-    )?;
+
+    ctx.reporter.lock().unwrap().report(&InitReport {
+        inner: ProjectJson::new(&project),
+    })?;
 
     Ok(())
 }

@@ -6,7 +6,7 @@ use std::sync::{mpsc, Arc, Mutex};
 
 use chrono::{DateTime, Utc};
 use clap::ColorChoice;
-use termcolor::{Color, WriteColor};
+use termcolor::WriteColor;
 use typst_test_lib::store::vcs::{Git, Vcs};
 use typst_test_lib::test::id::Identifier;
 use typst_test_lib::test_set::{DynTestSet, TestSetExpr};
@@ -16,7 +16,7 @@ use crate::fonts::FontSearcher;
 use crate::package::PackageStorage;
 use crate::project;
 use crate::project::Project;
-use crate::report::Reporter;
+use crate::report::{Format, Reporter};
 use crate::test::runner::{Event, Progress, Runner, RunnerConfig};
 use crate::world::SystemWorld;
 
@@ -93,9 +93,15 @@ impl<'a> Context<'a> {
                     Some(root) => root.to_path_buf(),
                     None => {
                         self.operation_failure(|r| {
-                            writeln!(r, "Must be inside a typst project")?;
-                            r.hint("You can pass the project root using '--root <path>'")?;
-                            Ok(())
+                            r.ui().error_hinted_with(
+                                |w| writeln!(w, "Must be inside a typst project"),
+                                |w| {
+                                    writeln!(
+                                        w,
+                                        "You can pass the project root using '--root <path>'"
+                                    )
+                                },
+                            )
                         })?;
                         anyhow::bail!("No project");
                     }
@@ -105,7 +111,8 @@ impl<'a> Context<'a> {
 
         if !root.try_exists()? {
             self.operation_failure(|r| {
-                writeln!(r, "Root '{}' directory not found", root.display())
+                r.ui()
+                    .error_with(|w| writeln!(w, "Root '{}' directory not found", root.display()))
             })?;
             anyhow::bail!("Root not found");
         }
@@ -115,16 +122,13 @@ impl<'a> Context<'a> {
             Ok(manifest) => manifest,
             Err(err) => {
                 if let Some(err) = err.root_cause().downcast_ref::<toml::de::Error>() {
-                    self.reporter.lock().unwrap().write_annotated(
-                        "warning:",
-                        Color::Yellow,
-                        None,
-                        |this| {
-                            tracing::error!(?err, "Couldn't parse manifest");
-                            writeln!(this, "Error while parsing manifest, skipping")?;
-                            writeln!(this, "{}", err.message())
-                        },
-                    )?;
+                    tracing::error!(?err, "Couldn't parse manifest");
+
+                    let reporter = self.reporter.lock().unwrap();
+                    reporter.ui().warning_with(|w| {
+                        writeln!(w, "Error while parsing manifest, skipping")?;
+                        writeln!(w, "{}", err.message())
+                    })?;
                     None
                 } else {
                     anyhow::bail!(err)
@@ -142,10 +146,9 @@ impl<'a> Context<'a> {
 
         tracing::debug!("ensuring project is initalized");
         if !project.is_init()? {
-            self.set_operation_failure();
-            let mut reporter = self.reporter.lock().unwrap();
-            reporter.operation_failure(|r| {
-                write!(r, "Project '{}' was not initialized", project.name())
+            self.operation_failure(|r| {
+                r.ui()
+                    .error_with(|w| writeln!(w, "Project '{}' was not initialized", project.name()))
             })?;
             anyhow::bail!("Project was not initialized");
         }
@@ -165,7 +168,8 @@ impl<'a> Context<'a> {
             Err(err) => {
                 self.set_operation_failure();
                 self.operation_failure(|r| {
-                    writeln!(r, "Couldn't parse test set expression:\n{err}")
+                    r.ui()
+                        .error_with(|w| writeln!(w, "Couldn't parse test set expression:\n{err}"))
                 })?;
                 anyhow::bail!(err);
             }
@@ -177,7 +181,7 @@ impl<'a> Context<'a> {
         match (project.matched().len(), op_requires_confirm_for_many.into()) {
             (0, _) => {
                 self.set_operation_failure();
-                self.operation_failure(|r| writeln!(r, "Matched no tests"))?;
+                self.operation_failure(|r| r.ui().error_with(|w| writeln!(w, "Matched no tests")))?;
                 anyhow::bail!("Matched no tests");
             }
             (1, _) => {}
@@ -189,8 +193,10 @@ impl<'a> Context<'a> {
                     "destructive operation with more than one test and no --all confirmation"
                 );
                 self.operation_failure(|r| {
-                    writeln!(r, "Matched more than one test")?;
-                    r.hint(format!("Pass `--all` to {op} more than one test at a time"))
+                    r.ui().error_hinted_with(
+                        |w| writeln!(w, "Matched more than one test"),
+                        |w| writeln!(w, "Pass `--all` to {op} more than one test at a time"),
+                    )
                 })?;
 
                 anyhow::bail!(
@@ -246,7 +252,7 @@ impl<'a> Context<'a> {
         tracing::error!("reporting operation failure");
 
         self.set_operation_failure();
-        self.reporter.lock().unwrap().operation_failure(f)?;
+        f(&mut self.reporter.lock().unwrap())?;
         Ok(())
     }
 
@@ -262,7 +268,8 @@ impl<'a> Context<'a> {
         tracing::error!("reporting test failure");
 
         self.set_test_failure();
-        f(&mut self.reporter.lock().unwrap())
+        f(&mut self.reporter.lock().unwrap())?;
+        Ok(())
     }
 
     pub fn run(&mut self) -> anyhow::Result<()> {
@@ -280,7 +287,8 @@ impl<'a> Context<'a> {
         tracing::error!("reporting unexpected error");
 
         self.set_unexpected_error();
-        f(&mut self.reporter.lock().unwrap())
+        f(&mut self.reporter.lock().unwrap())?;
+        Ok(())
     }
 
     pub fn is_operation_failure(&self) -> bool {
@@ -290,9 +298,15 @@ impl<'a> Context<'a> {
     pub fn exit(self) -> ExitCode {
         tracing::trace!(exit_code = ?self.exit_code, "exiting");
 
-        let mut reporter = self.reporter.lock().unwrap();
-        reporter.reset().unwrap();
-        write!(reporter, "").unwrap();
+        let reporter = self.reporter.lock().unwrap();
+        let mut out = reporter.ui().stdout();
+        let mut err = reporter.ui().stderr();
+
+        out.reset().unwrap();
+        write!(out, "").unwrap();
+
+        err.reset().unwrap();
+        write!(err, "").unwrap();
         ExitCode::from(self.exit_code)
     }
 }
@@ -494,7 +508,10 @@ impl Configure for ExportArgs {
         };
 
         if self.pdf || self.svg {
-            ctx.operation_failure(|r| writeln!(r, "PDF and SVGF export are not yet supported"))?;
+            ctx.operation_failure(|r| {
+                r.ui()
+                    .error_with(|w| writeln!(w, "PDF and SVGF export are not yet supported"))
+            })?;
             anyhow::bail!("Unsupported export mode used");
         }
 
@@ -679,10 +696,8 @@ pub struct PackageArgs {
 #[derive(clap::Args, Debug, Clone)]
 pub struct OutputArgs {
     /// The output format to use
-    ///
-    /// Using anything but pretty implies --color=never
-    #[arg(long, visible_alias = "fmt", default_value = "pretty", global = true)]
-    pub format: OutputFormat,
+    #[arg(long, visible_alias = "fmt", default_value = "human", global = true)]
+    pub format: Format,
 
     /// When to use colorful output
     ///

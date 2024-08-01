@@ -1,24 +1,51 @@
-use std::io::Write;
+use std::io;
 
-use typst_test_lib::test_set;
-use typst_test_lib::util;
+use serde::Serialize;
+use termcolor::{Color, WriteColor};
+use typst_test_lib::{test_set, util};
 
 use super::Context;
+use crate::report::reports::ProjectJson;
+use crate::report::{Report, Verbosity};
+use crate::ui;
+
+#[derive(Debug, Serialize)]
+pub struct InitReport<'p> {
+    #[serde(flatten)]
+    inner: ProjectJson<'p>,
+}
+
+impl Report for InitReport<'_> {
+    fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> io::Result<()> {
+        write!(writer, "Uninitalized project ")?;
+        let (color, name) = match &self.inner.package {
+            Some(package) => (Color::Cyan, package.name),
+            None => (Color::Yellow, "<unnamed>"),
+        };
+        ui::write_colored(&mut writer, color, |w| write!(w, "{}", name))?;
+        let count = self.inner.tests.len();
+        writeln!(
+            writer,
+            ", removed {} {}",
+            count,
+            util::fmt::plural(count, "test"),
+        )?;
+
+        Ok(())
+    }
+}
 
 pub fn run(ctx: &mut Context) -> anyhow::Result<()> {
     let mut project = ctx.ensure_project()?;
     project.collect_tests(test_set::builtin::all())?;
-    let count = project.matched().len();
 
     // TODO: confirmation?
 
     project.uninit()?;
-    writeln!(
-        ctx.reporter.lock().unwrap(),
-        "Removed {} {}",
-        count,
-        util::fmt::plural(count, "test"),
-    )?;
+
+    ctx.reporter.lock().unwrap().report(&InitReport {
+        inner: ProjectJson::new(&project),
+    })?;
 
     Ok(())
 }

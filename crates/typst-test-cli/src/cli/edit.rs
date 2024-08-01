@@ -4,6 +4,7 @@ use typst_test_lib::test::ReferenceKind;
 
 use super::{CompileArgs, Configure, Context, OperationArgs, RunArgs};
 use crate::project::Project;
+use crate::report::reports::SummaryReport;
 use crate::report::LiveReporterState;
 use crate::test::runner::RunnerConfig;
 
@@ -72,13 +73,14 @@ pub fn run(mut ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
             let project = &project;
 
             scope.spawn(move |_| {
-                let mut reporter = ctx.reporter.lock().unwrap();
-                let mut state = LiveReporterState::new("edited", project.matched().len());
+                let reporter = ctx.reporter.lock().unwrap();
+                let mut w = reporter.ui().stderr();
+                let mut state = LiveReporterState::new(&mut w, "edited", project.matched().len());
                 while let Ok(event) = rx.recv() {
-                    state.event(&mut reporter, world, event).unwrap();
+                    state.event(world, event).unwrap();
                 }
 
-                writeln!(reporter).unwrap();
+                writeln!(w).unwrap();
             });
 
             runner.run()
@@ -94,7 +96,7 @@ pub fn run(mut ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
     ctx.reporter
         .lock()
         .unwrap()
-        .run_summary(summary, "edited", args.run_args.summary)?;
+        .report(&SummaryReport::new("edited", &summary))?;
 
     Ok(())
 }

@@ -1,17 +1,15 @@
 use std::io;
-use std::io::IsTerminal;
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::process::ExitCode;
 
 use clap::{ColorChoice, Parser};
-use termcolor::Color;
-use termcolor::StandardStream;
 use tracing::Level;
 use tracing_subscriber::filter::Targets;
 use tracing_subscriber::prelude::*;
 use tracing_tree::HierarchicalLayer;
+use ui::Ui;
 
-use crate::cli::{Context, OutputFormat};
+use crate::cli::Context;
 use crate::report::Reporter;
 
 mod cli;
@@ -23,32 +21,6 @@ mod report;
 mod test;
 mod ui;
 mod world;
-
-fn color_stream(color: ColorChoice, is_stderr: bool) -> StandardStream {
-    let choice = match color {
-        clap::ColorChoice::Auto => {
-            let stream_is_term = if is_stderr {
-                io::stderr().is_terminal()
-            } else {
-                io::stdout().is_terminal()
-            };
-
-            if stream_is_term {
-                termcolor::ColorChoice::Auto
-            } else {
-                termcolor::ColorChoice::Never
-            }
-        }
-        ColorChoice::Always => termcolor::ColorChoice::Always,
-        ColorChoice::Never => termcolor::ColorChoice::Never,
-    };
-
-    if is_stderr {
-        StandardStream::stderr(choice)
-    } else {
-        StandardStream::stdout(choice)
-    }
-}
 
 fn is_color(color: clap::ColorChoice, is_stderr: bool) -> bool {
     match color {
@@ -67,7 +39,7 @@ fn is_color(color: clap::ColorChoice, is_stderr: bool) -> bool {
 const IS_OUTPUT_STDERR: bool = false;
 
 fn main() -> ExitCode {
-    let mut args = cli::Args::parse();
+    let args = cli::Args::parse();
 
     // BUG: this interferes with the live printing
     if args.global.output.verbose >= 1 {
@@ -88,24 +60,25 @@ fn main() -> ExitCode {
                 },
             ))
             .init();
-
-        // don't do any fancy line clearing if we're logging
-        args.global.output.format = OutputFormat::Plain;
     }
 
-    if !args.global.output.format.is_pretty() {
-        args.global.output.color = ColorChoice::Never;
-    }
+    let cc = match args.global.output.color {
+        ColorChoice::Auto => termcolor::ColorChoice::Auto,
+        ColorChoice::Always => termcolor::ColorChoice::Always,
+        ColorChoice::Never => termcolor::ColorChoice::Never,
+    };
 
     // TODO: simpler output when using plain
-    let mut reporter = Reporter::new(
-        color_stream(args.global.output.color, IS_OUTPUT_STDERR),
+    let reporter = Reporter::new(
+        Ui::new(cc, cc),
+        report::Verbosity::All,
         args.global.output.format,
     );
 
     if let Some(jobs) = args.global.jobs {
         let jobs = if jobs < 2 {
             reporter
+                .ui()
                 .warning("at least 2 threads are needed, using 2")
                 .unwrap();
             2
@@ -133,31 +106,27 @@ fn main() -> ExitCode {
                 .is_some_and(|err: &io::Error| err.kind() == io::ErrorKind::BrokenPipe) => {}
         Err(err) => {
             ctx.unexpected_error(|r| {
-                writeln!(
-                    r,
-                    "typst-test ran into an unexpected error, this is most likely a bug"
-                )
-                .unwrap();
-                writeln!(
-                    r,
-                    "Please consider reporting this at {}/issues/new",
-                    std::env!("CARGO_PKG_REPOSITORY")
-                )
-                .unwrap();
-
-                if !std::env::var("RUST_BACKTRACE").is_ok_and(|var| var == "full") {
-                    r.hint(
-                        "consider running with the environment variable RUST_BACKTRACE set to 'full' when reporting issues",
+                r.ui().error_with(|w| {
+                    writeln!(
+                        w,
+                        "typst-test ran into an unexpected error, this is most likely a bug"
+                    )?;
+                    writeln!(
+                        w,
+                        "Please consider reporting this at {}/issues/new",
+                        std::env!("CARGO_PKG_REPOSITORY")
                     )
-                    .unwrap();
+                })?;
+                if !std::env::var("RUST_BACKTRACE").is_ok_and(|var| var == "full") {
+                    r.ui().hint_with(|w| {
+                        writeln!(
+                            w,
+                            "consider running with the environment variable RUST_BACKTRACE set to 'full' when reporting issues",
+                        )?;
+                        writeln!(w)
+                    })?;
                 }
-
-                writeln!(r).unwrap();
-
-                r.write_annotated("Error:", Color::Red, None, |r| writeln!(r, "{err:?}"))
-                    .unwrap();
-
-                Ok(())
+                r.ui().error_with(|w| writeln!(w, "{err:?}"))
             })
             .unwrap();
         }

@@ -1,10 +1,16 @@
+use std::io;
 use std::io::Write;
 
+use serde::Serialize;
+use termcolor::{Color, WriteColor};
 use typst_test_lib::test::id::Identifier;
 use typst_test_lib::test::ReferenceKind;
 use typst_test_lib::test_set;
 
 use super::Context;
+use crate::report::reports::TestJson;
+use crate::report::{Report, Verbosity};
+use crate::ui;
 
 #[derive(clap::Args, Debug, Clone)]
 #[group(id = "add-args")]
@@ -28,13 +34,35 @@ pub struct Args {
     pub test: Identifier,
 }
 
+#[derive(Debug, Serialize)]
+pub struct AddedReport<'t> {
+    #[serde(flatten)]
+    inner: TestJson<'t>,
+}
+
+impl Report for AddedReport<'_> {
+    fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> io::Result<()> {
+        write!(writer, "Added ")?;
+        ui::write_colored(&mut writer, Color::Cyan, |w| write!(w, "{}", self.inner.id))?;
+        writeln!(writer)?;
+
+        Ok(())
+    }
+}
+
 pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
     let mut project = ctx.ensure_init()?;
     project.collect_tests(test_set::builtin::all())?;
     project.load_template()?;
 
     if project.matched().contains_key(&args.test) {
-        ctx.operation_failure(|r| writeln!(r, "Test '{}' already exists", args.test))?;
+        ctx.operation_failure(|r| {
+            r.ui().error_with(|w| {
+                writeln!(w, "Test ")?;
+                ui::write_colored(w, Color::Cyan, |w| write!(w, "{}", args.test))?;
+                writeln!(w, " already exists")
+            })
+        })?;
         anyhow::bail!("Test already exists");
     }
 
@@ -48,7 +76,9 @@ pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
 
     project.create_test(args.test.clone(), kind, !args.no_template)?;
     let test = &project.matched()[&args.test];
-    ctx.reporter.lock().unwrap().test_added(test)?;
+    ctx.reporter.lock().unwrap().report(&AddedReport {
+        inner: TestJson::new(test),
+    })?;
 
     Ok(())
 }
