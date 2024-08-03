@@ -245,7 +245,14 @@ impl Project {
         let _span = tracing::debug_span!("creating test", test = ?id, ?kind, ?use_template);
 
         if self.tests.contains_key(&id) {
-            anyhow::bail!("Test '{id}' alreayd exists");
+            anyhow::bail!("Test '{id}' already exists");
+        }
+
+        if let Some(reserved) = id
+            .components()
+            .find(|comp| self.resolver.reserved().contains(comp))
+        {
+            anyhow::bail!("Test contains reserved fragment: '{reserved}'")
         }
 
         let source = match (use_template, &self.template) {
