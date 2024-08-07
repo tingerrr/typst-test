@@ -5,7 +5,6 @@ use std::cmp::Ordering;
 use tiny_skia::{BlendMode, FilterQuality, Pixmap, PixmapPaint, Transform};
 use typst::layout::Page;
 use typst::model::Document;
-use typst::visualize::Color;
 
 /// The origin of a documents page, this is used for comparisons of pages with
 /// different dimensions.
@@ -61,9 +60,6 @@ impl Default for Origin {
 pub struct Strategy {
     /// The amount of pixels to use per pt.
     pub pixel_per_pt: f32,
-
-    /// The background fill.
-    pub fill: Color,
 }
 
 impl Default for Strategy {
@@ -74,7 +70,6 @@ impl Default for Strategy {
             // spurious failures when people migrate between the old and new
             // version
             pixel_per_pt: ppi_to_ppp(144.0),
-            fill: Color::WHITE,
         }
     }
 }
@@ -94,7 +89,7 @@ pub fn ppi_to_ppp(pixel_per_inch: f32) -> f32 {
 
 /// Renders a single page with the given strategy.
 pub fn render_page(page: &Page, strategy: Strategy) -> Pixmap {
-    typst_render::render(&page.frame, strategy.pixel_per_pt, strategy.fill)
+    typst_render::render(page, strategy.pixel_per_pt)
 }
 
 /// Takes two lengths and returns the origin offsets required to align both lengths.

@@ -4,12 +4,12 @@ use std::fs as stdfs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-use comemo::Prehashed;
 use typst::diag::{FileError, FileResult};
 use typst::foundations::{Bytes, Datetime};
 use typst::syntax::package::PackageSpec;
 use typst::syntax::{FileId, Source};
 use typst::text::{Font, FontBook};
+use typst::utils::LazyHash;
 use typst::{Library, World};
 
 pub mod fs;
@@ -99,8 +99,8 @@ impl FileSlot {
 #[derive(Debug)]
 pub struct GlobalTestWorld {
     pub root: PathBuf,
-    pub lib: Prehashed<Library>,
-    pub book: Prehashed<FontBook>,
+    pub lib: LazyHash<Library>,
+    pub book: LazyHash<FontBook>,
     pub fonts: Vec<Font>,
     slots: Mutex<HashMap<FileId, FileSlot>>,
 }
@@ -114,8 +114,8 @@ impl GlobalTestWorld {
 
         GlobalTestWorld {
             root,
-            lib: Prehashed::new(library),
-            book: Prehashed::new(FontBook::from_fonts(&fonts)),
+            lib: LazyHash::new(library),
+            book: LazyHash::new(FontBook::from_fonts(&fonts)),
             fonts,
             slots: Mutex::new(HashMap::new()),
         }
@@ -129,15 +129,15 @@ impl Default for GlobalTestWorld {
 }
 
 impl World for GlobalTestWorld {
-    fn library(&self) -> &Prehashed<Library> {
+    fn library(&self) -> &LazyHash<Library> {
         &self.lib
     }
 
-    fn book(&self) -> &Prehashed<FontBook> {
+    fn book(&self) -> &LazyHash<FontBook> {
         &self.book
     }
 
-    fn main(&self) -> Source {
+    fn main(&self) -> FileId {
         panic!(
             "Global World does not contain a main file, it only provides the base implementation for Test Worlds."
         )

@@ -15,8 +15,6 @@ pub mod _dev;
 
 #[cfg(test)]
 mod tests {
-    use typst::eval::Tracer;
-
     use crate::_dev::GlobalTestWorld;
     use crate::store::project::v1::ResolverV1;
     use crate::store::project::Resolver;
@@ -38,7 +36,7 @@ mod tests {
 
         for test in collector.tests().values() {
             let source = test.load_source(&project).unwrap();
-            let output = compile::compile(source.clone(), &world, &mut Tracer::new()).unwrap();
+            let output = compile::compile(source.clone(), &world).output.unwrap();
 
             if test.is_compile_only() {
                 continue;
@@ -48,8 +46,7 @@ mod tests {
 
             let reference: Vec<_> =
                 if let Some(reference) = test.load_reference_source(&project).unwrap() {
-                    let reference =
-                        compile::compile(reference.clone(), &world, &mut Tracer::new()).unwrap();
+                    let reference = compile::compile(reference.clone(), &world).output.unwrap();
 
                     render::render_document(&reference, strategy).collect()
                 } else if let Some(document) = test.load_reference_documents(&project).unwrap() {
