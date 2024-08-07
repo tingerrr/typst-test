@@ -97,14 +97,28 @@ fn main() -> ExitCode {
     match ctx.run() {
         Ok(()) => {}
         Err(_) if ctx.is_operation_failure() => {}
-        // NOTE: we ignore broken pipes as these occur when programs close the
-        // pipe before we're done writing
-        Err(err)
-            if err
-                .root_cause()
+        Err(err) => 'err: {
+            let root = err.root_cause();
+
+            // FIXME: https://github.com/serde-rs/json/issues/1169
+            // NOTE: we can't access the inner io error itself, but at least the
+            // kind
+            if root.downcast_ref().is_some_and(|err: &serde_json::Error| {
+                err.io_error_kind()
+                    .is_some_and(|kind| kind == io::ErrorKind::BrokenPipe)
+            }) {
+                break 'err;
+            }
+
+            // NOTE: we ignore broken pipes as these occur when programs close
+            // the pipe before we're done writing
+            if root
                 .downcast_ref()
-                .is_some_and(|err: &io::Error| err.kind() == io::ErrorKind::BrokenPipe) => {}
-        Err(err) => {
+                .is_some_and(|err: &io::Error| err.kind() == io::ErrorKind::BrokenPipe)
+            {
+                break 'err;
+            }
+
             ctx.unexpected_error(|r| {
                 r.ui().error_with(|w| {
                     writeln!(
