@@ -2,15 +2,14 @@
 
 use std::fmt::Debug;
 
-use comemo::Prehashed;
 use ecow::EcoVec;
 use thiserror::Error;
-use typst::diag::{FileResult, SourceDiagnostic};
-use typst::eval::Tracer;
+use typst::diag::{FileResult, SourceDiagnostic, Warned};
 use typst::foundations::{Bytes, Datetime};
 use typst::model::Document;
 use typst::syntax::{FileId, Source};
 use typst::text::{Font, FontBook};
+use typst::utils::LazyHash;
 use typst::{Library, World};
 
 /// An error which may occur during compilation. This struct only exists to
@@ -20,8 +19,13 @@ use typst::{Library, World};
 pub struct Error(pub EcoVec<SourceDiagnostic>);
 
 /// Compiles a source with the given global world.
-pub fn compile(source: Source, world: &dyn World, tracer: &mut Tracer) -> Result<Document, Error> {
-    typst::compile(&TestWorld::new(&source, world), tracer).map_err(Error)
+pub fn compile(source: Source, world: &dyn World) -> Warned<Result<Document, Error>> {
+    let Warned { output, warnings } = typst::compile(&TestWorld::new(&source, world));
+
+    Warned {
+        output: output.map_err(Error),
+        warnings,
+    }
 }
 
 /// Provides a [`World`] implementation which treats a [`Test`] as main, but
@@ -41,20 +45,24 @@ impl<'s, 'w> TestWorld<'s, 'w> {
 }
 
 impl World for TestWorld<'_, '_> {
-    fn library(&self) -> &Prehashed<Library> {
+    fn library(&self) -> &LazyHash<Library> {
         self.global.library()
     }
 
-    fn book(&self) -> &Prehashed<FontBook> {
+    fn book(&self) -> &LazyHash<FontBook> {
         self.global.book()
     }
 
-    fn main(&self) -> Source {
-        self.source.clone()
+    fn main(&self) -> FileId {
+        self.source.id()
     }
 
     fn source(&self, id: FileId) -> FileResult<Source> {
-        self.global.source(id)
+        if id == self.source.id() {
+            Ok(self.source.clone())
+        } else {
+            self.global.source(id)
+        }
     }
 
     fn file(&self, id: FileId) -> FileResult<Bytes> {
@@ -81,7 +89,7 @@ mod tests {
         let world = GlobalTestWorld::default();
         let source = Source::detached("Hello World");
 
-        compile(source, &world, &mut Tracer::new()).unwrap();
+        compile(source, &world).output.unwrap();
     }
 
     #[test]
@@ -90,6 +98,6 @@ mod tests {
         let world = GlobalTestWorld::default();
         let source = Source::detached("#panic()");
 
-        compile(source, &world, &mut Tracer::new()).unwrap();
+        compile(source, &world).output.unwrap();
     }
 }

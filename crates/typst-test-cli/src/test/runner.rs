@@ -9,7 +9,6 @@ use std::time::{Duration, Instant};
 use anyhow::Context;
 use ecow::EcoVec;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use typst::eval::Tracer;
 use typst::model::Document as TypstDocument;
 use typst::syntax::Source;
 use typst_test_lib::store::project::{Resolver, TestTarget};
@@ -908,11 +907,8 @@ impl TestRunner<'_, '_> {
                 .context("Test source not loaded")?
         };
 
-        match compile::compile(
-            source.clone(),
-            self.project_runner.world,
-            &mut Tracer::new(),
-        ) {
+        // TODO: handle warnings
+        match compile::compile(source.clone(), self.project_runner.world).output {
             Ok(doc) => {
                 if is_reference {
                     self.reference_cache.document = Some(doc);

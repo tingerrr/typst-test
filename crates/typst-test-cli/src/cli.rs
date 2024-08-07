@@ -529,7 +529,6 @@ impl Configure for ExportArgs {
     ) -> anyhow::Result<()> {
         let render_strategy = render::Strategy {
             pixel_per_pt: render::ppi_to_ppp(self.pixel_per_inch),
-            fill: typst::visualize::Color::WHITE,
         };
 
         if self.pdf || self.svg {
