@@ -16,14 +16,12 @@ use typst_test_lib::{compare, render, test_set};
 use typst_test_stdx::fmt::Term;
 
 use crate::error::{Failure, OperationFailure};
-use crate::fonts::FontSearcher;
-use crate::package::PackageStorage;
 use crate::project::Project;
 use crate::report::{Format, Reporter};
 use crate::test::runner::{Event, Progress, Runner, RunnerConfig};
 use crate::ui::Ui;
 use crate::world::SystemWorld;
-use crate::{project, ui};
+use crate::{kit, project, ui};
 
 pub mod add;
 pub mod config;
@@ -294,8 +292,8 @@ impl<'a> Context<'a> {
     ) -> anyhow::Result<SystemWorld> {
         let world = SystemWorld::new(
             project.root().to_path_buf(),
-            self.args.global.fonts.searcher(),
-            PackageStorage::from_args(&self.args.global.package),
+            kit::fonts_from_args(&self.args.global.fonts),
+            kit::package_storage_from_args(&self.args.global.package),
             compile_args.now,
         )?;
 
@@ -684,25 +682,6 @@ pub struct FontArgs {
         global = true,
     )]
     pub font_paths: Vec<PathBuf>,
-}
-
-impl FontArgs {
-    pub fn searcher(&self) -> FontSearcher {
-        let _span = tracing::debug_span!("searching for fonts");
-
-        let mut searcher = FontSearcher::new();
-        searcher.search(
-            self.font_paths.iter().map(PathBuf::as_path),
-            !self.ignore_system_fonts,
-        );
-
-        tracing::debug!(
-            fonts = ?searcher.fonts.len(),
-            included_system_fonts = ?!self.ignore_system_fonts,
-            "collected fonts",
-        );
-        searcher
-    }
 }
 
 #[derive(clap::Args, Debug, Clone)]
