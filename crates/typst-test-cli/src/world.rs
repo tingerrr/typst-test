@@ -16,10 +16,10 @@ use typst::syntax::{FileId, Source};
 use typst::text::{Font, FontBook};
 use typst::utils::LazyHash;
 use typst::{Library, World};
+use typst_kit::download::ProgressSink;
+use typst_kit::fonts::{FontSlot, Fonts};
+use typst_kit::package::PackageStorage;
 use typst_test_lib::library::augmented_default_library;
-
-use crate::fonts::{FontSearcher, FontSlot};
-use crate::package::PackageStorage;
 
 /// A world that provides access to the operating system.
 pub struct SystemWorld {
@@ -47,7 +47,7 @@ impl SystemWorld {
     /// Create a new system world.
     pub fn new(
         root: PathBuf,
-        searcher: FontSearcher,
+        fonts: Fonts,
         package_storage: PackageStorage,
         now: Option<DateTime<Utc>>,
     ) -> io::Result<Self> {
@@ -60,8 +60,8 @@ impl SystemWorld {
             workdir: std::env::current_dir().ok(),
             root,
             library: LazyHash::new(augmented_default_library()),
-            book: LazyHash::new(searcher.book),
-            fonts: searcher.fonts,
+            book: LazyHash::new(fonts.book),
+            fonts: fonts.fonts,
             slots: Mutex::new(HashMap::new()),
             package_storage,
             now,
@@ -293,7 +293,7 @@ fn system_path(
     let buf;
     let mut root = project_root;
     if let Some(spec) = id.package() {
-        buf = package_storage.package_root(spec)?;
+        buf = package_storage.prepare_package(spec, &mut ProgressSink)?;
         root = &buf;
     }
 

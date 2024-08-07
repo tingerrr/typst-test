@@ -13,9 +13,7 @@ use crate::cli::Context;
 use crate::report::Reporter;
 
 mod cli;
-mod download;
-mod fonts;
-mod package;
+mod kit;
 mod project;
 mod report;
 mod test;
