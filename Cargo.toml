@@ -61,6 +61,7 @@ tracing-tree = "0.3.0"
 typst = "0.12.0"
 typst-assets = "0.12.0"
 typst-dev-assets = { git = "https://github.com/typst/typst-dev-assets", rev = "ee8ae61" }
+typst-kit = "0.12.0"
 typst-render = "0.12.0"
 unscanny = "0.1.0"
 ureq = { version = "2.9.7", default-features = false }

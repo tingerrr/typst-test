@@ -50,9 +50,9 @@ tracing-subscriber.workspace = true
 tracing-tree.workspace = true
 typst.workspace = true
 typst-project.workspace = true
-typst-assets = { workspace = true, optional = true, features = ["fonts"] }
+typst-kit.workspace = true
 ureq = { workspace = true, default-features = false, features = ["native-tls", "gzip", "json"] }
 
 [features]
 default = ["embed-fonts"]
-embed-fonts = ["dep:typst-assets"]
+embed-fonts = ["typst-kit/embed-fonts"]

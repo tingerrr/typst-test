@@ -786,7 +786,9 @@ version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37be9fc20d966be438cd57a45767f73349477fb0f85ce86e000557f787298afb"
 dependencies = [
+ "fontconfig-parser",
  "log",
+ "memmap2",
  "slotmap",
  "tinyvec",
  "ttf-parser 0.24.1",
@@ -2721,6 +2723,28 @@ version = "0.11.0"
 source = "git+https://github.com/typst/typst-dev-assets?rev=ee8ae61#ee8ae61cca138dc92f9d818fc7f2fc046d0148c5"
 
 [[package]]
+name = "typst-kit"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7fda042dab6dec486d97ed35fc88f5557e98cd6baf9e1cf0e4020f02b98529ca"
+dependencies = [
+ "dirs",
+ "ecow",
+ "env_proxy",
+ "flate2",
+ "fontdb 0.21.0",
+ "native-tls",
+ "once_cell",
+ "openssl",
+ "tar",
+ "typst",
+ "typst-assets",
+ "typst-timing",
+ "typst-utils",
+ "ureq",
+]
+
+[[package]]
 name = "typst-macros"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2813,7 +2837,7 @@ dependencies = [
  "tracing-subscriber",
  "tracing-tree",
  "typst",
- "typst-assets",
+ "typst-kit",
  "typst-project",
  "typst-test-lib",
  "typst-test-stdx",

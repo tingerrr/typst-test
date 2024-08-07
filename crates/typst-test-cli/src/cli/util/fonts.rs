@@ -6,8 +6,8 @@ use typst::text::FontStyle;
 
 use crate::cli::Context;
 use crate::report::{Report, Verbosity};
-use crate::ui;
 use crate::ui::Indented;
+use crate::{kit, ui};
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct Args {
@@ -56,7 +56,7 @@ impl Report for FontsReport<'_> {
 }
 
 pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
-    let fonts = ctx.args.global.fonts.searcher();
+    let fonts = kit::fonts_from_args(&ctx.args.global.fonts);
 
     ctx.reporter.report(&FontsReport(
         fonts
