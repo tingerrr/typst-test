@@ -1,11 +1,10 @@
 //! Version control support. Contains a default git implementation.
 
 use std::fmt::{Debug, Display};
-use std::fs;
 use std::fs::File;
-use std::io;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
+use std::{fs, io};
 
 use super::project::{Resolver, TestTarget};
 use crate::test::id::Identifier;
@@ -159,7 +158,8 @@ impl Vcs for Git {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{_dev, store::project::v1::ResolverV1};
+    use crate::_dev;
+    use crate::store::project::v1::ResolverV1;
 
     #[test]
     fn test_git_ignore_dir_non_existent() {

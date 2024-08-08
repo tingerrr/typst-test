@@ -242,12 +242,12 @@ pub static BUILTIN_TESTSETS: Lazy<TestSets> = Lazy::new(TestSets::default);
 
 /// Builtin test set constructors.
 pub mod builtin {
-    use super::*;
-
     use eval::{
         AllTestSet, CustomTestSet, FnTestSet, IdentifierPattern, IdentifierTarget,
         IdentifierTestSet, IgnoredTestSet, KindTestSet, NoneTestSet,
     };
+
+    use super::*;
 
     /// Returns the `none` test set.
     pub fn none() -> DynTestSet {
@@ -359,10 +359,10 @@ pub mod builtin {
 
 /// Test set expression builders.
 pub mod expr {
-    use super::*;
-
     use eval::{BinaryTestSet, UnaryTestSet};
     use parsing::{Atom, BinaryExpr, BinaryOp, Expr, Function, UnaryExpr, UnaryOp, Value};
+
+    use super::*;
 
     /// Creates the omplement `!a`.
     pub fn complement(a: DynTestSet) -> DynTestSet {

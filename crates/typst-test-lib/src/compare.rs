@@ -15,8 +15,7 @@ pub mod visual;
 /// and comparing visually.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Strategy {
-    /// Use visual comparison of raster images, with the given render strategy
-    /// if necessary.
+    /// Use visual comparison of raster images.
     Visual(visual::Strategy),
 }
 

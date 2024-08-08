@@ -485,13 +485,7 @@ pub struct ExportArgs {
     pub pdf: bool,
 
     /// The pixel per inch to use for raster export
-    #[arg(
-        long,
-        visible_alias = "ppi",
-        requires = "raster",
-        default_value_t = 144.0,
-        global = true
-    )]
+    #[arg(long, visible_alias = "ppi", default_value_t = 144.0, global = true)]
     pub pixel_per_inch: f32,
 }
 
@@ -510,7 +504,7 @@ impl Configure for ExportArgs {
         if self.pdf || self.svg {
             ctx.operation_failure(|r| {
                 r.ui()
-                    .error_with(|w| writeln!(w, "PDF and SVGF export are not yet supported"))
+                    .error_with(|w| writeln!(w, "PDF and SVG export are not yet supported"))
             })?;
             anyhow::bail!("Unsupported export mode used");
         }
