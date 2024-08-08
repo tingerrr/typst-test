@@ -462,11 +462,27 @@ impl Configure for CompileArgs {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, clap::ValueEnum)]
+pub enum Direction {
+    /// The document is read left-to-right.
+    Ltr,
+
+    /// The document is read right-to-left.
+    Rtl,
+}
+
 #[derive(clap::Args, Debug, Clone)]
 pub struct ExportArgs {
     /// Whether to save temporary output, such as ephemeral references
     #[arg(long, global = true)]
     pub no_save_temporary: bool,
+
+    /// The document direction
+    ///
+    /// This is used to correctly align images with different dimensions when
+    /// generating diff images.
+    #[arg(long, visible_alias = "dir", global = true)]
+    pub direction: Option<Direction>,
 
     /// Whether to output raster images
     #[arg(long, global = true)]
@@ -512,6 +528,13 @@ impl Configure for ExportArgs {
         config
             .with_render_strategy(Some(render_strategy))
             .with_no_save_temporary(self.no_save_temporary);
+
+        if let Some(dir) = self.direction {
+            config.with_diff_render_origin(Some(match dir {
+                Direction::Ltr => render::Origin::TopLeft,
+                Direction::Rtl => render::Origin::TopRight,
+            }));
+        }
 
         tracing::trace!(
             export_render_strategy = ?config.render_strategy(),

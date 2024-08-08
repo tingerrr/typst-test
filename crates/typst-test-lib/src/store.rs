@@ -6,8 +6,7 @@ use std::path::Path;
 use ecow::EcoVec;
 use tiny_skia::Pixmap;
 
-use crate::render;
-use crate::render::Strategy;
+use crate::render::{self, Origin, Strategy};
 
 pub mod page;
 pub mod project;
@@ -61,9 +60,10 @@ impl Document {
         base: &typst::model::Document,
         change: &typst::model::Document,
         strategy: Strategy,
+        origin: Origin,
     ) -> Self {
         Self {
-            pages: render::render_document_diff(base, change, strategy).collect(),
+            pages: render::render_document_diff(base, change, strategy, origin).collect(),
         }
     }
 

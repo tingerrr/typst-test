@@ -51,6 +51,9 @@ pub struct RunnerConfig {
     /// The strategy to use when comparing documents.
     compare_strategy: Option<compare::Strategy>,
 
+    /// The origin at which to render diff images of different dimensions.
+    diff_render_origin: Option<render::Origin>,
+
     /// The hook to run once before all tests.
     prepare_hook: Option<PathBuf>,
 
@@ -99,6 +102,10 @@ impl RunnerConfig {
 
     pub fn compare_strategy(&self) -> Option<compare::Strategy> {
         self.compare_strategy
+    }
+
+    pub fn diff_render_origin(&self) -> Option<render::Origin> {
+        self.diff_render_origin
     }
 
     pub fn prepare_hook(&self) -> Option<&Path> {
@@ -160,6 +167,11 @@ impl RunnerConfig {
     pub fn with_compare_strategy(&mut self, strategy: Option<compare::Strategy>) -> &mut Self {
         self.compare_strategy = strategy;
         self.with_compare(true)
+    }
+
+    pub fn with_diff_render_origin(&mut self, origin: Option<render::Origin>) -> &mut Self {
+        self.diff_render_origin = origin;
+        self
     }
 
     pub fn with_prepare_hook(&mut self, value: Option<PathBuf>) -> &mut Self {
@@ -828,9 +840,11 @@ impl TestRunner<'_, '_> {
             .as_ref()
             .context("Reference document not rendered or loaded")?;
 
+        let origin = self.config.diff_render_origin.unwrap_or_default();
+
         self.difference_store_document = Some(Document::new(
             Iterator::zip(reference.pages().iter(), output.pages())
-                .map(|(base, change)| render::render_page_diff(base, change))
+                .map(|(base, change)| render::render_page_diff(base, change, origin))
                 .collect::<EcoVec<_>>(),
         ));
 
