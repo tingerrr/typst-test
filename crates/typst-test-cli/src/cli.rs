@@ -6,6 +6,7 @@ use std::sync::{mpsc, Arc};
 
 use chrono::{DateTime, Utc};
 use clap::ColorChoice;
+use ecow::EcoString;
 use termcolor::Color;
 use thiserror::Error;
 use typst_test_lib::store::vcs::{Git, Vcs};
@@ -75,7 +76,7 @@ impl Failure for NoProject {
 }
 
 #[derive(Debug, Error)]
-pub struct ProjectNotInitialized(pub Option<String>);
+pub struct ProjectNotInitialized(pub Option<EcoString>);
 
 impl Display for ProjectNotInitialized {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -187,7 +188,7 @@ impl<'a> Context<'a> {
             Some(root) => root.to_path_buf(),
             None => {
                 let pwd = std::env::current_dir()?;
-                match typst_project::try_find_project_root(&pwd)? {
+                match project::try_find_project_root(&pwd)? {
                     Some(root) => {
                         if !root.try_exists()? {
                             anyhow::bail!(OperationFailure::from(RootNotFound(root.to_path_buf())));
