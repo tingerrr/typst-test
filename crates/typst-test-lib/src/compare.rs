@@ -3,8 +3,7 @@
 use std::fmt::{Debug, Display};
 
 use thiserror::Error;
-
-use crate::util;
+use typst_test_stdx::fmt::Term;
 
 pub mod visual;
 
@@ -57,7 +56,7 @@ impl Display for Error {
                 f,
                 "{} {} differed {:?}",
                 self.pages.len(),
-                util::fmt::plural(self.pages.len(), "page"),
+                typst_test_stdx::fmt::Term::simple("page").with(self.pages.len()),
                 self.pages.iter().map(|(n, _)| n).collect::<Vec<_>>()
             )?;
         }
@@ -83,7 +82,7 @@ pub enum PageError {
     #[error(
         "content differed in at least {} {}",
         deviations,
-        util::fmt::plural(*deviations, "pixel")
+        Term::simple("pixel").with(*deviations)
     )]
     SimpleDeviations {
         /// The amount of visual deviations, i.e. the amount of pixels which did

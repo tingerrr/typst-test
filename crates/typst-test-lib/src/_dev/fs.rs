@@ -4,8 +4,6 @@ use std::path::{Path, PathBuf};
 
 use tempdir::TempDir;
 
-use crate::util;
-
 pub struct TempEnv {
     root: TempDir,
     found: BTreeMap<PathBuf, Option<Vec<u8>>>,
@@ -18,7 +16,7 @@ pub struct Setup(TempEnv);
 impl Setup {
     pub fn setup_dir<P: AsRef<Path>>(&mut self, path: P) -> &mut Self {
         let abs_path = self.0.root.path().join(path.as_ref());
-        util::fs::create_dir(abs_path, true).unwrap();
+        typst_test_stdx::fs::create_dir(abs_path, true).unwrap();
         self
     }
 
@@ -26,7 +24,7 @@ impl Setup {
         let abs_path = self.0.root.path().join(path.as_ref());
         let parent = abs_path.parent().unwrap();
         if parent != self.0.root.path() {
-            util::fs::create_dir(parent, true).unwrap();
+            typst_test_stdx::fs::create_dir(parent, true).unwrap();
         }
 
         let content = content.as_ref();
@@ -38,7 +36,7 @@ impl Setup {
         let abs_path = self.0.root.path().join(path.as_ref());
         let parent = abs_path.parent().unwrap();
         if parent != self.0.root.path() {
-            util::fs::create_dir(parent, true).unwrap();
+            typst_test_stdx::fs::create_dir(parent, true).unwrap();
         }
 
         std::fs::write(&abs_path, "").unwrap();

@@ -13,12 +13,10 @@ use typst::syntax::{FileId, Source};
 use typst::text::{Font, FontBook};
 use typst::{Library, World};
 
-use crate::util;
-
 /// An error which may occur during compilation. This struct only exists to
 /// implement [`Error`][trait@std::error::Error].
 #[derive(Debug, Clone, Error)]
-#[error("compilation failed with {} {}", .0.len(), util::fmt::plural(.0.len(), "error"))]
+#[error("compilation failed with {} {}", .0.len(), typst_test_stdx::fmt::Term::simple("error").with(.0.len()))]
 pub struct Error(pub EcoVec<SourceDiagnostic>);
 
 /// Compiles a source with the given global world.

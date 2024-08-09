@@ -18,7 +18,8 @@ path = "src/main.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-typst-test-lib = { path = "../typst-test-lib" }
+typst-test-lib.workspace = true
+typst-test-stdx.workspace = true
 
 anyhow = { workspace = true, features = ["backtrace"] }
 bitflags.workspace = true

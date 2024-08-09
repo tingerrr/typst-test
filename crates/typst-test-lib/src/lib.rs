@@ -10,9 +10,6 @@ pub mod store;
 pub mod test;
 pub mod test_set;
 
-#[doc(hidden)]
-pub mod util;
-
 #[cfg(test)]
 pub mod _dev;
 

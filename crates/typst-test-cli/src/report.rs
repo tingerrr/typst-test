@@ -11,10 +11,11 @@ use termcolor::{Color, WriteColor};
 use typst::diag::{Severity, SourceDiagnostic};
 use typst::syntax::{FileId, Source, Span};
 use typst::WorldExt;
+use typst_test_lib::compare;
 use typst_test_lib::store::test::Test;
 use typst_test_lib::test::id::Identifier;
 use typst_test_lib::test::ReferenceKind;
-use typst_test_lib::{compare, util};
+use typst_test_stdx::fmt::Term;
 
 use crate::project::Project;
 use crate::test::runner::{Event, EventPayload, Summary};
@@ -273,12 +274,12 @@ pub mod reports {
             let secs = self.time.seconds;
             match (secs / 60, secs) {
                 (0, 0) => writeln!(w),
-                (0, s) => writeln!(w, " took {s} {}", util::fmt::plural(s as usize, "second")),
+                (0, s) => writeln!(w, " took {s} {}", Term::simple("second").with(s as usize),),
                 (m, s) => writeln!(
                     w,
                     " took {m} {} {s} {}",
-                    util::fmt::plural(m as usize, "minute"),
-                    util::fmt::plural(s as usize, "second")
+                    Term::simple("minute").with(m as usize),
+                    Term::simple("second").with(s as usize)
                 ),
             }
         }
@@ -347,8 +348,8 @@ fn test_failure<W: WriteColor + ?Sized>(
                     writeln!(
                         w,
                         "Expected {reference} {}, got {output} {}",
-                        util::fmt::plural(reference, "page"),
-                        util::fmt::plural(output, "page"),
+                        Term::simple("page").with(reference),
+                        Term::simple("page").with(output),
                     )?;
                 }
 
@@ -366,7 +367,7 @@ fn test_failure<W: WriteColor + ?Sized>(
                             writeln!(
                                 w,
                                 "Page {p} had {deviations} {}",
-                                util::fmt::plural(deviations, "deviation",)
+                                Term::simple("deviation").with(deviations),
                             )?;
                         }
                     }

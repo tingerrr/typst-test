@@ -13,7 +13,6 @@ use crate::store::project::{Resolver, TestTarget};
 use crate::store::{Document, LoadError, SaveError};
 use crate::test::id::Identifier;
 use crate::test::{Annotation, ReferenceKind};
-use crate::util;
 
 pub mod collector;
 
@@ -110,7 +109,7 @@ impl Test {
         references: Option<References>,
     ) -> Result<Self, SaveError> {
         let test_dir = resolver.resolve(&id, TestTarget::TestDir);
-        util::fs::create_dir(test_dir, true)?;
+        typst_test_stdx::fs::create_dir(test_dir, true)?;
 
         let mut file = File::options()
             .write(true)
@@ -156,11 +155,11 @@ impl Test {
     /// Creates this test's temporary directories, if they don't exist yet.
     pub fn create_temporary_directories(&self, resolver: &dyn Resolver) -> io::Result<()> {
         if self.is_ephemeral() {
-            util::fs::create_dir(resolver.resolve(&self.id, TestTarget::RefDir), true)?;
+            typst_test_stdx::fs::create_dir(resolver.resolve(&self.id, TestTarget::RefDir), true)?;
         }
 
-        util::fs::create_dir(resolver.resolve(&self.id, TestTarget::OutDir), true)?;
-        util::fs::create_dir(resolver.resolve(&self.id, TestTarget::DiffDir), true)?;
+        typst_test_stdx::fs::create_dir(resolver.resolve(&self.id, TestTarget::OutDir), true)?;
+        typst_test_stdx::fs::create_dir(resolver.resolve(&self.id, TestTarget::DiffDir), true)?;
         Ok(())
     }
 
@@ -183,7 +182,7 @@ impl Test {
         reference: &Document,
     ) -> Result<(), SaveError> {
         let ref_dir = resolver.resolve(&self.id, TestTarget::RefDir);
-        util::fs::create_dir(ref_dir, true)?;
+        typst_test_stdx::fs::create_dir(ref_dir, true)?;
         reference.save(ref_dir)?;
         Ok(())
     }
@@ -194,8 +193,8 @@ impl Test {
         self.delete_reference_script(resolver)?;
         self.delete_temporary_directories(resolver)?;
 
-        util::fs::remove_file(resolver.resolve(&self.id, TestTarget::TestScript))?;
-        util::fs::remove_dir(resolver.resolve(&self.id, TestTarget::TestDir), true)?;
+        typst_test_stdx::fs::remove_file(resolver.resolve(&self.id, TestTarget::TestScript))?;
+        typst_test_stdx::fs::remove_dir(resolver.resolve(&self.id, TestTarget::TestDir), true)?;
 
         Ok(())
     }
@@ -203,23 +202,23 @@ impl Test {
     /// Deletes this test's temporary directories, if they exist.
     pub fn delete_temporary_directories(&self, resolver: &dyn Resolver) -> io::Result<()> {
         if self.is_ephemeral() {
-            util::fs::remove_dir(resolver.resolve(&self.id, TestTarget::RefDir), true)?;
+            typst_test_stdx::fs::remove_dir(resolver.resolve(&self.id, TestTarget::RefDir), true)?;
         }
 
-        util::fs::remove_dir(resolver.resolve(&self.id, TestTarget::OutDir), true)?;
-        util::fs::remove_dir(resolver.resolve(&self.id, TestTarget::DiffDir), true)?;
+        typst_test_stdx::fs::remove_dir(resolver.resolve(&self.id, TestTarget::OutDir), true)?;
+        typst_test_stdx::fs::remove_dir(resolver.resolve(&self.id, TestTarget::DiffDir), true)?;
         Ok(())
     }
 
     /// Deletes this test's reference script, if it exists.
     pub fn delete_reference_script(&self, resolver: &dyn Resolver) -> io::Result<()> {
-        util::fs::remove_file(resolver.resolve(&self.id, TestTarget::RefScript))?;
+        typst_test_stdx::fs::remove_file(resolver.resolve(&self.id, TestTarget::RefScript))?;
         Ok(())
     }
 
     /// Deletes this test's persistent reference documents, if they exist.
     pub fn delete_reference_documents(&self, resolver: &dyn Resolver) -> io::Result<()> {
-        util::fs::remove_dir(resolver.resolve(&self.id, TestTarget::RefDir), true)?;
+        typst_test_stdx::fs::remove_dir(resolver.resolve(&self.id, TestTarget::RefDir), true)?;
         Ok(())
     }
 

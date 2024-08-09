@@ -2,7 +2,8 @@ use std::io;
 
 use serde::Serialize;
 use termcolor::{Color, WriteColor};
-use typst_test_lib::{test_set, util};
+use typst_test_lib::test_set;
+use typst_test_stdx::fmt::Term;
 
 use super::Context;
 use crate::report::reports::ProjectJson;
@@ -28,7 +29,7 @@ impl Report for InitReport<'_> {
             writer,
             ", removed {} {}",
             count,
-            util::fmt::plural(count, "test"),
+            Term::simple("test").with(count),
         )?;
 
         Ok(())

@@ -21,6 +21,9 @@ readme = "README.md"
 [workspace.dependencies]
 typst-project = { git = "https://github.com/tingerrr/typst-project", rev = "a71db5451ebdca2174adc0a323c71ba5ab2f8120" }
 
+typst-test-lib = { path = "crates/typst-test-lib" }
+typst-test-stdx = { path = "crates/typst-test-stdx" }
+
 anyhow = "1.0.78"
 clap = "4.4.12"
 bitflags = "2.4.2"

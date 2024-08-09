@@ -19,7 +19,7 @@ use typst_test_lib::store::Document;
 use typst_test_lib::test::id::Identifier;
 use typst_test_lib::test::ReferenceKind;
 use typst_test_lib::test_set::TestSet;
-use typst_test_lib::util;
+use typst_test_stdx::result::ResultEx;
 
 use crate::cli;
 
@@ -182,7 +182,7 @@ impl Project {
         let _span = tracing::debug_span!("initalizing project", root = ?tests_root_dir);
 
         tracing::debug!(path = ?tests_root_dir, "creating tests root");
-        util::fs::create_dir(tests_root_dir, false)?;
+        typst_test_stdx::fs::create_dir(tests_root_dir, false)?;
 
         if vcs == cli::init::Vcs::Git {
             tracing::debug!("writing vcs config");
@@ -208,7 +208,7 @@ impl Project {
         let _span = tracing::debug_span!("initalizing project", root = ?tests_root_dir);
 
         tracing::trace!(path = ?tests_root_dir, "removing");
-        util::fs::remove_dir(tests_root_dir, true)?;
+        typst_test_stdx::fs::remove_dir(tests_root_dir, true)?;
         Ok(())
     }
 
@@ -303,10 +303,8 @@ impl Project {
     pub fn write_config(&self) -> anyhow::Result<()> {
         let path = self.root().join(typst_project::heuristics::MANIFEST_FILE);
 
-        let content =
-            typst_test_lib::util::result::ignore_default(std::fs::read_to_string(&path), |err| {
-                err.kind() == io::ErrorKind::NotFound
-            })?;
+        let content = std::fs::read_to_string(&path)
+            .ignore_default(|err| err.kind() == io::ErrorKind::NotFound)?;
 
         let mut doc = DocumentMut::from_str(&content)?;
         self.config.write_into(&mut doc)?;

@@ -547,7 +547,7 @@ mod tests {
                 )
                 .unwrap();
             },
-            |root| root.expect_dir("tests/fancy/ref.typ"),
+            |root| root.expect_file_empty("tests/fancy/ref.typ"),
         );
     }
 }
