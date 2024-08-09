@@ -49,8 +49,8 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-tree.workspace = true
 typst.workspace = true
-typst-project.workspace = true
 typst-kit.workspace = true
+typst-syntax.workspace = true
 ureq = { workspace = true, default-features = false, features = ["native-tls", "gzip", "json"] }
 
 [features]
