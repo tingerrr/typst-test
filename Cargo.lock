@@ -2048,9 +2048,6 @@ name = "semver"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61697e0a1c7e512e84a621326239844a24d8207b4669b41bc18b32ea5cbf988b"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "serde"
@@ -2708,17 +2705,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "typst-project"
-version = "0.1.0"
-source = "git+https://github.com/tingerrr/typst-project?rev=a71db54#a71db5451ebdca2174adc0a323c71ba5ab2f8120"
-dependencies = [
- "bitflags 2.6.0",
- "semver",
- "serde",
- "toml",
-]
-
-[[package]]
 name = "typst-render"
 version = "0.11.0"
 source = "git+https://github.com/typst/typst?rev=7496dd7#7496dd7463969479d476148d5d136e3b3be3ba68"
@@ -2787,7 +2773,7 @@ dependencies = [
  "tracing-tree",
  "typst",
  "typst-kit",
- "typst-project",
+ "typst-syntax",
  "typst-test-lib",
  "typst-test-stdx",
  "ureq",

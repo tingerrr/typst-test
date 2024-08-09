@@ -87,7 +87,7 @@ impl<'a> Context<'a> {
             Some(root) => root.to_path_buf(),
             None => {
                 let pwd = std::env::current_dir()?;
-                match typst_project::try_find_project_root(&pwd)? {
+                match project::try_find_project_root(&pwd)? {
                     Some(root) => root.to_path_buf(),
                     None => {
                         self.operation_failure(|r| {
