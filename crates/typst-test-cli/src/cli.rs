@@ -2,7 +2,7 @@ use std::fmt::Display;
 use std::io;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
 
 use chrono::{DateTime, Utc};
 use clap::ColorChoice;
@@ -10,7 +10,8 @@ use termcolor::Color;
 use thiserror::Error;
 use typst_test_lib::store::vcs::{Git, Vcs};
 use typst_test_lib::test::id::Identifier;
-use typst_test_lib::test_set::{DynTestSet, TestSetExpr};
+use typst_test_lib::test_set::builtin::{IdentifierPattern, IdentifierTarget, IdentifierTestSet};
+use typst_test_lib::test_set::{DynTestSet, Eval};
 use typst_test_lib::{compare, render, test_set};
 use typst_test_stdx::fmt::Term;
 
@@ -26,6 +27,7 @@ use crate::{project, ui};
 
 pub mod add;
 pub mod config;
+pub mod debug;
 pub mod edit;
 pub mod init;
 pub mod list;
@@ -373,7 +375,7 @@ pub struct OperationArgs {
     /// See https://github.com/tingerrr/typst-test for an introduction on the
     /// test set language.
     #[arg(long, short, conflicts_with = "tests")]
-    pub expression: Option<TestSetExpr>,
+    pub expression: Option<String>,
 
     /// Allow operating on more than one test if multiple tests match
     ///
@@ -399,7 +401,9 @@ impl OperationArgs {
         let test_set = match self.expression.clone() {
             Some(expr) => {
                 tracing::debug!("compiling test set");
-                expr.build(&test_set::BUILTIN_TESTSETS)?
+                let expr = test_set::parse(&expr)?;
+                expr.eval(&test_set::eval::Context::builtin())?
+                    .to_test_set()?
             }
             None => {
                 if self.tests.is_empty() {
@@ -412,9 +416,12 @@ impl OperationArgs {
                     );
                     self.tests
                         .iter()
-                        .map(|id| test_set::builtin::name_string(id.to_inner(), true))
+                        .map(|id| IdentifierTestSet {
+                            pattern: IdentifierPattern::Exact(id.to_inner()),
+                            target: IdentifierTarget::Name,
+                        })
                         .fold(test_set::builtin::none(), |acc, it| {
-                            test_set::expr::union(acc, it)
+                            Arc::new(test_set::builtin::InfixTestSet::union(acc, it))
                         })
                 }
             }
@@ -821,6 +828,10 @@ pub enum Command {
     /// Utility commands
     #[command()]
     Util(util::Args),
+
+    /// Debugging commands
+    #[command()]
+    Debug(debug::Args),
 }
 
 impl Command {
@@ -837,6 +848,7 @@ impl Command {
             Command::Run(args) => run::run(ctx, args),
             Command::Config(args) => args.cmd.run(ctx),
             Command::Util(args) => args.cmd.run(ctx),
+            Command::Debug(args) => args.cmd.run(ctx),
         }
     }
 }

@@ -12,7 +12,7 @@ tt run --regex --mod 'foo-.*' --name 'bar/baz' --no-ignored
 `typst-test` can be invoked like
 
 ```bash
-tt run --expression '(mod(/foo-.*/) & !ignored) | name(=bar/baz)'
+tt run --expression '(mod(:foo-.*) & !ignored) | name(=bar/baz)'
 ```
 
 This comes with quite a few advantages:
@@ -22,15 +22,15 @@ This comes with quite a few advantages:
 - test set expressions are visually close to the filter expressions they describe, their operators are deiberately chosen to feel like witing a predicate which is applied over all tests
 
 Let's first disect what this expression actually means:
-`(mod(/foo-.*/) & !ignored) | id(=bar/baz)`
+`(mod(:foo-.*) & !ignored) | id(=bar/baz)`
 
 1. We have a top-level binary expression like so `a | b`, this is a union expression, it includes all tests found in either `a` or `b`.
 1. The right expression is `id(=bar/baz)`, this includes all tests who's full identifier matches the given pattern `=bar/baz`.
-   That's an exact matcher (indicated by `=`) for the test identifier `bar/baz`.
+   That's an exact pattern (indicated by `=`) for the test identifier `bar/baz`.
    This means that whatever is on the left of your union, we also include the test `bar/baz`.
 1. The left expression is itself a binary expression again, this time an intersection.
-   It consists of another matcher test set and a complement.
-   1. The name matcher is only applied to modules this time, indiicated by `mod` and uses a regex matcher (delimited by `/`).
+   It consists of another pattern test set and a complement.
+   1. The name pattern is only applied to modules this time, indicated by `mod` and uses a regex matcher (indicated by `:`).
       It includes all tests who's module identifier matches the given regex.
    1. The complement `!ignored` includes all tests which are not marked as ignored.
 
@@ -88,10 +88,10 @@ You could construct a expression with the following steps:
    You can do so by adding any of the following identifier matchers:
    - `default & ephemeral & mod(~sub)`
    - `default & ephemeral & mod(=mod/sub)`
-   - `default & ephemeral & id(/^mod\/sub/)`
+   - `default & ephemeral & id(:^mod/sub)`
 
 You can iteratively test your results with `typst-test list -e '...'` until you're satisfied.
-Then you can run whatever operation you want with the same expression. IF it is a destructive operation, i.e. one that writes chaanges to non-temporary files, then you must also pass `--all` if your test set contains more than one test.
+Then you can run whatever operation you want with the same expression. If it is a destructive operation, i.e. one that writes chaanges to non-temporary files, then you must also pass `--all` if your test set contains more than one test.
 
 ## Scripting
 If you build up test set expressions programmatically, consider taking a look at the built-in test set constants.

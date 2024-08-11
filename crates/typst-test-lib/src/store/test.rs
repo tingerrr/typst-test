@@ -47,8 +47,8 @@ impl Test {
 
     /// Generates a new test which does not exist on disk yet. This is primarily
     /// used in tests outside this module.
-    #[cfg(test)]
-    pub fn new_test(
+    #[doc(hidden)]
+    pub fn new_full(
         id: Identifier,
         ref_kind: Option<ReferenceKind>,
         annotations: EcoVec<Annotation>,
@@ -93,11 +93,6 @@ impl Test {
     /// Returns whether this test has an ignored annotation.
     pub fn is_ignored(&self) -> bool {
         self.annotations.contains(&Annotation::Ignored)
-    }
-
-    /// Returns whether this test has a matching custom annotation.
-    pub fn in_custom_test_set(&self, id: &EcoString) -> bool {
-        self.annotations.contains(&Annotation::Custom(id.clone()))
     }
 
     /// Creates a new test directly on disk.
