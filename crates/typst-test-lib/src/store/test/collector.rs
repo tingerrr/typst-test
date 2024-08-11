@@ -295,12 +295,16 @@ mod tests {
                     (
                         "compare/ephemeral-store",
                         Some(ReferenceKind::Ephemeral),
-                        eco_vec![Annotation::Custom("foo".into())],
+                        eco_vec![Annotation::Custom(
+                            test_set::Identifier::new("foo").unwrap()
+                        )],
                     ),
                     (
                         "compare/persistent",
                         Some(ReferenceKind::Persistent),
-                        eco_vec![Annotation::Custom("foo".into())],
+                        eco_vec![Annotation::Custom(
+                            test_set::Identifier::new("foo").unwrap()
+                        )],
                     ),
                 ];
 

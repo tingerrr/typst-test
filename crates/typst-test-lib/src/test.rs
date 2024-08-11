@@ -5,6 +5,8 @@ use std::str::FromStr;
 use ecow::EcoString;
 use thiserror::Error;
 
+use crate::test_set;
+
 pub mod id;
 
 /// The kind of a [`Test`][crate::store::test::Test]'s reference.
@@ -41,6 +43,11 @@ pub enum ParseAnnotationError {
     #[error("the annotation {id} had invalid arguments: {args:?}")]
     InvalidArguments { id: EcoString, args: EcoString },
 
+    /// The annotation expected arguments, but did not receive the correct
+    /// number or kind of arguments.
+    #[error("a test set identifier could not be parsed")]
+    TestSetIdentifierError(#[from] test_set::id::ParseIdentifierError),
+
     /// The annotation was otherwise malformed.
     #[error("the annotation was malformed")]
     Other,
@@ -68,7 +75,7 @@ pub enum Annotation {
     /// A more general version of [`Self::Ignored`], which allows using the
     /// `custom()` test set, can be used more than once. Using `[custom: foo]`
     /// makes the test part of the `custom(foo)` test set.
-    Custom(EcoString),
+    Custom(test_set::Identifier),
 }
 
 impl Annotation {
@@ -121,7 +128,7 @@ impl FromStr for Annotation {
             "custom" => match args {
                 Some(args) => {
                     if args.chars().all(|c: char| c != ' ') {
-                        Ok(Annotation::Custom(args.into()))
+                        Ok(Annotation::Custom(test_set::Identifier::new(args)?))
                     } else {
                         Err(ParseAnnotationError::InvalidArguments {
                             id: id.into(),
@@ -152,11 +159,11 @@ mod tests {
         );
         assert_eq!(
             Annotation::from_str("[custom : foo]").unwrap(),
-            Annotation::Custom("foo".into())
+            Annotation::Custom(test_set::Identifier::new("foo").unwrap())
         );
         assert_eq!(
             Annotation::from_str("[custom:bar]").unwrap(),
-            Annotation::Custom("bar".into())
+            Annotation::Custom(test_set::Identifier::new("bar").unwrap())
         );
 
         assert!(Annotation::from_str("[ ignored  ").is_err());

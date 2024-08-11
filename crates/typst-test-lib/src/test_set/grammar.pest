@@ -1,32 +1,88 @@
 main = _{ SOI ~ expr ~ EOI }
 
-expr = { unary_operator* ~ term ~ (binary_operator ~ unary_operator* ~ term)* }
-  atom = { func | val }
-  term = { atom | "(" ~ expr ~ ")" }
+expr = { op_prefix* ~ term ~ op_postfix* ~ (op_infix ~ op_prefix* ~ term ~ op_postfix*)* }
+term = _{ atom | "(" ~ expr ~ ")" }
+atom = { literal | function | variable }
 
-unary_operator = _{ complement }
-  complement = { "¬" | "!" | "not" }
+kw_not = { "not" }
+kw_or = { "or" }
+kw_and = { "and" }
+kw_diff = { "diff" }
+kw_xor = { "xor" }
 
-binary_operator = _{ intersect | union | difference | symmetric_difference }
-  intersect = { "∩" | "&" | "and" }
-  union = { "∪" | "|" | "or" | "+" }
-  difference = { "\\" | "-" }
-  symmetric_difference = { "Δ" | "^" | "xor" }
+op_complement = { "¬" }
+op_union = { "∪" }
+op_intersection = { "∩" }
+op_backslash = { "\\" }
+op_delta = { "Δ" }
 
-val = { id }
+op_exclamation = { "!" }
+op_pipe = { "|" }
+op_ampersand = { "&" }
+op_tilde = { "~" }
+op_caret = { "^" }
 
-func = ${ id ~ args }
-  args = { "(" ~ arg ~ ")" }
-  arg = { matcher }
+op_plus = { "+" }
+op_minus = { "-" }
 
-matcher = { exact_matcher | contains_matcher | regex_matcher | plain_matcher }
-  exact_matcher = ${ "=" ~ name }
-  contains_matcher = ${ "~" ~ name }
-  regex_matcher = ${ "/" ~ regex ~ "/" }
-  plain_matcher = ${ name }
+op_prefix = _{ kw_not | op_complement | op_exclamation }
 
-id = { ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "-" | "_")* }
-name = { ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "-" | "_" | "/")* }
-regex = { (( "\\" ~ "/") | (!"/" ~ ANY))+ }
+op_postfix = _{ op_plus | op_minus }
+
+op_infix = _{
+  kw_or
+  | kw_and
+  | kw_diff
+  | kw_xor
+  | op_union
+  | op_intersection
+  | op_backslash
+  | op_delta
+  | op_pipe
+  | op_ampersand
+  | op_tilde
+  | op_caret
+}
+
+variable = { identifier }
+
+function = ${ identifier ~ function_arguments }
+  function_arguments = !{ "(" ~ expr? ~ ("," ~ expr)* ~ ","? ~ ")" }
+
+literal = { number | string | pattern }
+  number = @{ ASCII_NONZERO_DIGIT ~ ASCII_DIGIT* }
+  string = { single_string | double_string }
+
+  single_string = _{ "'" ~ single_string_inner ~ "'" }
+  single_string_inner = @{ single_string_char* }
+  single_string_char = _{ !("\'" | "\\") ~ ANY | "\\" ~ "'" | string_escape }
+
+  double_string = _{ "\"" ~ double_string_inner ~ "\"" }
+  double_string_inner = @{ double_string_char* }
+  double_string_char = _{ !("\"" | "\\") ~ ANY | "\\" ~ "\"" | string_escape }
+
+  string_escape = _{
+    "\\" ~ ("\\" | "n" | "r" | "t")
+    | "\\" ~ ("u" ~ "{" ~ ASCII_HEX_DIGIT{4} ~ "}")
+  }
+
+  pattern = ${ pattern_prefix ~ pattern_inner }
+  pattern_prefix = _{
+	pattern_prefix_contains
+    | pattern_prefix_exact
+    | pattern_prefix_regex
+    | pattern_prefix_glob
+  }
+  pattern_prefix_contains = { "~" }
+  pattern_prefix_exact = { "=" }
+  pattern_prefix_regex = { ":" }
+  pattern_prefix_glob = { "#" }
+  pattern_inner = _{ string | pattern_raw }
+  pattern_raw = { pattern_segment+ }
+  pattern_segment = _{ pattern_group | pattern_char+ }
+  pattern_group = _{ "(" ~ pattern_raw? ~ ")" }
+  pattern_char = _{ !(WHITESPACE | "," | "("| ")") ~ ANY }
+
+identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_" | "-")* }
 
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }

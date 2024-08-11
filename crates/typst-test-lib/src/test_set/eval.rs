@@ -1,420 +1,354 @@
-//! Evaluate test set expressions.
+//! Evaluate the ASTs into test set expressions.
 
+use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use ecow::EcoString;
-use regex::Regex;
+use ecow::{eco_vec, EcoString, EcoVec};
+use thiserror::Error;
+use typst_test_stdx::fmt::{Separators, Term};
 
-use super::DynTestSet;
+use super::ast::{Literal, Pattern};
+use super::builtin;
+use super::id::Identifier;
 use crate::store::test::Test;
-use crate::test::ReferenceKind;
 
-/// A test set which contains all tests.
-#[derive(Debug, Clone)]
-pub struct AllTestSet;
+/// A dynamic test set.
+pub type DynTestSet = Arc<dyn TestSet>;
 
-impl super::TestSet for AllTestSet {
-    fn contains(&self, _test: &Test) -> bool {
-        true
+/// A dynamic function.
+pub type DynFunction = Arc<dyn Function>;
+
+/// A function which must be called on evaluation to produce a value.
+pub trait Function: Debug + Send + Sync + 'static {
+    /// Builds a test set from the given node.
+    fn call(&self, ctx: &Context, args: &[Value]) -> Result<Value, Error>;
+}
+
+impl Function for Arc<dyn Function> {
+    fn call(&self, ctx: &Context, args: &[Value]) -> Result<Value, Error> {
+        Function::call(&**self, ctx, args)
     }
 }
 
-/// A test set which contains no tests.
-#[derive(Debug, Clone)]
-pub struct NoneTestSet;
-
-impl super::TestSet for NoneTestSet {
-    fn contains(&self, _test: &Test) -> bool {
-        false
+impl Function for Box<dyn Function> {
+    fn call(&self, ctx: &Context, args: &[Value]) -> Result<Value, Error> {
+        Function::call(&**self, ctx, args)
     }
 }
 
-/// A tet set which contains ignored tests.
-#[derive(Debug, Clone)]
-pub struct IgnoredTestSet;
+/// A test set, a representation of multiple tests which can be used to match on
+/// tests.
+pub trait TestSet: Debug + Send + Sync + 'static {
+    /// Returns whether this test is contained in this test set.
+    fn contains(&self, test: &Test) -> bool;
+}
 
-impl super::TestSet for IgnoredTestSet {
+impl TestSet for Arc<dyn TestSet> {
     fn contains(&self, test: &Test) -> bool {
-        test.is_ignored()
+        TestSet::contains(&**self, test)
     }
 }
 
-/// A test set which contains tests of a certain [`ReferenceKind`].
-#[derive(Debug, Clone)]
-pub struct CustomTestSet {
-    pub id: EcoString,
-}
-
-impl super::TestSet for CustomTestSet {
+impl TestSet for Box<dyn TestSet> {
     fn contains(&self, test: &Test) -> bool {
-        test.in_custom_test_set(&self.id)
+        TestSet::contains(&**self, test)
     }
 }
 
-/// A test set which contains tests of a certain [`ReferenceKind`].
-#[derive(Debug, Clone)]
-pub struct KindTestSet {
-    pub kind: Option<ReferenceKind>,
+/// AST nodes which can be evaluated into a test set.
+pub trait Eval {
+    /// Evaluates this AST into a test set.
+    fn eval(&self, ctx: &Context) -> Result<Value, Error>;
 }
 
-impl KindTestSet {
-    /// A kind test set which contains compile only tests.
-    pub fn compile_only() -> Self {
-        Self { kind: None }
-    }
+/// The type of an expression. This is primarily use for diagnostics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Type {
+    /// A compound expression of some form which isn't fully resolved.
+    Expression,
 
-    /// A kind test set which contains ephemeral tests.
-    pub fn ephemeral() -> Self {
-        Self {
-            kind: Some(ReferenceKind::Ephemeral),
-        }
-    }
+    /// A string.
+    String,
 
-    /// A kind test set which contains persistent tests.
-    pub fn persistent() -> Self {
-        Self {
-            kind: Some(ReferenceKind::Persistent),
-        }
-    }
+    /// A number.
+    Number,
+
+    /// A pattern.
+    Pattern,
+
+    /// A function.
+    Function,
+
+    /// A test set.
+    TestSet,
 }
 
-impl super::TestSet for KindTestSet {
-    fn contains(&self, test: &Test) -> bool {
-        test.ref_kind() == self.kind
-    }
-}
-
-/// A test set which contains tests matching the given identifier pattern.
-#[derive(Debug, Clone)]
-pub struct IdentifierTestSet {
-    /// The pattern to use for identifier matching.
-    pub pattern: IdentifierPattern,
-
-    /// The target to match on.
-    pub target: IdentifierTarget,
-}
-
-/// The target to apply the identifier pattern to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IdentifierTarget {
-    /// Match on the whole identifier.
-    Full,
-
-    /// Match on the name part of the identifier.
-    Name,
-
-    /// Match on the module part of the identifier.
-    Module,
-}
-
-/// A test set which contains tests by their identifiers.
-#[derive(Debug, Clone)]
-pub enum IdentifierPattern {
-    /// Matches all tests which match the [`Regex`].
-    Regex(Regex),
-
-    /// Matches all tests which have exactly this name.
-    Exact(EcoString),
-
-    /// Matches all tests which contain the given term in their name.
-    Contains(EcoString),
-}
-
-impl super::TestSet for IdentifierTestSet {
-    fn contains(&self, test: &Test) -> bool {
-        let id = test.id();
-        let part = match self.target {
-            IdentifierTarget::Full => id.as_str(),
-            IdentifierTarget::Name => id.name(),
-            IdentifierTarget::Module => id.module(),
-        };
-
-        match &self.pattern {
-            IdentifierPattern::Regex(regex) => regex.is_match(part),
-            IdentifierPattern::Exact(term) => part == term,
-            IdentifierPattern::Contains(term) => part.contains(term.as_str()),
-        }
-    }
-}
-
-/// A unary operator test set.
-#[derive(Debug, Clone)]
-pub enum UnaryTestSet {
-    /// Contains all tests which are not contained in the inner test set.
-    Complement(DynTestSet),
-}
-
-impl super::TestSet for UnaryTestSet {
-    fn contains(&self, test: &Test) -> bool {
+impl Type {
+    pub fn as_str(&self) -> &'static str {
         match self {
-            UnaryTestSet::Complement(matcher) => !matcher.contains(test),
+            Self::Expression => "expression",
+            Self::String => "string",
+            Self::Number => "number",
+            Self::Pattern => "pattern",
+            Self::Function => "function",
+            Self::TestSet => "test set",
         }
     }
 }
 
-/// A binary operator test set.
+/// An evaluated expression.
 #[derive(Debug, Clone)]
-pub enum BinaryTestSet {
-    /// Contains the union of the inner test sets, those tests that are
-    /// contained in either test set.
-    Union(DynTestSet, DynTestSet),
+pub enum Value {
+    /// A test set expression.
+    TestSet(DynTestSet),
 
-    /// Contains the set difference of the inner test sets, those tests that are
-    /// contained in the left but not the right test set.
-    Difference(DynTestSet, DynTestSet),
+    /// A function expression.
+    Function(DynFunction),
 
-    /// Contains the symmetric difference of the inner test sets, those tests
-    /// that are contained in only one test set, but not both.
-    SymmetricDifference(DynTestSet, DynTestSet),
+    /// A number expresison.
+    Number(i64),
 
-    /// Contains the intersection of the inner test sets, those tests
-    /// that are contained in both test sets.
-    Intersect(DynTestSet, DynTestSet),
+    /// A string expression.
+    String(EcoString),
+
+    /// A pattern expresison.
+    Pattern(Pattern),
 }
 
-impl super::TestSet for BinaryTestSet {
-    fn contains(&self, test: &Test) -> bool {
+impl Value {
+    /// Converts a [`Literal`] directly into a value.
+    pub fn from_literal(literal: Literal) -> Self {
+        match literal {
+            Literal::Number(num) => Self::Number(num),
+            Literal::String(str) => Self::String(str),
+            Literal::Pattern(pat) => Self::Pattern(pat),
+        }
+    }
+
+    /// Returns the type of this expression.
+    pub fn as_type(&self) -> Type {
         match self {
-            BinaryTestSet::Union(m1, m2) => m1.contains(test) || m2.contains(test),
-            BinaryTestSet::Difference(m1, m2) => m1.contains(test) && !m2.contains(test),
-            BinaryTestSet::SymmetricDifference(m1, m2) => m1.contains(test) ^ m2.contains(test),
-            BinaryTestSet::Intersect(m1, m2) => m1.contains(test) && m2.contains(test),
+            Value::TestSet(_) => Type::TestSet,
+            Value::Function(_) => Type::Function,
+            Value::Number(_) => Type::Number,
+            Value::String(_) => Type::String,
+            Value::Pattern(_) => Type::Pattern,
         }
     }
-}
 
-/// Returns the default test set, `!ignored`.
-pub fn default() -> DynTestSet {
-    Arc::new(UnaryTestSet::Complement(Arc::new(IgnoredTestSet)))
-}
+    /// Returns the inner [`TestSet`] or `None` if it's not a test set.
+    pub fn as_test_set(&self) -> Option<&DynTestSet> {
+        match self {
+            Self::TestSet(set) => Some(set),
+            _ => None,
+        }
+    }
 
-/// A test set for running an arbitrary function on tests to check if they're
-/// contained in the test set.
-#[derive(Clone)]
-pub struct FnTestSet {
-    /// The closure to run on tests.
-    pub custom: Arc<dyn Fn(&Test) -> bool + Send + Sync>,
-}
+    /// Returns the inner [`Function`] or `None` if it's not a function.
+    pub fn as_function(&self) -> Option<&DynFunction> {
+        match self {
+            Value::Function(func) => Some(func),
+            _ => None,
+        }
+    }
 
-impl Debug for FnTestSet {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CustomMatcher")
-            .field("custom", &..)
-            .finish()
+    /// Returns the inner string literal or `None` if it's not a string literal.
+    pub fn as_string(&self) -> Option<&EcoString> {
+        match self {
+            Self::String(str) => Some(str),
+            _ => None,
+        }
+    }
+
+    /// Returns the inner number literal or `None` if it's not a number literal.
+    pub fn as_number(&self) -> Option<i64> {
+        match self {
+            Self::Number(num) => Some(*num),
+            _ => None,
+        }
+    }
+
+    /// Returns the inner [`Pattern`] literal or `None` if it's not a pattern
+    /// literal.
+    pub fn as_pattern(&self) -> Option<&Pattern> {
+        match self {
+            Self::Pattern(pat) => Some(pat),
+            _ => None,
+        }
+    }
+
+    /// Same as [`Self::as_test_set`], but clones the value and returns a type
+    /// error instead of `None`.
+    pub fn to_test_set(&self) -> Result<DynTestSet, Error> {
+        self.as_test_set()
+            .ok_or_else(|| Error::TypeMismatch {
+                expected: eco_vec![Type::TestSet],
+                found: self.as_type(),
+            })
+            .cloned()
+    }
+
+    /// Same as [`Self::as_function`], but returns a type error instead of
+    /// `None`.
+    pub fn to_function(&self) -> Result<DynFunction, Error> {
+        self.as_function()
+            .ok_or_else(|| Error::TypeMismatch {
+                expected: eco_vec![Type::Function],
+                found: self.as_type(),
+            })
+            .cloned()
+    }
+
+    /// Same as [`Self::as_number`], but clones the value and returns a type
+    /// error instead of `None`.
+    pub fn to_number(&self) -> Result<i64, Error> {
+        self.as_number().ok_or_else(|| Error::TypeMismatch {
+            expected: eco_vec![Type::Number],
+            found: self.as_type(),
+        })
+    }
+
+    /// Same as [`Self::as_string`], but clones the value and returns a type
+    /// error instead of `None`.
+    pub fn to_string(&self) -> Result<EcoString, Error> {
+        self.as_string()
+            .ok_or_else(|| Error::TypeMismatch {
+                expected: eco_vec![Type::String],
+                found: self.as_type(),
+            })
+            .cloned()
+    }
+
+    /// Same as [`Self::as_pattern`], but clones the value and returns a type
+    /// error instead of `None`.
+    pub fn to_pattern(&self) -> Result<Pattern, Error> {
+        self.as_pattern()
+            .ok_or_else(|| Error::TypeMismatch {
+                expected: eco_vec![Type::Pattern],
+                found: self.as_type(),
+            })
+            .cloned()
     }
 }
 
-impl FnTestSet {
-    /// Crates a new test set from the given closure.
-    pub fn new<F>(f: F) -> Self
-    where
-        F: Fn(&Test) -> bool + Send + Sync + 'static,
-    {
+impl From<DynTestSet> for Value {
+    fn from(value: DynTestSet) -> Self {
+        Self::TestSet(value)
+    }
+}
+
+impl From<DynFunction> for Value {
+    fn from(value: DynFunction) -> Self {
+        Self::Function(value)
+    }
+}
+
+impl From<i64> for Value {
+    fn from(value: i64) -> Self {
+        Self::Number(value)
+    }
+}
+
+impl From<EcoString> for Value {
+    fn from(value: EcoString) -> Self {
+        Self::String(value)
+    }
+}
+
+impl From<Pattern> for Value {
+    fn from(value: Pattern) -> Self {
+        Self::Pattern(value)
+    }
+}
+
+impl From<Literal> for Value {
+    fn from(value: Literal) -> Self {
+        Self::from_literal(value)
+    }
+}
+
+pub struct Context {
+    /// The variables available in this context, these are fully resolved.
+    bindings: BTreeMap<Identifier, Value>,
+}
+
+impl Context {
+    /// Returns a context with the builtin variables defined.
+    pub fn builtin() -> Self {
         Self {
-            custom: Arc::new(f),
+            bindings: [
+                ("all", Value::TestSet(builtin::all())),
+                ("none", Value::TestSet(builtin::none())),
+                ("ignored", Value::TestSet(builtin::ignored())),
+                ("compile-only", Value::TestSet(builtin::compile_only())),
+                ("ephemeral", Value::TestSet(builtin::ephemeral())),
+                ("persistent", Value::TestSet(builtin::persistent())),
+                ("default", Value::TestSet(builtin::default())),
+                ("id", Value::Function(builtin::id())),
+                ("mod", Value::Function(builtin::id())),
+                ("name", Value::Function(builtin::id())),
+                ("custom", Value::Function(builtin::custom())),
+            ]
+            .into_iter()
+            .map(|(id, m)| (Identifier::new(id).unwrap(), m))
+            .collect(),
         }
     }
-}
 
-impl super::TestSet for FnTestSet {
-    fn contains(&self, test: &Test) -> bool {
-        (self.custom)(test)
+    /// Try to resolve a binding.
+    pub fn resolve_binding(&self, id: &str) -> Result<Value, Error> {
+        self.bindings
+            .get(id)
+            .cloned()
+            .ok_or_else(|| Error::UnknownBinding {
+                id: id.into(),
+                similar: self
+                    .bindings
+                    .keys()
+                    .filter(|cand| strsim::jaro(id, cand.as_str()) > 0.7)
+                    .cloned()
+                    .collect(),
+            })
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use ecow::eco_vec;
+/// An error that occurs when a test set could not be constructed.
+#[derive(Debug, Error)]
+pub enum Error {
+    /// The requested binding could not be found.
+    #[error("unknown test set {id}")]
+    UnknownBinding {
+        id: EcoString,
+        similar: Vec<Identifier>,
+    },
 
-    use super::*;
-    use crate::test::id::Identifier as TestIdentifier;
-    use crate::test::{Annotation, ReferenceKind};
-    use crate::test_set::TestSet;
+    /// A function could not be evaluated.
+    #[error("expected {expected} {}, found {found}", Term::simple("argument").with(*expected))]
+    InvalidArgumentCount { expected: usize, found: usize },
 
-    macro_rules! assert_matcher {
-        ($m:expr, $matches:expr $(,)?) => {
-            assert_eq!(
-                [
-                    ("mod/test-1", Some(ReferenceKind::Ephemeral), eco_vec![]),
-                    (
-                        "mod/test-2",
-                        Some(ReferenceKind::Persistent),
-                        eco_vec![Annotation::Custom("foo".into())]
-                    ),
-                    ("mod/other/test-1", None, eco_vec![]),
-                    (
-                        "mod/other/test-2",
-                        Some(ReferenceKind::Ephemeral),
-                        eco_vec![]
-                    ),
-                    (
-                        "top-level",
-                        None,
-                        eco_vec![Annotation::Custom("foo".into())]
-                    ),
-                    (
-                        "ignored",
-                        Some(ReferenceKind::Persistent),
-                        eco_vec![Annotation::Ignored]
-                    ),
-                ]
-                .map(|(id, r, a)| Test::new_test(TestIdentifier::new(id).unwrap(), r, a))
-                .iter()
-                .map(|t| $m.contains(t))
-                .collect::<Vec<_>>(),
-                $matches,
-            );
-        };
-    }
+    /// An invalid type was used in an expression.
+    #[error(
+        "expected {}, found <{}>",
+        Separators::comma_or().with(expected.iter().map(|t| format!("<{}>", t.as_str()))),
+        found.as_str(),
+    )]
+    TypeMismatch { expected: EcoVec<Type>, found: Type },
 
-    #[test]
-    fn test_default() {
-        let m = default();
-        assert_matcher!(m, [true, true, true, true, true, false]);
-    }
+    /// A regex pattern could not be parsed.
+    #[error("could not parse regex")]
+    RegexError(#[from] regex::Error),
 
-    #[test]
-    fn test_custom() {
-        let m = CustomTestSet { id: "foo".into() };
-        assert_matcher!(m, [false, true, false, false, true, false]);
-    }
+    /// A glob pattern could not be parsed.
+    #[error("could not parse glob")]
+    GlobError(#[from] glob::PatternError),
+}
 
-    #[test]
-    fn test_name_regex() {
-        let m = IdentifierTestSet {
-            pattern: IdentifierPattern::Regex(Regex::new(r#"mod/.+/test"#).unwrap()),
-            target: IdentifierTarget::Full,
-        };
-        assert_matcher!(m, [false, false, true, true, false, false]);
+#[allow(dead_code)]
+fn assert_traits() {
+    fn assert_send<T: Send>() {}
+    fn assert_sync<T: Sync>() {}
 
-        let m = IdentifierTestSet {
-            pattern: IdentifierPattern::Regex(Regex::new(r#"mod/.+"#).unwrap()),
-            target: IdentifierTarget::Module,
-        };
-        assert_matcher!(m, [false, false, true, true, false, false]);
-
-        let m = IdentifierTestSet {
-            pattern: IdentifierPattern::Regex(Regex::new(r#"test-\d"#).unwrap()),
-            target: IdentifierTarget::Name,
-        };
-        assert_matcher!(m, [true, true, true, true, false, false]);
-    }
-
-    #[test]
-    fn test_name_contains() {
-        let m = IdentifierTestSet {
-            pattern: IdentifierPattern::Contains("-".into()),
-            target: IdentifierTarget::Full,
-        };
-        assert_matcher!(m, [true, true, true, true, true, false]);
-
-        let m = IdentifierTestSet {
-            pattern: IdentifierPattern::Contains("d".into()),
-            target: IdentifierTarget::Module,
-        };
-        assert_matcher!(m, [true, true, true, true, false, false]);
-
-        let m = IdentifierTestSet {
-            pattern: IdentifierPattern::Contains("d".into()),
-            target: IdentifierTarget::Name,
-        };
-        assert_matcher!(m, [false, false, false, false, false, true]);
-    }
-
-    #[test]
-    fn test_name_exact() {
-        let m = IdentifierTestSet {
-            pattern: IdentifierPattern::Exact("mod/test-1".into()),
-            target: IdentifierTarget::Full,
-        };
-        assert_matcher!(m, [true, false, false, false, false, false]);
-
-        let m = IdentifierTestSet {
-            pattern: IdentifierPattern::Exact("mod".into()),
-            target: IdentifierTarget::Module,
-        };
-        assert_matcher!(m, [true, true, false, false, false, false]);
-
-        let m = IdentifierTestSet {
-            pattern: IdentifierPattern::Exact("test-1".into()),
-            target: IdentifierTarget::Name,
-        };
-        assert_matcher!(m, [true, false, true, false, false, false]);
-    }
-
-    #[test]
-    fn test_kind() {
-        let m = KindTestSet::compile_only();
-        assert_matcher!(m, [false, false, true, false, true, false]);
-
-        let m = KindTestSet::ephemeral();
-        assert_matcher!(m, [true, false, false, true, false, false]);
-
-        let m = KindTestSet::persistent();
-        assert_matcher!(m, [false, true, false, false, false, true]);
-    }
-
-    #[test]
-    fn test_ignored() {
-        let m = IgnoredTestSet;
-        assert_matcher!(m, [false, false, false, false, false, true]);
-    }
-
-    #[test]
-    fn test_all() {
-        let m = AllTestSet;
-        assert_matcher!(m, [true, true, true, true, true, true]);
-    }
-
-    #[test]
-    fn test_none() {
-        let m = NoneTestSet;
-        assert_matcher!(m, [false, false, false, false, false, false]);
-    }
-
-    #[test]
-    fn test_complement() {
-        let m = UnaryTestSet::Complement(Arc::new(IgnoredTestSet));
-        assert_matcher!(m, [true, true, true, true, true, false]);
-    }
-
-    #[test]
-    fn test_binary() {
-        let m = BinaryTestSet::Union(
-            Arc::new(IdentifierTestSet {
-                pattern: IdentifierPattern::Regex(Regex::new(r#"test-\d"#).unwrap()),
-                target: IdentifierTarget::Full,
-            }),
-            Arc::new(KindTestSet::compile_only()),
-        );
-        assert_matcher!(m, [true, true, true, true, true, false]);
-
-        let m = BinaryTestSet::Intersect(
-            Arc::new(IdentifierTestSet {
-                pattern: IdentifierPattern::Regex(Regex::new(r#"test-\d"#).unwrap()),
-                target: IdentifierTarget::Full,
-            }),
-            Arc::new(KindTestSet::compile_only()),
-        );
-        assert_matcher!(m, [false, false, true, false, false, false]);
-
-        let m = BinaryTestSet::Difference(
-            Arc::new(IdentifierTestSet {
-                pattern: IdentifierPattern::Regex(Regex::new(r#"test-\d"#).unwrap()),
-                target: IdentifierTarget::Full,
-            }),
-            Arc::new(KindTestSet::compile_only()),
-        );
-        assert_matcher!(m, [true, true, false, true, false, false]);
-
-        let m = BinaryTestSet::SymmetricDifference(
-            Arc::new(IdentifierTestSet {
-                pattern: IdentifierPattern::Regex(Regex::new(r#"test-\d"#).unwrap()),
-                target: IdentifierTarget::Full,
-            }),
-            Arc::new(KindTestSet::compile_only()),
-        );
-        assert_matcher!(m, [true, true, false, true, true, false]);
-    }
+    assert_send::<DynTestSet>();
+    assert_sync::<DynFunction>();
 }
