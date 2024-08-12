@@ -1,12 +1,16 @@
 book-src := justfile_directory() / 'docs' / 'book'
 
 # run a full test harness (doc tests disabled)
-all: && book doc
-	cargo nextest run --workspace
+all *args: && book doc
+	cargo nextest run --workspace {{ args }}
 
 # run the lib tests
 lib *args:
 	cargo nextest run --package typst-test-lib {{ args }}
+
+# run the test-set tests
+stdx *args:
+	cargo nextest run --package typst-test-stdx {{ args }}
 
 # run the cli tests
 cli *args:
