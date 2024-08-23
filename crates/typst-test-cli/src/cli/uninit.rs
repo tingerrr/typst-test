@@ -1,4 +1,5 @@
 use std::io;
+use std::io::Write;
 
 use serde::Serialize;
 use termcolor::{Color, WriteColor};
@@ -9,6 +10,14 @@ use super::Context;
 use crate::report::reports::ProjectJson;
 use crate::report::{Report, Verbosity};
 use crate::ui;
+
+#[derive(clap::Args, Debug, Clone)]
+#[group(id = "uninit-args")]
+pub struct Args {
+    /// Whether or not to skip confirmation
+    #[arg(long, short)]
+    pub force: bool,
+}
 
 #[derive(Debug, Serialize)]
 pub struct InitReport<'p> {
@@ -36,11 +45,25 @@ impl Report for InitReport<'_> {
     }
 }
 
-pub fn run(ctx: &mut Context) -> anyhow::Result<()> {
+pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
     let mut project = ctx.ensure_project()?;
     project.collect_tests(test_set::builtin::all())?;
 
-    // TODO: confirmation?
+    let len = project.matched().len() + project.filtered().len();
+
+    let confirmed = args.force
+        || ctx.reporter.ui().prompt_yes_no(
+            format!(
+                "confirm deletion of {len} {}",
+                Term::simple("test").with(len)
+            ),
+            false,
+        )?;
+
+    if !confirmed {
+        ctx.operation_failure(|r| r.ui().error_with(|w| writeln!(w, "Deletion aborted")))?;
+        anyhow::bail!("Deletion aborted");
+    }
 
     project.uninit()?;
 

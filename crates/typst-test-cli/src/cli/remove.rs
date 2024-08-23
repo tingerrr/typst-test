@@ -2,6 +2,7 @@ use std::io;
 
 use serde::Serialize;
 use termcolor::{Color, WriteColor};
+use typst_test_stdx::fmt::Term;
 
 use super::{Context, OperationArgs};
 use crate::report::{Report, Verbosity};
@@ -23,7 +24,7 @@ impl Report for RemoveReport {
     fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> io::Result<()> {
         write!(writer, "Removed ")?;
         ui::write_bold_colored(&mut writer, Color::Green, |w| write!(w, "{}", self.removed))?;
-        writeln!(writer, "tests")?;
+        writeln!(writer, " {}", Term::simple("test").with(self.removed))?;
 
         Ok(())
     }

@@ -11,6 +11,7 @@ use typst_test_lib::store::vcs::{Git, Vcs};
 use typst_test_lib::test::id::Identifier;
 use typst_test_lib::test_set::{DynTestSet, TestSetExpr};
 use typst_test_lib::{compare, render, test_set};
+use typst_test_stdx::fmt::Term;
 
 use crate::fonts::FontSearcher;
 use crate::package::PackageStorage;
@@ -177,7 +178,9 @@ impl<'a> Context<'a> {
         tracing::debug!("collecting tests");
         project.collect_tests(test_set)?;
 
-        match (project.matched().len(), op_requires_confirm_for_many.into()) {
+        let len = project.matched().len();
+
+        match (len, op_requires_confirm_for_many.into()) {
             (0, _) => {
                 self.set_operation_failure();
                 self.operation_failure(|r| r.ui().error_with(|w| writeln!(w, "Matched no tests")))?;
@@ -185,22 +188,26 @@ impl<'a> Context<'a> {
             }
             (1, _) => {}
             (_, None) => {}
-            // Explicitly passing more than one test implies `--all`
-            (_, Some(_)) if op_args.all || !op_args.tests.is_empty() => {}
             (_, Some(op)) => {
-                tracing::error!(
-                    "destructive operation with more than one test and no --all confirmation"
-                );
-                self.operation_failure(|r| {
+                // Explicitly passing more than one test implies `--all`
+                let confirmed = op_args.all
+                    || !op_args.tests.is_empty()
+                    || self.reporter.ui().prompt_yes_no(
+                        format!("{op} {len} {}", Term::simple("test").with(len)),
+                        false,
+                    )?;
+                if !confirmed {
+                    self.operation_failure(|r| {
                     r.ui().error_hinted_with(
-                        |w| writeln!(w, "Matched more than one test"),
-                        |w| writeln!(w, "Pass `--all` to {op} more than one test at a time"),
+                        |w| writeln!(w, "Matched more than one test without confirmation"),
+                        |w| writeln!(w, "Pass `--all` to {op} more than one test at a time without a prompt"),
                     )
                 })?;
 
-                anyhow::bail!(
-                    "Matched more than one test without a confirmation for operation {op}"
-                );
+                    anyhow::bail!(
+                        "Matched more than one test without a confirmation for operation {op}"
+                    );
+                }
             }
         }
 
@@ -366,7 +373,8 @@ pub struct OperationArgs {
     /// Allow operating on more than one test if multiple tests match
     ///
     /// This is not required for comparing or compiling, but for editing,
-    /// updating or removing tests.
+    /// updating or removing tests. This is implied if a user explicitly passes
+    /// multiple tests as positional arguments.
     #[arg(long, short)]
     pub all: bool,
 
@@ -770,7 +778,7 @@ pub enum Command {
 
     /// Remove the test directory from the current project
     #[command()]
-    Uninit,
+    Uninit(uninit::Args),
 
     /// Show information about the current project
     #[command(visible_alias = "st")]
@@ -814,7 +822,7 @@ impl Command {
     pub fn run(&self, ctx: &mut Context) -> anyhow::Result<()> {
         match self {
             Command::Init(args) => init::run(ctx, args),
-            Command::Uninit => uninit::run(ctx),
+            Command::Uninit(args) => uninit::run(ctx, args),
             Command::Add(args) => add::run(ctx, args),
             Command::Edit(args) => edit::run(ctx, args),
             Command::Remove(args) => remove::run(ctx, args),

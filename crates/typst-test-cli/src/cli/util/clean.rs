@@ -3,6 +3,7 @@ use std::io;
 use serde::Serialize;
 use termcolor::{Color, WriteColor};
 use typst_test_lib::test_set;
+use typst_test_stdx::fmt::Term;
 
 use super::Context;
 use crate::report::{Report, Verbosity};
@@ -17,7 +18,7 @@ impl Report for CleanReport {
     fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> io::Result<()> {
         write!(writer, "Removed test artifacts for")?;
         ui::write_colored(&mut writer, Color::Green, |w| write!(w, "{}", self.removed))?;
-        writeln!(writer, " tests")?;
+        writeln!(writer, " {}", Term::simple("test").with(self.removed))?;
 
         Ok(())
     }
