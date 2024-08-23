@@ -22,7 +22,7 @@ pub struct Ui {
 
 fn check_terminal<T: IsTerminal>(t: T, choice: ColorChoice) -> ColorChoice {
     match choice {
-        // NOTE: when we use auto  and the stream is not a terminal we disable
+        // NOTE: when we use auto and the stream is not a terminal, we disable
         // it since termcolor does not check for this, in any other case we let
         // termcolor figure out what to do
         ColorChoice::Auto if !t.is_terminal() => ColorChoice::Never,
@@ -94,27 +94,27 @@ impl Ui {
     }
 
     /// A shorthand for [`Self::error_with`].
-    pub fn error<M: Display>(&self, message: M) -> io::Result<()> {
+    pub fn error(&self, message: impl Display) -> io::Result<()> {
         self.error_with(|w| writeln!(w, "{message}"))
     }
 
     /// A shorthand for [`Self::warning_with`].
-    pub fn warning<M: Display>(&self, message: M) -> io::Result<()> {
+    pub fn warning(&self, message: impl Display) -> io::Result<()> {
         self.warning_with(|w| writeln!(w, "{message}"))
     }
 
     /// A shorthand for [`Self::hint_with`].
-    pub fn hint<M: Display>(&self, message: M) -> io::Result<()> {
+    pub fn hint(&self, message: impl Display) -> io::Result<()> {
         self.hint_with(|w| writeln!(w, "{message}"))
     }
 
     /// Writes a hinted error to stderr.
-    pub fn error_hinted<M: Display, H: Display>(&self, message: M, hint: H) -> io::Result<()> {
+    pub fn error_hinted(&self, message: impl Display, hint: impl Display) -> io::Result<()> {
         self.error_hinted_with(|w| writeln!(w, "{message}"), |w| writeln!(w, "{hint}"))
     }
 
     /// Writes a hinted warning to stderr.
-    pub fn warning_hinted<M: Display, H: Display>(&self, message: M, hint: H) -> io::Result<()> {
+    pub fn warning_hinted(&self, message: impl Display, hint: impl Display) -> io::Result<()> {
         self.warning_hinted_with(|w| writeln!(w, "{message}"), |w| writeln!(w, "{hint}"))
     }
 }

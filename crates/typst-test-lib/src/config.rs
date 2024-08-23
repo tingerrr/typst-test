@@ -82,11 +82,11 @@ fn is_significant_decor(decor: &Decor) -> bool {
     decor
         .prefix()
         .and_then(RawString::as_str)
-        .is_some_and(|d| !dbg!(d).trim().is_empty())
+        .is_some_and(|d| !d.trim().is_empty())
         || decor
             .prefix()
             .and_then(RawString::as_str)
-            .is_some_and(|d| !dbg!(d).trim().is_empty())
+            .is_some_and(|d| !d.trim().is_empty())
 }
 
 #[derive(Debug, Error)]
