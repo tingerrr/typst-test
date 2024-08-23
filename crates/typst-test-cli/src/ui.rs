@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use std::fmt::{Debug, Display};
-use std::io::{IsTerminal, Write};
+use std::io::{BufRead, IsTerminal, Stdin, StdinLock, Write};
 use std::{fmt, io};
 
 /// The maximum needed padding to align all standard annotations. The longest of
@@ -16,6 +16,7 @@ use termcolor::{
 
 #[derive(Debug)]
 pub struct Ui {
+    stdin: Stdin,
     stdout: StandardStream,
     stderr: StandardStream,
 }
@@ -34,9 +35,15 @@ impl Ui {
     /// Creates a new `Ui`.
     pub fn new(out: ColorChoice, err: ColorChoice) -> Self {
         Self {
+            stdin: io::stdin(),
             stdout: StandardStream::stdout(check_terminal(io::stdout(), out)),
             stderr: StandardStream::stderr(check_terminal(io::stderr(), err)),
         }
+    }
+
+    /// Returns an exclusive lock to stdin.
+    pub fn stdin(&self) -> StdinLock<'_> {
+        self.stdin.lock()
     }
 
     /// Returns an exclusive lock to stdout.
@@ -116,6 +123,75 @@ impl Ui {
     /// Writes a hinted warning to stderr.
     pub fn warning_hinted(&self, message: impl Display, hint: impl Display) -> io::Result<()> {
         self.warning_hinted_with(|w| writeln!(w, "{message}"), |w| writeln!(w, "{hint}"))
+    }
+
+    /// Returns whether or not a prompt can be displayed.
+    pub fn can_prompt(&self) -> bool {
+        io::stderr().is_terminal()
+    }
+
+    /// Prompts the user for input with the given prompt on stderr.
+    pub fn prompt_with(
+        &self,
+        prompt: impl FnOnce(&mut dyn WriteColor) -> io::Result<()>,
+    ) -> anyhow::Result<String> {
+        if !self.can_prompt() {
+            anyhow::bail!(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "Cannot prompt for input since the output is not connected to a terminal",
+            ));
+        }
+
+        let mut stderr = self.stderr();
+        let mut stdin = self.stdin();
+
+        prompt(&mut stderr)?;
+        stderr.flush()?;
+
+        let mut buffer = String::new();
+        stdin.read_line(&mut buffer)?;
+
+        if buffer.strip_suffix('\n').is_some() {
+            buffer.pop();
+        } else if buffer.is_empty() {
+            anyhow::bail!(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "Prompt cancelled by EOF",
+            ));
+        }
+
+        Ok(buffer)
+    }
+
+    /// A shorthand for [`Self::prompt_with`] for confirmations.
+    pub fn prompt_yes_no(
+        &self,
+        prompt: impl Display,
+        default: impl Into<Option<bool>>,
+    ) -> anyhow::Result<bool> {
+        let default = default.into();
+        let def = match default {
+            Some(true) => "Y/n",
+            Some(false) => "y/N",
+            None => "y/n",
+        };
+
+        let res = self.prompt_with(|err| write!(err, "{prompt} [{def}]: "))?;
+
+        Ok(match &res[..] {
+            "" => default.ok_or_else(|| anyhow::anyhow!("expected [y]es or [n]o, got nothing"))?,
+            "y" | "Y" => true,
+            "n" | "N" => false,
+            _ => {
+                if res.eq_ignore_ascii_case("yes") {
+                    true
+                } else if res.eq_ignore_ascii_case("no") {
+                    false
+                } else {
+                    anyhow::bail!("expected [y]es or [n]o, got: {res:?}");
+                }
+            }
+        })
     }
 }
 
