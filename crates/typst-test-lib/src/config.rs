@@ -5,6 +5,17 @@ use std::path::PathBuf;
 use thiserror::Error;
 use toml_edit::{Decor, DocumentMut, RawString};
 
+/// All valid keys for this config.
+pub static KEYS: &[&str] = &[
+    "tests",
+    "vcs",
+    "template",
+    "prepare",
+    "prepare-each",
+    "cleanup",
+    "cleanup-each",
+];
+
 /// The key used to configure typst-test in the manifest tool config.
 pub const MANIFEST_TOOL_KEY: &str = "typst-test";
 
@@ -44,7 +55,7 @@ pub fn default_vcs() -> String {
 ///
 /// This struct deliberately only supports deserialization and will be phased
 /// out in favor of a toml-edit solution.
-#[derive(Debug, Default, serde::Deserialize)]
+#[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "kebab-case")]
 pub struct Config {
@@ -91,6 +102,10 @@ fn is_significant_decor(decor: &Decor) -> bool {
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
+    /// The given key is not valid or the config.
+    #[error("unknown key {key:?}")]
+    UnknownKey { key: String },
+
     /// The given section was not of the expected type.
     #[error("`{section}` wasn't a {typ}")]
     IncorrectType {
@@ -103,6 +118,14 @@ pub enum ConfigError {
 }
 
 impl Config {
+    /// Sets the fallbacks of `tests_root`, `template` and `vcs`, if they are
+    /// `None`.
+    pub fn set_fallbacks(&mut self) {
+        self.tests_root.get_or_insert(DEFAULT_TESTS_ROOT.to_owned());
+        self.template.get_or_insert(DEFAULT_TEMPLATE.to_owned());
+        self.vcs.get_or_insert(DEFAULT_VCS.to_owned());
+    }
+
     /// Returns the test root, or the default fallback value.
     pub fn tests_root_fallback(&self) -> &str {
         self.tests_root.as_deref().unwrap_or(DEFAULT_TESTS_ROOT)
@@ -116,6 +139,48 @@ impl Config {
     /// Returns the vcs, or the default fallback value.
     pub fn vcs_fallback(&self) -> &str {
         self.vcs.as_deref().unwrap_or(DEFAULT_VCS)
+    }
+
+    /// Returns a reference to the value with the given key.
+    ///
+    /// # Errors
+    /// Returns an error if this key doesn't exist.
+    pub fn get(&self, key: &str) -> Result<&Option<String>, ConfigError> {
+        Ok(match key {
+            "tests" => &self.tests_root,
+            "vcs" => &self.vcs,
+            "template" => &self.template,
+            "prepare" => &self.prepare,
+            "prepare-each" => &self.prepare_each,
+            "cleanup" => &self.cleanup,
+            "cleanup-each" => &self.cleanup_each,
+            _ => {
+                return Err(ConfigError::UnknownKey {
+                    key: key.to_owned(),
+                })
+            }
+        })
+    }
+
+    /// Returns a mutable reference to the value with the given key.
+    ///
+    /// # Errors
+    /// Returns an error if this key doesn't exist.
+    pub fn get_mut(&mut self, key: &str) -> Result<&mut Option<String>, ConfigError> {
+        Ok(match key {
+            "tests" => &mut self.tests_root,
+            "vcs" => &mut self.vcs,
+            "template" => &mut self.template,
+            "prepare" => &mut self.prepare,
+            "prepare-each" => &mut self.prepare_each,
+            "cleanup" => &mut self.cleanup,
+            "cleanup-each" => &mut self.cleanup_each,
+            _ => {
+                return Err(ConfigError::UnknownKey {
+                    key: key.to_owned(),
+                })
+            }
+        })
     }
 
     /// Writes the current config into the given manifest document overriding
@@ -181,25 +246,20 @@ impl Config {
 
         let tt = &mut doc["tool"][MANIFEST_TOOL_KEY];
 
-        macro_rules! optional_field {
-            ($tt:expr; $key:literal => $val:expr) => {
-                if let Some(val) = $val {
-                    $tt[$key] = toml_edit::value(val);
-                } else {
-                    $tt[$key] = toml_edit::Item::None;
-                }
-            };
+        for key in KEYS {
+            if let Some(val) = self.get(key).unwrap() {
+                tt[key] = toml_edit::value(val);
+            } else {
+                tt[key] = toml_edit::Item::None;
+            }
         }
 
-        optional_field!(tt; "tests" => &self.tests_root);
-        optional_field!(tt; "vcs" => &self.vcs);
-        optional_field!(tt; "template" => &self.template);
-        optional_field!(tt; "prepare" => &self.prepare);
-        optional_field!(tt; "prepare-each" => &self.prepare_each);
-        optional_field!(tt; "cleanup" => &self.cleanup);
-        optional_field!(tt; "cleanup-each" => &self.cleanup_each);
-
         Ok(())
+    }
+
+    /// Returns an iterator over key value pairs of this config.
+    pub fn pairs(&self) -> impl Iterator<Item = (&'static str, &'_ Option<String>)> + '_ {
+        KEYS.iter().map(|&k| (k, self.get(k).unwrap()))
     }
 }
 
