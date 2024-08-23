@@ -106,7 +106,7 @@ pub fn run(ctx: &mut Context) -> anyhow::Result<()> {
     project.collect_tests(test_set::builtin::all())?;
     project.load_template()?;
 
-    ctx.reporter.lock().unwrap().report(&StatusReport {
+    ctx.reporter.report(&StatusReport {
         inner: ProjectJson::new(&project),
     })?;
 

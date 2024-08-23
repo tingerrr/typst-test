@@ -58,7 +58,7 @@ impl Report for FontsReport<'_> {
 pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
     let fonts = ctx.args.global.fonts.searcher();
 
-    ctx.reporter.lock().unwrap().report(&FontsReport {
+    ctx.reporter.report(&FontsReport {
         fonts: fonts
             .book
             .families()

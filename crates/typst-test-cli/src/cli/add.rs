@@ -76,7 +76,7 @@ pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
 
     project.create_test(args.test.clone(), kind, !args.no_template)?;
     let test = &project.matched()[&args.test];
-    ctx.reporter.lock().unwrap().report(&AddedReport {
+    ctx.reporter.report(&AddedReport {
         inner: TestJson::new(test),
     })?;
 

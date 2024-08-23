@@ -34,10 +34,7 @@ pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
 
     let len = project.matched().len();
     project.delete_tests()?;
-    ctx.reporter
-        .lock()
-        .unwrap()
-        .report(&RemoveReport { removed: len })?;
+    ctx.reporter.report(&RemoveReport { removed: len })?;
 
     Ok(())
 }

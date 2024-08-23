@@ -42,7 +42,7 @@ pub fn run(mut ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
     let world = ctx.build_world(&project, &args.compile_args)?;
     let (runner, rx) = ctx.build_runner(&project, &world, args)?;
 
-    ctx.reporter.lock().unwrap().run_start("Updating")?;
+    ctx.reporter.run_start("Updating")?;
 
     let summary = if !args.run_args.summary {
         rayon::scope(|scope| {
@@ -51,7 +51,7 @@ pub fn run(mut ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
             let project = &project;
 
             scope.spawn(move |_| {
-                let reporter = ctx.reporter.lock().unwrap();
+                let reporter = ctx.reporter;
                 let mut w = reporter.ui().stderr();
                 let mut state = LiveReporterState::new(&mut w, "updated", project.matched().len());
                 while let Ok(event) = rx.recv() {
@@ -72,8 +72,6 @@ pub fn run(mut ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
     }
 
     ctx.reporter
-        .lock()
-        .unwrap()
         .report(&SummaryReport::new("updated", &summary))?;
 
     Ok(())

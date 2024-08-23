@@ -30,10 +30,7 @@ pub fn run(ctx: &mut Context) -> anyhow::Result<()> {
     let len = project.matched().len();
 
     project.clean_artifacts()?;
-    ctx.reporter
-        .lock()
-        .unwrap()
-        .report(&CleanReport { removed: len })?;
+    ctx.reporter.report(&CleanReport { removed: len })?;
 
     Ok(())
 }

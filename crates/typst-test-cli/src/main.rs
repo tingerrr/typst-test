@@ -92,7 +92,7 @@ fn main() -> ExitCode {
             .ok();
     }
 
-    let mut ctx = Context::new(&args, reporter);
+    let mut ctx = Context::new(&args, &reporter);
 
     match ctx.run() {
         Ok(()) => {}

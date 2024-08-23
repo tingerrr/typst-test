@@ -54,7 +54,7 @@ impl Report for ListReport<'_> {
 
 pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
     let project = ctx.collect_tests(&args.op_args, None)?;
-    ctx.reporter.lock().unwrap().report(&ListReport {
+    ctx.reporter.report(&ListReport {
         tests: project.matched().values().map(TestJson::new).collect(),
     })?;
 

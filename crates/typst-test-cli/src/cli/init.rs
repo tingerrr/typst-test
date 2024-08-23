@@ -66,7 +66,7 @@ pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
 
     project.init(args.no_example, args.vcs)?;
 
-    ctx.reporter.lock().unwrap().report(&InitReport {
+    ctx.reporter.report(&InitReport {
         inner: ProjectJson::new(&project),
     })?;
 

@@ -2,7 +2,7 @@ use std::io;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::mpsc;
 
 use chrono::{DateTime, Utc};
 use clap::ColorChoice;
@@ -48,17 +48,17 @@ pub const EXIT_ERROR: u8 = 3;
 
 pub struct Context<'a> {
     pub args: &'a Args,
-    pub reporter: Arc<Mutex<Reporter>>,
+    pub reporter: &'a Reporter,
     exit_code: u8,
 }
 
 impl<'a> Context<'a> {
-    pub fn new(args: &'a Args, reporter: Reporter) -> Self {
+    pub fn new(args: &'a Args, reporter: &'a Reporter) -> Self {
         tracing::debug!(args = ?args, "creating context");
 
         Self {
             args,
-            reporter: Arc::new(Mutex::new(reporter)),
+            reporter,
             exit_code: EXIT_OK,
         }
     }
@@ -124,8 +124,7 @@ impl<'a> Context<'a> {
                 if let Some(err) = err.root_cause().downcast_ref::<toml::de::Error>() {
                     tracing::error!(?err, "Couldn't parse manifest");
 
-                    let reporter = self.reporter.lock().unwrap();
-                    reporter.ui().warning_with(|w| {
+                    self.reporter.ui().warning_with(|w| {
                         writeln!(w, "Error while parsing manifest, skipping")?;
                         writeln!(w, "{}", err.message())
                     })?;
@@ -247,12 +246,12 @@ impl<'a> Context<'a> {
 
     pub fn operation_failure(
         &mut self,
-        f: impl FnOnce(&mut Reporter) -> io::Result<()>,
+        f: impl FnOnce(&Reporter) -> io::Result<()>,
     ) -> io::Result<()> {
         tracing::error!("reporting operation failure");
 
         self.set_operation_failure();
-        f(&mut self.reporter.lock().unwrap())?;
+        f(self.reporter)?;
         Ok(())
     }
 
@@ -261,14 +260,11 @@ impl<'a> Context<'a> {
     }
 
     #[allow(dead_code)]
-    pub fn test_failure(
-        &mut self,
-        f: impl FnOnce(&mut Reporter) -> io::Result<()>,
-    ) -> io::Result<()> {
+    pub fn test_failure(&mut self, f: impl FnOnce(&Reporter) -> io::Result<()>) -> io::Result<()> {
         tracing::error!("reporting test failure");
 
         self.set_test_failure();
-        f(&mut self.reporter.lock().unwrap())?;
+        f(self.reporter)?;
         Ok(())
     }
 
@@ -282,12 +278,12 @@ impl<'a> Context<'a> {
 
     pub fn unexpected_error(
         &mut self,
-        f: impl FnOnce(&mut Reporter) -> io::Result<()>,
+        f: impl FnOnce(&Reporter) -> io::Result<()>,
     ) -> io::Result<()> {
         tracing::error!("reporting unexpected error");
 
         self.set_unexpected_error();
-        f(&mut self.reporter.lock().unwrap())?;
+        f(self.reporter)?;
         Ok(())
     }
 
@@ -298,9 +294,8 @@ impl<'a> Context<'a> {
     pub fn exit(self) -> ExitCode {
         tracing::trace!(exit_code = ?self.exit_code, "exiting");
 
-        let reporter = self.reporter.lock().unwrap();
-        let mut out = reporter.ui().stdout();
-        let mut err = reporter.ui().stderr();
+        let mut out = self.reporter.ui().stdout();
+        let mut err = self.reporter.ui().stderr();
 
         out.reset().unwrap();
         write!(out, "").unwrap();

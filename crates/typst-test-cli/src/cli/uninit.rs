@@ -44,7 +44,7 @@ pub fn run(ctx: &mut Context) -> anyhow::Result<()> {
 
     project.uninit()?;
 
-    ctx.reporter.lock().unwrap().report(&InitReport {
+    ctx.reporter.report(&InitReport {
         inner: ProjectJson::new(&project),
     })?;
 
