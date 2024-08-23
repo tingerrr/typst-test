@@ -46,7 +46,7 @@ impl Report for InitReport<'_> {
 }
 
 pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
-    let mut project = ctx.ensure_project()?;
+    let mut project = ctx.ensure_init()?;
     project.collect_tests(test_set::builtin::all())?;
 
     let len = project.matched().len() + project.filtered().len();
