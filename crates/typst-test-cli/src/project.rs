@@ -104,6 +104,10 @@ impl Project {
         &self.config
     }
 
+    pub fn config_mut(&mut self) -> &mut Config {
+        &mut self.config
+    }
+
     pub fn manifest(&self) -> Option<&Manifest> {
         self.manifest.as_ref()
     }

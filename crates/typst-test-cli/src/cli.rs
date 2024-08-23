@@ -25,6 +25,7 @@ use crate::world::SystemWorld;
 use crate::{project, ui};
 
 pub mod add;
+pub mod config;
 pub mod edit;
 pub mod init;
 pub mod list;
@@ -813,6 +814,10 @@ pub enum Command {
     #[command(visible_alias = "rm")]
     Remove(remove::Args),
 
+    /// Display and edit config
+    #[command()]
+    Config(config::Args),
+
     /// Utility commands
     #[command()]
     Util(util::Args),
@@ -830,6 +835,7 @@ impl Command {
             Command::List(args) => list::run(ctx, args),
             Command::Update(args) => update::run(ctx, args),
             Command::Run(args) => run::run(ctx, args),
+            Command::Config(args) => args.cmd.run(ctx),
             Command::Util(args) => args.cmd.run(ctx),
         }
     }
