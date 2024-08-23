@@ -1,5 +1,3 @@
-use std::io;
-
 use serde::Serialize;
 use termcolor::{Color, WriteColor};
 use typst_test_lib::test_set;
@@ -16,7 +14,7 @@ pub struct StatusReport<'p> {
 }
 
 impl Report for StatusReport<'_> {
-    fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> io::Result<()> {
+    fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> anyhow::Result<()> {
         struct Delims {
             open: &'static str,
             middle: &'static str,

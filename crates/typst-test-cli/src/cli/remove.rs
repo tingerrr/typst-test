@@ -1,5 +1,3 @@
-use std::io;
-
 use serde::Serialize;
 use termcolor::{Color, WriteColor};
 use typst_test_stdx::fmt::Term;
@@ -21,7 +19,7 @@ pub struct RemoveReport {
 }
 
 impl Report for RemoveReport {
-    fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> io::Result<()> {
+    fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> anyhow::Result<()> {
         write!(writer, "Removed ")?;
         ui::write_bold_colored(&mut writer, Color::Green, |w| write!(w, "{}", self.removed))?;
         writeln!(writer, " {}", Term::simple("test").with(self.removed))?;

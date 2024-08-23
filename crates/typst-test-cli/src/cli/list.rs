@@ -1,4 +1,3 @@
-use std::io;
 use std::io::Write;
 
 use serde::Serialize;
@@ -23,7 +22,7 @@ pub struct ListReport<'p> {
 }
 
 impl Report for ListReport<'_> {
-    fn report<W: WriteColor>(&self, writer: W, _verbosity: Verbosity) -> io::Result<()> {
+    fn report<W: WriteColor>(&self, writer: W, _verbosity: Verbosity) -> anyhow::Result<()> {
         let mut w = Heading::new(writer, "Tests");
 
         // NOTE: max pading of 50 should be enough for most cases

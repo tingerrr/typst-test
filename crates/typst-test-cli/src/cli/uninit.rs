@@ -1,4 +1,3 @@
-use std::io;
 use std::io::Write;
 
 use serde::Serialize;
@@ -26,7 +25,7 @@ pub struct InitReport<'p> {
 }
 
 impl Report for InitReport<'_> {
-    fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> io::Result<()> {
+    fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> anyhow::Result<()> {
         write!(writer, "Uninitalized project ")?;
         let (color, name) = match &self.inner.package {
             Some(package) => (Color::Cyan, package.name),

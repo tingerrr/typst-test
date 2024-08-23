@@ -1,4 +1,3 @@
-use std::io;
 use std::io::Write;
 
 use serde::Serialize;
@@ -41,7 +40,7 @@ pub struct AddedReport<'t> {
 }
 
 impl Report for AddedReport<'_> {
-    fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> io::Result<()> {
+    fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> anyhow::Result<()> {
         write!(writer, "Added ")?;
         ui::write_colored(&mut writer, Color::Cyan, |w| write!(w, "{}", self.inner.id))?;
         writeln!(writer)?;

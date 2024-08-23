@@ -20,7 +20,8 @@ use typst_test_stdx::fmt::Term;
 use crate::project::Project;
 use crate::test::runner::{Event, EventPayload, Summary};
 use crate::test::{CompareFailure, Stage, TestFailure};
-use crate::ui::{self, Indented, Live, Ui};
+use crate::ui;
+use crate::ui::{Indented, Live, Ui};
 use crate::world::SystemWorld;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -57,7 +58,7 @@ pub enum Format {
 /// A type which can be serialized as JSON directly or presented in a human readable fashion.
 pub trait Report: Serialize {
     /// Presents this report in a human readable fashion.
-    fn report<W: WriteColor>(&self, writer: W, verbosity: Verbosity) -> io::Result<()>;
+    fn report<W: WriteColor>(&self, writer: W, verbosity: Verbosity) -> anyhow::Result<()>;
 }
 
 #[derive(Debug)]
@@ -229,7 +230,7 @@ pub mod reports {
     }
 
     impl Report for SummaryReport {
-        fn report<W: WriteColor>(&self, writer: W, _verbosity: Verbosity) -> io::Result<()> {
+        fn report<W: WriteColor>(&self, writer: W, _verbosity: Verbosity) -> anyhow::Result<()> {
             let w = &mut Heading::new(writer, "Summary");
 
             let color = if self.is_ok() {
@@ -273,15 +274,17 @@ pub mod reports {
 
             let secs = self.time.seconds;
             match (secs / 60, secs) {
-                (0, 0) => writeln!(w),
-                (0, s) => writeln!(w, " took {s} {}", Term::simple("second").with(s as usize),),
+                (0, 0) => writeln!(w)?,
+                (0, s) => writeln!(w, " took {s} {}", Term::simple("second").with(s as usize))?,
                 (m, s) => writeln!(
                     w,
                     " took {m} {} {s} {}",
                     Term::simple("minute").with(m as usize),
                     Term::simple("second").with(s as usize)
-                ),
+                )?,
             }
+
+            Ok(())
         }
     }
 }

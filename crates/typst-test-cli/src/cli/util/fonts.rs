@@ -1,4 +1,3 @@
-use std::io;
 use std::io::Write;
 
 use serde::Serialize;
@@ -36,7 +35,7 @@ pub struct FontsReport<'f> {
 }
 
 impl Report for FontsReport<'_> {
-    fn report<W: WriteColor>(&self, writer: W, _verbosity: Verbosity) -> io::Result<()> {
+    fn report<W: WriteColor>(&self, writer: W, _verbosity: Verbosity) -> anyhow::Result<()> {
         let mut w = Heading::new(writer, "Fonts");
         for font in &self.fonts {
             ui::write_ident(&mut w, |w| writeln!(w, "{}", font.name))?;
