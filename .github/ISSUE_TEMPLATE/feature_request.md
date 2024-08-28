@@ -10,6 +10,7 @@ assignees: ''
 <!--
   Thank you for your feature request! Please describe your request here. For
   questions, use the Typst community discord: https://discord.gg/2uDybryKPe.
+  Feel free to remove any of the sections below if they don't seem useful.
 -->
 
 ## Description
