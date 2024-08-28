@@ -30,15 +30,13 @@ pub enum Vcs {
 }
 
 #[derive(Debug, Serialize)]
-pub struct InitReport<'p> {
-    #[serde(flatten)]
-    inner: ProjectJson<'p>,
-}
+#[serde(transparent)]
+pub struct InitReport<'p>(ProjectJson<'p>);
 
 impl Report for InitReport<'_> {
     fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> anyhow::Result<()> {
         write!(writer, "Initialized project ")?;
-        let (color, name) = match &self.inner.package {
+        let (color, name) = match &self.0.package {
             Some(package) => (Color::Cyan, package.name),
             None => (Color::Yellow, "<unnamed>"),
         };
@@ -65,9 +63,8 @@ pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
 
     project.init(args.no_example, args.vcs)?;
 
-    ctx.reporter.report(&InitReport {
-        inner: ProjectJson::new(&project),
-    })?;
+    ctx.reporter
+        .report(&InitReport(ProjectJson::new(&project)))?;
 
     Ok(())
 }

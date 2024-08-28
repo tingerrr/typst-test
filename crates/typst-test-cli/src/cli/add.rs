@@ -34,15 +34,13 @@ pub struct Args {
 }
 
 #[derive(Debug, Serialize)]
-pub struct AddedReport<'t> {
-    #[serde(flatten)]
-    inner: TestJson<'t>,
-}
+#[serde(transparent)]
+pub struct AddedReport<'t>(TestJson<'t>);
 
 impl Report for AddedReport<'_> {
     fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> anyhow::Result<()> {
         write!(writer, "Added ")?;
-        ui::write_colored(&mut writer, Color::Cyan, |w| write!(w, "{}", self.inner.id))?;
+        ui::write_colored(&mut writer, Color::Cyan, |w| write!(w, "{}", self.0.id))?;
         writeln!(writer)?;
 
         Ok(())
@@ -75,9 +73,7 @@ pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
 
     project.create_test(args.test.clone(), kind, !args.no_template)?;
     let test = &project.matched()[&args.test];
-    ctx.reporter.report(&AddedReport {
-        inner: TestJson::new(test),
-    })?;
+    ctx.reporter.report(&AddedReport(TestJson::new(test)))?;
 
     Ok(())
 }

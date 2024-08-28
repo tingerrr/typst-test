@@ -8,10 +8,8 @@ use crate::report::{Report, Verbosity};
 use crate::ui;
 
 #[derive(Debug, Serialize)]
-pub struct StatusReport<'p> {
-    #[serde(flatten)]
-    inner: ProjectJson<'p>,
-}
+#[serde(transparent)]
+pub struct StatusReport<'p>(ProjectJson<'p>);
 
 impl Report for StatusReport<'_> {
     fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> anyhow::Result<()> {
@@ -33,7 +31,7 @@ impl Report for StatusReport<'_> {
             .max()
             .unwrap();
 
-        if let Some(package) = &self.inner.package {
+        if let Some(package) = &self.0.package {
             write!(writer, "{:>align$}{}", "Project", delims.open)?;
             ui::write_bold_colored(&mut writer, Color::Cyan, |w| write!(w, "{}", &package.name))?;
             write!(writer, ":")?;
@@ -47,7 +45,7 @@ impl Report for StatusReport<'_> {
             writeln!(writer)?;
         }
 
-        if let Some(vcs) = &self.inner.vcs {
+        if let Some(vcs) = &self.0.vcs {
             write!(writer, "{:>align$}{}", "Vcs", delims.middle)?;
             ui::write_bold_colored(&mut writer, Color::Green, |w| write!(w, "{vcs}"))?;
             writeln!(writer)?;
@@ -57,7 +55,7 @@ impl Report for StatusReport<'_> {
             writeln!(writer)?;
         }
 
-        if self.inner.tests.is_empty() {
+        if self.0.tests.is_empty() {
             write!(writer, "{:>align$}{}", "Tests", delims.middle)?;
             ui::write_bold_colored(&mut writer, Color::Cyan, |w| writeln!(w, "none"))?;
         } else {
@@ -65,7 +63,7 @@ impl Report for StatusReport<'_> {
             let mut ephemeral = 0;
             let mut compile_only = 0;
 
-            for test in &self.inner.tests {
+            for test in &self.0.tests {
                 match test.kind {
                     "persistent" => persistent += 1,
                     "ephemeral" => ephemeral += 1,
@@ -88,7 +86,7 @@ impl Report for StatusReport<'_> {
         }
 
         write!(writer, "{:>align$}{}", "Template", delims.close)?;
-        if let Some(path) = &self.inner.template_path {
+        if let Some(path) = &self.0.template_path {
             ui::write_bold_colored(&mut writer, Color::Cyan, |w| write!(w, "{path}"))?;
         } else {
             ui::write_bold_colored(&mut writer, Color::Green, |w| write!(w, "none"))?;
@@ -104,9 +102,8 @@ pub fn run(ctx: &mut Context) -> anyhow::Result<()> {
     project.collect_tests(test_set::builtin::all())?;
     project.load_template()?;
 
-    ctx.reporter.report(&StatusReport {
-        inner: ProjectJson::new(&project),
-    })?;
+    ctx.reporter
+        .report(&StatusReport(ProjectJson::new(&project)))?;
 
     Ok(())
 }

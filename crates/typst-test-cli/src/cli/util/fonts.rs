@@ -30,14 +30,13 @@ struct FontJson<'f> {
 }
 
 #[derive(Debug, Serialize)]
-pub struct FontsReport<'f> {
-    fonts: Vec<FontJson<'f>>,
-}
+#[serde(transparent)]
+pub struct FontsReport<'f>(Vec<FontJson<'f>>);
 
 impl Report for FontsReport<'_> {
     fn report<W: WriteColor>(&self, writer: W, _verbosity: Verbosity) -> anyhow::Result<()> {
         let mut w = Heading::new(writer, "Fonts");
-        for font in &self.fonts {
+        for font in &self.0 {
             ui::write_ident(&mut w, |w| writeln!(w, "{}", font.name))?;
 
             let w = &mut Indented::new(&mut w, 2);
@@ -57,8 +56,8 @@ impl Report for FontsReport<'_> {
 pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
     let fonts = ctx.args.global.fonts.searcher();
 
-    ctx.reporter.report(&FontsReport {
-        fonts: fonts
+    ctx.reporter.report(&FontsReport(
+        fonts
             .book
             .families()
             .map(|(name, info)| FontJson {
@@ -79,7 +78,7 @@ pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
                 },
             })
             .collect(),
-    })?;
+    ))?;
 
     Ok(())
 }
