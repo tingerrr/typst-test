@@ -2,6 +2,7 @@ use std::io::Write;
 
 use super::Context;
 use crate::cli::{CompileArgs, Configure, ExportArgs, OperationArgs, RunArgs};
+use crate::error::TestFailure;
 use crate::project::Project;
 use crate::report::reports::SummaryReport;
 use crate::report::LiveReporterState;
@@ -68,12 +69,12 @@ pub fn run(mut ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
         runner.run()?
     };
 
-    if !summary.is_ok() {
-        ctx.set_test_failure();
-    }
-
     ctx.reporter
         .report(&SummaryReport::new("exported", &summary))?;
+
+    if !summary.is_ok() {
+        anyhow::bail!(TestFailure);
+    }
 
     Ok(())
 }

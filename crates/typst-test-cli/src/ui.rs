@@ -193,6 +193,20 @@ impl Ui {
             }
         })
     }
+
+    /// Flushes and resets both output streams.
+    pub fn flush(&self) -> io::Result<()> {
+        let mut out = self.stdout();
+        let mut err = self.stderr();
+
+        out.reset()?;
+        write!(out, "")?;
+
+        err.reset()?;
+        write!(err, "")?;
+
+        Ok(())
+    }
 }
 
 /// Executes the given closure with custom set and reset style closures.

@@ -1,25 +1,28 @@
+use std::fmt::Display;
 use std::io;
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::ExitCode;
 use std::sync::mpsc;
 
 use chrono::{DateTime, Utc};
 use clap::ColorChoice;
-use termcolor::WriteColor;
+use termcolor::Color;
+use thiserror::Error;
 use typst_test_lib::store::vcs::{Git, Vcs};
 use typst_test_lib::test::id::Identifier;
 use typst_test_lib::test_set::{DynTestSet, TestSetExpr};
 use typst_test_lib::{compare, render, test_set};
 use typst_test_stdx::fmt::Term;
 
+use crate::error::{Failure, OperationFailure};
 use crate::fonts::FontSearcher;
 use crate::package::PackageStorage;
-use crate::project;
 use crate::project::Project;
 use crate::report::{Format, Reporter};
 use crate::test::runner::{Event, Progress, Runner, RunnerConfig};
+use crate::ui::Ui;
 use crate::world::SystemWorld;
+use crate::{project, ui};
 
 pub mod add;
 pub mod edit;
@@ -47,21 +50,114 @@ pub const EXIT_OPERATION_FAILURE: u8 = 2;
 /// An unexpected error occurred.
 pub const EXIT_ERROR: u8 = 3;
 
+#[derive(Debug, Error)]
+#[error("root '{}' not found", .0.display())]
+pub struct RootNotFound(pub PathBuf);
+
+impl Failure for RootNotFound {
+    fn report(&self, ui: &Ui) -> io::Result<()> {
+        ui.error_with(|w| writeln!(w, "Root '{}' not found", self.0.display()))
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("must be in project root")]
+pub struct NoProject;
+
+impl Failure for NoProject {
+    fn report(&self, ui: &Ui) -> io::Result<()> {
+        ui.error_hinted(
+            "Must be in project root",
+            "You can pass the project root using '--root <path>'",
+        )
+    }
+}
+
+#[derive(Debug, Error)]
+pub struct ProjectNotInitialized(pub Option<String>);
+
+impl Display for ProjectNotInitialized {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0.as_deref() {
+            Some(name) => write!(f, "Package '{name}' was not initialized"),
+            None => write!(f, "Project was not initialized"),
+        }
+    }
+}
+
+impl Failure for ProjectNotInitialized {
+    fn report(&self, ui: &Ui) -> io::Result<()> {
+        ui.error_with(|w| {
+            if let Some(name) = self.0.as_deref() {
+                write!(w, "Package ")?;
+                ui::write_colored(w, Color::Cyan, |w| write!(w, "{name}"))?
+            } else {
+                write!(w, "Project ")?;
+            }
+            writeln!(w, " was not initialized")
+        })
+    }
+}
+
+#[derive(Debug, Error)]
+#[error(transparent)]
+pub struct TestSetFailure(anyhow::Error);
+
+impl Failure for TestSetFailure {
+    fn report(&self, ui: &Ui) -> io::Result<()> {
+        ui.error_with(|w| writeln!(w, "Couldn't parse test set expression:\n{:?}", self.0))
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("matched no tests")]
+pub struct NoTests;
+
+impl Failure for NoTests {
+    fn report(&self, ui: &Ui) -> io::Result<()> {
+        ui.error("Matched no tests")
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("matched more than one test without a confirmation for operation {0}")]
+pub struct Aborted(String);
+
+impl Failure for Aborted {
+    fn report(&self, ui: &Ui) -> io::Result<()> {
+        ui.error_hinted_with(
+            |w| writeln!(w, "Matched more than one test without confirmation"),
+            |w| {
+                writeln!(
+                    w,
+                    "Pass `--all` to {} more than one test at a time without a prompt",
+                    self.0
+                )
+            },
+        )
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("unsupported export mode used")]
+pub struct UnsupportedExport;
+
+impl Failure for UnsupportedExport {
+    fn report(&self, ui: &Ui) -> io::Result<()> {
+        ui.error("PDF and SVG export are not yet supported")
+    }
+}
+
 pub struct Context<'a> {
     pub args: &'a Args,
     pub reporter: &'a Reporter,
-    exit_code: u8,
 }
 
 impl<'a> Context<'a> {
     pub fn new(args: &'a Args, reporter: &'a Reporter) -> Self {
         tracing::debug!(args = ?args, "creating context");
 
-        Self {
-            args,
-            reporter,
-            exit_code: EXIT_OK,
-        }
+        Self { args, reporter }
     }
 
     pub fn try_discover_vcs(&mut self) -> anyhow::Result<Option<Box<dyn Vcs + Sync>>> {
@@ -91,32 +187,18 @@ impl<'a> Context<'a> {
             None => {
                 let pwd = std::env::current_dir()?;
                 match typst_project::try_find_project_root(&pwd)? {
-                    Some(root) => root.to_path_buf(),
+                    Some(root) => {
+                        if !root.try_exists()? {
+                            anyhow::bail!(OperationFailure::from(RootNotFound(root.to_path_buf())));
+                        }
+                        root.to_path_buf()
+                    }
                     None => {
-                        self.operation_failure(|r| {
-                            r.ui().error_hinted_with(
-                                |w| writeln!(w, "Must be inside a typst project"),
-                                |w| {
-                                    writeln!(
-                                        w,
-                                        "You can pass the project root using '--root <path>'"
-                                    )
-                                },
-                            )
-                        })?;
-                        anyhow::bail!("No project");
+                        anyhow::bail!(OperationFailure::from(NoProject));
                     }
                 }
             }
         };
-
-        if !root.try_exists()? {
-            self.operation_failure(|r| {
-                r.ui()
-                    .error_with(|w| writeln!(w, "Root '{}' directory not found", root.display()))
-            })?;
-            anyhow::bail!("Root not found");
-        }
 
         tracing::info!(?root, "found project root");
         let manifest = match project::try_open_manifest(&root) {
@@ -146,11 +228,9 @@ impl<'a> Context<'a> {
 
         tracing::debug!("ensuring project is initalized");
         if !project.is_init()? {
-            self.operation_failure(|r| {
-                r.ui()
-                    .error_with(|w| writeln!(w, "Project '{}' was not initialized", project.name()))
-            })?;
-            anyhow::bail!("Project was not initialized");
+            anyhow::bail!(OperationFailure::from(ProjectNotInitialized(
+                project.manifest().map(|m| m.package.name.to_owned())
+            )));
         }
 
         Ok(project)
@@ -166,12 +246,7 @@ impl<'a> Context<'a> {
         let test_set = match op_args.test_set() {
             Ok(test_set) => test_set,
             Err(err) => {
-                self.set_operation_failure();
-                self.operation_failure(|r| {
-                    r.ui()
-                        .error_with(|w| writeln!(w, "Couldn't parse test set expression:\n{err}"))
-                })?;
-                anyhow::bail!(err);
+                anyhow::bail!(OperationFailure::from(TestSetFailure(err)));
             }
         };
 
@@ -182,9 +257,7 @@ impl<'a> Context<'a> {
 
         match (len, op_requires_confirm_for_many.into()) {
             (0, _) => {
-                self.set_operation_failure();
-                self.operation_failure(|r| r.ui().error_with(|w| writeln!(w, "Matched no tests")))?;
-                anyhow::bail!("Matched no tests");
+                anyhow::bail!(OperationFailure::from(NoTests));
             }
             (1, _) => {}
             (_, None) => {}
@@ -196,17 +269,9 @@ impl<'a> Context<'a> {
                         format!("{op} {len} {}", Term::simple("test").with(len)),
                         false,
                     )?;
-                if !confirmed {
-                    self.operation_failure(|r| {
-                    r.ui().error_hinted_with(
-                        |w| writeln!(w, "Matched more than one test without confirmation"),
-                        |w| writeln!(w, "Pass `--all` to {op} more than one test at a time without a prompt"),
-                    )
-                })?;
 
-                    anyhow::bail!(
-                        "Matched more than one test without a confirmation for operation {op}"
-                    );
+                if !confirmed {
+                    anyhow::bail!(OperationFailure::from(Aborted(op.to_owned())));
                 }
             }
         }
@@ -247,69 +312,8 @@ impl<'a> Context<'a> {
         Ok((config.build(progress, project, world), rx))
     }
 
-    fn set_operation_failure(&mut self) {
-        self.exit_code = EXIT_OPERATION_FAILURE;
-    }
-
-    pub fn operation_failure(
-        &mut self,
-        f: impl FnOnce(&Reporter) -> io::Result<()>,
-    ) -> io::Result<()> {
-        tracing::error!("reporting operation failure");
-
-        self.set_operation_failure();
-        f(self.reporter)?;
-        Ok(())
-    }
-
-    fn set_test_failure(&mut self) {
-        self.exit_code = EXIT_TEST_FAILURE;
-    }
-
-    #[allow(dead_code)]
-    pub fn test_failure(&mut self, f: impl FnOnce(&Reporter) -> io::Result<()>) -> io::Result<()> {
-        tracing::error!("reporting test failure");
-
-        self.set_test_failure();
-        f(self.reporter)?;
-        Ok(())
-    }
-
     pub fn run(&mut self) -> anyhow::Result<()> {
         self.args.cmd.run(self)
-    }
-
-    fn set_unexpected_error(&mut self) {
-        self.exit_code = EXIT_ERROR;
-    }
-
-    pub fn unexpected_error(
-        &mut self,
-        f: impl FnOnce(&Reporter) -> io::Result<()>,
-    ) -> io::Result<()> {
-        tracing::error!("reporting unexpected error");
-
-        self.set_unexpected_error();
-        f(self.reporter)?;
-        Ok(())
-    }
-
-    pub fn is_operation_failure(&self) -> bool {
-        self.exit_code == EXIT_OPERATION_FAILURE
-    }
-
-    pub fn exit(self) -> ExitCode {
-        tracing::trace!(exit_code = ?self.exit_code, "exiting");
-
-        let mut out = self.reporter.ui().stdout();
-        let mut err = self.reporter.ui().stderr();
-
-        out.reset().unwrap();
-        write!(out, "").unwrap();
-
-        err.reset().unwrap();
-        write!(err, "").unwrap();
-        ExitCode::from(self.exit_code)
     }
 }
 
@@ -511,7 +515,7 @@ pub struct ExportArgs {
 impl Configure for ExportArgs {
     fn configure(
         &self,
-        ctx: &mut Context,
+        _ctx: &mut Context,
         _project: &Project,
         config: &mut RunnerConfig,
     ) -> anyhow::Result<()> {
@@ -521,11 +525,7 @@ impl Configure for ExportArgs {
         };
 
         if self.pdf || self.svg {
-            ctx.operation_failure(|r| {
-                r.ui()
-                    .error_with(|w| writeln!(w, "PDF and SVG export are not yet supported"))
-            })?;
-            anyhow::bail!("Unsupported export mode used");
+            anyhow::bail!(OperationFailure::from(UnsupportedExport));
         }
 
         config

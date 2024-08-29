@@ -3,6 +3,7 @@ use std::io::{IsTerminal, Write};
 use std::process::ExitCode;
 
 use clap::{ColorChoice, Parser};
+use error::{OperationFailure, TestFailure};
 use tracing::Level;
 use tracing_subscriber::filter::Targets;
 use tracing_subscriber::prelude::*;
@@ -14,6 +15,7 @@ use crate::report::Reporter;
 
 mod cli;
 mod download;
+mod error;
 mod fonts;
 mod package;
 mod project;
@@ -39,6 +41,16 @@ fn is_color(color: clap::ColorChoice, is_stderr: bool) -> bool {
 const IS_OUTPUT_STDERR: bool = false;
 
 fn main() -> ExitCode {
+    match main_impl() {
+        Ok(code) => code,
+        Err(err) => {
+            eprintln!("{err:?}");
+            ExitCode::from(cli::EXIT_ERROR)
+        }
+    }
+}
+
+fn main_impl() -> anyhow::Result<ExitCode> {
     let args = cli::Args::parse();
 
     // BUG: this interferes with the live printing
@@ -79,8 +91,7 @@ fn main() -> ExitCode {
         let jobs = if jobs < 2 {
             reporter
                 .ui()
-                .warning("at least 2 threads are needed, using 2")
-                .unwrap();
+                .warning("at least 2 threads are needed, using 2")?;
             2
         } else {
             jobs
@@ -94,57 +105,59 @@ fn main() -> ExitCode {
 
     let mut ctx = Context::new(&args, &reporter);
 
-    match ctx.run() {
-        Ok(()) => {}
-        Err(_) if ctx.is_operation_failure() => {}
+    let exit_code = match ctx.run() {
+        Ok(()) => cli::EXIT_OK,
         Err(err) => 'err: {
             let root = err.root_cause();
 
-            // FIXME: https://github.com/serde-rs/json/issues/1169
-            // NOTE: we can't access the inner io error itself, but at least the
-            // kind
-            if root.downcast_ref().is_some_and(|err: &serde_json::Error| {
-                err.io_error_kind()
-                    .is_some_and(|kind| kind == io::ErrorKind::BrokenPipe)
-            }) {
-                break 'err;
+            for cause in err.chain() {
+                if let Some(TestFailure) = cause.downcast_ref() {
+                    break 'err cli::EXIT_TEST_FAILURE;
+                }
+
+                if let Some(OperationFailure(err)) = cause.downcast_ref() {
+                    err.report(ctx.reporter.ui())?;
+                    break 'err cli::EXIT_OPERATION_FAILURE;
+                }
             }
 
-            // NOTE: we ignore broken pipes as these occur when programs close
-            // the pipe before we're done writing
+            // FIXME: https://github.com/serde-rs/json/issues/1169
             if root
                 .downcast_ref()
-                .is_some_and(|err: &io::Error| err.kind() == io::ErrorKind::BrokenPipe)
+                .and_then(serde_json::Error::io_error_kind)
+                .or_else(|| root.downcast_ref().map(io::Error::kind))
+                .is_some_and(|kind| kind == io::ErrorKind::BrokenPipe)
             {
-                break 'err;
+                break 'err cli::EXIT_OK;
             }
 
-            ctx.unexpected_error(|r| {
-                r.ui().error_with(|w| {
-                    writeln!(
-                        w,
-                        "typst-test ran into an unexpected error, this is most likely a bug"
-                    )?;
-                    writeln!(
-                        w,
-                        "Please consider reporting this at {}/issues/new",
-                        std::env!("CARGO_PKG_REPOSITORY")
-                    )
-                })?;
-                if !std::env::var("RUST_BACKTRACE").is_ok_and(|var| var == "full") {
-                    r.ui().hint_with(|w| {
+            ctx.reporter.ui().error_with(|w| {
+                writeln!(
+                    w,
+                    "typst-test ran into an unexpected error, this is most likely a bug"
+                )?;
+                writeln!(
+                    w,
+                    "Please consider reporting this at {}/issues/new",
+                    std::env!("CARGO_PKG_REPOSITORY")
+                )
+            })?;
+            if !std::env::var("RUST_BACKTRACE").is_ok_and(|var| var == "full") {
+                ctx.reporter.ui().hint_with(|w| {
                         writeln!(
                             w,
                             "consider running with the environment variable RUST_BACKTRACE set to 'full' when reporting issues",
                         )?;
                         writeln!(w)
                     })?;
-                }
-                r.ui().error_with(|w| writeln!(w, "{err:?}"))
-            })
-            .unwrap();
+            }
+            ctx.reporter.ui().error_with(|w| writeln!(w, "{err:?}"))?;
+
+            cli::EXIT_OPERATION_FAILURE
         }
     };
 
-    ctx.exit()
+    ctx.reporter.ui().flush()?;
+
+    Ok(ExitCode::from(exit_code))
 }
