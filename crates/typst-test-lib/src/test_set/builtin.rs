@@ -8,7 +8,7 @@ use glob::Pattern;
 use regex::Regex;
 
 use super::ast::{InfixOp, PatternKind, PostfixOp, PrefixOp};
-use super::eval::{Context, Error as EvalError, TestSet, Value};
+use super::eval::{Context, Error as EvalError, ErrorKind as EvalErrorKind, TestSet, Value};
 use super::{DynFunction, DynTestSet, Function};
 use crate::store::test::Test;
 use crate::test::{Annotation, ReferenceKind};
@@ -163,10 +163,10 @@ pub struct IdentifierTestSetFunction {
 impl Function for IdentifierTestSetFunction {
     fn call(&self, _ctx: &Context, args: &[Value]) -> Result<Value, EvalError> {
         if args.len() != 1 {
-            return Err(EvalError::InvalidArgumentCount {
+            return Err(EvalError::new(EvalErrorKind::InvalidArgumentCount {
                 expected: 1,
                 found: args.len(),
-            });
+            }));
         }
 
         let pat = args[0].to_pattern()?.clone();
@@ -192,10 +192,10 @@ pub struct CustomTestSetFunction;
 impl Function for CustomTestSetFunction {
     fn call(&self, _ctx: &Context, args: &[Value]) -> Result<Value, EvalError> {
         if args.len() != 1 {
-            return Err(EvalError::InvalidArgumentCount {
+            return Err(EvalError::new(EvalErrorKind::InvalidArgumentCount {
                 expected: 1,
                 found: args.len(),
-            });
+            }));
         }
 
         let pat = args[0].to_pattern()?.clone();

@@ -100,7 +100,7 @@ macro_rules! assert_rule {
 /// Parses an [`Atom`].
 ///
 /// # Errors
-/// Returns the inner atom fails parsing.
+/// Returns an error if the inner atom fails parsing.
 ///
 /// # Panics
 /// Panics if the given pair is not of the expected rule, or if the inner pairs
@@ -116,7 +116,7 @@ pub fn parse_atom(pair: Pair<Rule>) -> Result<Atom, Error> {
         Rule::variable => Atom::Variable(parse_variable(atom)?),
         Rule::function => Atom::Function(parse_function(atom)?),
         Rule::literal => Atom::Literal(parse_literal(atom)?),
-        _ => unreachable!("atom can only be val, func or lit"),
+        _ => unreachable!(),
     })
 }
 
@@ -131,13 +131,14 @@ pub fn parse_atom(pair: Pair<Rule>) -> Result<Atom, Error> {
 pub fn parse_variable(pair: Pair<Rule>) -> Result<Variable, Error> {
     assert_rule!(pair => variable);
 
+    let (a, b) = pair.as_span().split();
+    let (start, end) = (a.pos(), b.pos());
+
     let mut pairs = pair.into_inner();
     let id = pairs.next().expect("variable has id");
     debug_assert_no_pairs!(pairs);
 
-    Ok(Variable {
-        id: parse_identifier(id)?,
-    })
+    Ok(Variable::new(parse_identifier(id)?, (start, end)))
 }
 
 /// Parses a [`Function`].
@@ -151,15 +152,19 @@ pub fn parse_variable(pair: Pair<Rule>) -> Result<Variable, Error> {
 pub fn parse_function(pair: Pair<Rule>) -> Result<Function, Error> {
     assert_rule!(pair => function);
 
+    let (a, b) = pair.as_span().split();
+    let (start, end) = (a.pos(), b.pos());
+
     let mut pairs = pair.into_inner();
     let id = pairs.next().expect("func has id");
     let args = pairs.next().expect("func has args");
     debug_assert_no_pairs!(pairs);
 
-    Ok(Function {
-        id: parse_identifier(id)?,
-        args: parse_function_arguments(args)?,
-    })
+    Ok(Function::new(
+        parse_identifier(id)?,
+        parse_function_arguments(args)?,
+        (start, end),
+    ))
 }
 
 /// Parses an identifier for a variable or function.
@@ -190,14 +195,26 @@ pub fn parse_identifier(pair: Pair<Rule>) -> Result<Identifier, Error> {
 pub fn parse_literal(pair: Pair<Rule>) -> Result<Literal, Error> {
     assert_rule!(pair => literal);
 
+    let (a, b) = pair.as_span().split();
+    let (start, end) = (a.pos(), b.pos());
+
     let mut pairs = pair.into_inner();
     let literal = pairs.next().expect("literal has inner");
     debug_assert_no_pairs!(pairs);
 
     Ok(match literal.as_rule() {
-        Rule::number => Literal::Number(parse_number(literal)?),
-        Rule::string => Literal::String(parse_string(literal)?),
-        Rule::pattern => Literal::Pattern(parse_pattern(literal)?),
+        Rule::number => Literal {
+            kind: LiteralKind::Number(parse_number(literal)?),
+            span: (start, end),
+        },
+        Rule::string => Literal {
+            kind: LiteralKind::String(parse_string(literal)?),
+            span: (start, end),
+        },
+        Rule::pattern => Literal {
+            kind: LiteralKind::Pattern(parse_pattern(literal)?),
+            span: (start, end),
+        },
         _ => unreachable!(),
     })
 }
@@ -396,6 +413,9 @@ pub enum Error {
     PestError(#[from] Box<PestError<Rule>>),
 }
 
+/// Represents the souce range of an AST-node as `start..end`.
+pub type Span = (usize, usize);
+
 /// Operator precedence is as follows in order of lowest to highest:
 /// 1. union
 /// 1. difference
@@ -537,7 +557,17 @@ pub mod pattern {
 
 /// A literal such as a string, number or pattern.
 #[derive(Clone, PartialEq, Eq)]
-pub enum Literal {
+pub struct Literal {
+    /// The literal value.
+    pub kind: LiteralKind,
+
+    /// The source span.
+    pub span: Span,
+}
+
+/// The kind of a [`Literal`].
+#[derive(Clone, PartialEq, Eq)]
+pub enum LiteralKind {
     /// A number literal.
     Number(i64),
 
@@ -550,49 +580,58 @@ pub enum Literal {
 
 impl Literal {
     /// Creates a new number literal.
-    pub fn number<I>(value: I) -> Self
+    pub fn number<I>(value: I, span: Span) -> Self
     where
         I: Into<i64>,
     {
-        Self::Number(value.into())
+        Self {
+            kind: LiteralKind::Number(value.into()),
+            span,
+        }
     }
 
     /// Creates a new string literal.
-    pub fn string<S>(value: S) -> Self
+    pub fn string<S>(value: S, span: Span) -> Self
     where
         S: Into<EcoString>,
     {
-        Self::String(value.into())
+        Self {
+            kind: LiteralKind::String(value.into()),
+            span,
+        }
     }
 
     /// Creates a new pattern literal.
-    pub fn pattern<P>(value: P) -> Self
+    pub fn pattern<P>(value: P, span: Span) -> Self
     where
         P: Into<Pattern>,
     {
-        Self::Pattern(value.into())
+        Self {
+            kind: LiteralKind::Pattern(value.into()),
+            span,
+        }
     }
 
     /// Returns the inner number literal or `None` if it isn't a number.
     pub fn as_number(&self) -> Option<i64> {
-        match self {
-            Literal::Number(num) => Some(*num),
+        match &self.kind {
+            LiteralKind::Number(num) => Some(*num),
             _ => None,
         }
     }
 
     /// Returns the inner string literal or `None` if it isn't a string.
     pub fn as_string(&self) -> Option<&EcoString> {
-        match self {
-            Literal::String(str) => Some(str),
+        match &self.kind {
+            LiteralKind::String(str) => Some(str),
             _ => None,
         }
     }
 
     /// Returns the inner pattern literal or `None` if it isn't a pattern.
     pub fn as_pattern(&self) -> Option<&Pattern> {
-        match self {
-            Literal::Pattern(pat) => Some(pat),
+        match &self.kind {
+            LiteralKind::Pattern(pat) => Some(pat),
             _ => None,
         }
     }
@@ -600,20 +639,32 @@ impl Literal {
 
 impl Debug for Literal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Literal::Number(num) => Debug::fmt(num, f),
-            Literal::String(str) => Debug::fmt(str, f),
-            Literal::Pattern(pat) => Debug::fmt(pat, f),
-        }
+        Debug::fmt(&self.kind, f)
     }
 }
 
 impl Display for Literal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.kind, f)
+    }
+}
+
+impl Debug for LiteralKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Literal::Number(num) => Display::fmt(num, f),
-            Literal::String(str) => Display::fmt(str, f),
-            Literal::Pattern(pat) => Display::fmt(pat, f),
+            Self::Number(num) => Debug::fmt(num, f),
+            Self::String(str) => Debug::fmt(str, f),
+            Self::Pattern(pat) => Debug::fmt(pat, f),
+        }
+    }
+}
+
+impl Display for LiteralKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Number(num) => Display::fmt(num, f),
+            Self::String(str) => Display::fmt(str, f),
+            Self::Pattern(pat) => Display::fmt(pat, f),
         }
     }
 }
@@ -629,12 +680,18 @@ impl Eval for Literal {
 pub struct Variable {
     /// The identifier of this test set.
     pub id: Identifier,
+
+    /// The source span.
+    pub span: Span,
 }
 
 impl Variable {
     /// Creates a new [`Variable`].
-    pub fn new<S: Into<Identifier>>(id: S) -> Self {
-        Self { id: id.into() }
+    pub fn new<S: Into<Identifier>>(id: S, span: Span) -> Self {
+        Self {
+            id: id.into(),
+            span,
+        }
     }
 }
 
@@ -659,11 +716,14 @@ pub struct Function {
 
     /// The arguments passed to this function.
     pub args: EcoVec<Expr>,
+
+    /// The source span.
+    pub span: Span,
 }
 
 impl Function {
     /// Creates a new [`Function`].
-    pub fn new<S, I>(id: S, args: I) -> Self
+    pub fn new<S, I>(id: S, args: I, span: Span) -> Self
     where
         S: Into<Identifier>,
         I: IntoIterator,
@@ -672,6 +732,7 @@ impl Function {
         Self {
             id: id.into(),
             args: args.into_iter().map(Into::into).collect(),
+            span,
         }
     }
 }
@@ -1005,30 +1066,6 @@ impl From<Literal> for Expr {
     }
 }
 
-impl From<i64> for Expr {
-    fn from(value: i64) -> Self {
-        Self(Arc::new(InnerExpr::Atom(Atom::Literal(Literal::Number(
-            value,
-        )))))
-    }
-}
-
-impl From<EcoString> for Expr {
-    fn from(value: EcoString) -> Self {
-        Self(Arc::new(InnerExpr::Atom(Atom::Literal(Literal::String(
-            value,
-        )))))
-    }
-}
-
-impl From<Pattern> for Expr {
-    fn from(value: Pattern) -> Self {
-        Self(Arc::new(InnerExpr::Atom(Atom::Literal(Literal::Pattern(
-            value,
-        )))))
-    }
-}
-
 impl From<Variable> for Expr {
     fn from(value: Variable) -> Self {
         Self(Arc::new(InnerExpr::Atom(Atom::Variable(value))))
@@ -1112,11 +1149,12 @@ pub fn flatten(t: Expr) -> Expr {
         InnerExpr::Postfix(PostfixExpr { op, expr: inner }) => Expr(Arc::new(InnerExpr::Postfix(
             PostfixExpr::new(*op, flatten(inner.clone())),
         ))),
-        InnerExpr::Atom(Atom::Function(Function { id, args })) => {
-            Expr(Arc::new(InnerExpr::Atom(Atom::Function(Function {
-                id: id.clone(),
-                args: args.iter().cloned().map(flatten).collect(),
-            }))))
+        InnerExpr::Atom(Atom::Function(Function { id, args, span })) => {
+            Expr(Arc::new(InnerExpr::Atom(Atom::Function(Function::new(
+                id.clone(),
+                args.iter().cloned().map(flatten),
+                *span,
+            )))))
         }
         InnerExpr::Atom(_) => t,
     }
@@ -1143,15 +1181,18 @@ mod tests {
                 InfixExpr::difference(
                     Atom::Function(Function::new(
                         Identifier::new("test").unwrap(),
-                        eco_vec![Pattern::exact("exact")],
+                        eco_vec![Literal::pattern(Pattern::exact("exact"), (8, 14))],
+                        (3, 15)
                     )),
                     Atom::Function(Function::new(
                         Identifier::new("func").unwrap(),
-                        eco_vec![Pattern::regex(" regex")],
+                        eco_vec![Literal::pattern(Pattern::regex(" regex"), (23, 32))],
+                        (18, 33)
                     )),
                 ),
                 PrefixExpr::complement(Variable {
                     id: Identifier::new("val").unwrap(),
+                    span: (38, 41),
                 }),
             ))
         );
@@ -1280,13 +1321,16 @@ mod tests {
     #[test]
     fn test_parse_number() {
         let expr = parse("1").unwrap();
-        assert_eq!(expr, Expr::from(Literal::number(1)));
+        assert_eq!(expr, Expr::from(Literal::number(1, (0, 1))));
     }
 
     #[test]
     fn test_parse_string_escape() {
         let expr = parse(r#""\\\u{00f3}\t\r\n""#).unwrap();
-        assert_eq!(expr, Expr::from(Literal::string("\\\u{00f3}\t\r\n")));
+        assert_eq!(
+            expr,
+            Expr::from(Literal::string("\\\u{00f3}\t\r\n", (0, 17)))
+        );
     }
 
     #[test]
@@ -1385,13 +1429,15 @@ mod tests {
             expr,
             Expr::from(Atom::Function(Function::new(
                 Identifier::new("func").unwrap(),
-                eco_vec![Pattern::regex("hello(-world)+!")],
+                eco_vec![Literal::pattern(Pattern::regex("hello(-world)+!"), (5, 21))],
+                (0, 22)
             )),)
         );
     }
 
     fn dummy_leaf_expr() -> Expr {
-        Expr::from(Literal::Number(0))
+        // TODO: equality of checks using this must ignore the span
+        Expr::from(Literal::number(0, (0, 0)))
     }
 
     #[test]
@@ -1434,7 +1480,7 @@ mod tests {
 
     #[test]
     fn test_flatten_atom_no_op() {
-        let pre = Expr::from(Variable::new(Identifier::new("var").unwrap()));
+        let pre = Expr::from(Variable::new(Identifier::new("var").unwrap(), (0, 0)));
         let post = pre.clone();
 
         assert_eq!(flatten(pre), post);
@@ -1445,6 +1491,7 @@ mod tests {
         let pre = Expr::from(Function {
             id: Identifier::new("func").unwrap(),
             args: eco_vec![],
+            span: (0, 0),
         });
         let post = pre.clone();
 

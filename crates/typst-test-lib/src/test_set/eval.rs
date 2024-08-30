@@ -1,14 +1,14 @@
 //! Evaluate the ASTs into test set expressions.
 
 use std::collections::BTreeMap;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
 use ecow::{eco_vec, EcoString, EcoVec};
 use thiserror::Error;
 use typst_test_stdx::fmt::{Separators, Term};
 
-use super::ast::{Literal, Pattern};
+use super::ast::{Literal, LiteralKind, Pattern};
 use super::builtin;
 use super::id::Identifier;
 use crate::store::test::Test;
@@ -119,10 +119,10 @@ pub enum Value {
 impl Value {
     /// Converts a [`Literal`] directly into a value.
     pub fn from_literal(literal: Literal) -> Self {
-        match literal {
-            Literal::Number(num) => Self::Number(num),
-            Literal::String(str) => Self::String(str),
-            Literal::Pattern(pat) => Self::Pattern(pat),
+        match literal.kind {
+            LiteralKind::Number(num) => Self::Number(num),
+            LiteralKind::String(str) => Self::String(str),
+            LiteralKind::Pattern(pat) => Self::Pattern(pat),
         }
     }
 
@@ -182,9 +182,11 @@ impl Value {
     /// error instead of `None`.
     pub fn to_test_set(&self) -> Result<DynTestSet, Error> {
         self.as_test_set()
-            .ok_or_else(|| Error::TypeMismatch {
-                expected: eco_vec![Type::TestSet],
-                found: self.as_type(),
+            .ok_or_else(|| {
+                Error::new(ErrorKind::TypeMismatch {
+                    expected: eco_vec![Type::TestSet],
+                    found: self.as_type(),
+                })
             })
             .cloned()
     }
@@ -193,9 +195,11 @@ impl Value {
     /// `None`.
     pub fn to_function(&self) -> Result<DynFunction, Error> {
         self.as_function()
-            .ok_or_else(|| Error::TypeMismatch {
-                expected: eco_vec![Type::Function],
-                found: self.as_type(),
+            .ok_or_else(|| {
+                Error::new(ErrorKind::TypeMismatch {
+                    expected: eco_vec![Type::Function],
+                    found: self.as_type(),
+                })
             })
             .cloned()
     }
@@ -203,9 +207,11 @@ impl Value {
     /// Same as [`Self::as_number`], but clones the value and returns a type
     /// error instead of `None`.
     pub fn to_number(&self) -> Result<i64, Error> {
-        self.as_number().ok_or_else(|| Error::TypeMismatch {
-            expected: eco_vec![Type::Number],
-            found: self.as_type(),
+        self.as_number().ok_or_else(|| {
+            Error::new(ErrorKind::TypeMismatch {
+                expected: eco_vec![Type::Number],
+                found: self.as_type(),
+            })
         })
     }
 
@@ -213,9 +219,11 @@ impl Value {
     /// error instead of `None`.
     pub fn to_string(&self) -> Result<EcoString, Error> {
         self.as_string()
-            .ok_or_else(|| Error::TypeMismatch {
-                expected: eco_vec![Type::String],
-                found: self.as_type(),
+            .ok_or_else(|| {
+                Error::new(ErrorKind::TypeMismatch {
+                    expected: eco_vec![Type::String],
+                    found: self.as_type(),
+                })
             })
             .cloned()
     }
@@ -224,9 +232,11 @@ impl Value {
     /// error instead of `None`.
     pub fn to_pattern(&self) -> Result<Pattern, Error> {
         self.as_pattern()
-            .ok_or_else(|| Error::TypeMismatch {
-                expected: eco_vec![Type::Pattern],
-                found: self.as_type(),
+            .ok_or_else(|| {
+                Error::new(ErrorKind::TypeMismatch {
+                    expected: eco_vec![Type::Pattern],
+                    found: self.as_type(),
+                })
             })
             .cloned()
     }
@@ -298,10 +308,8 @@ impl Context {
 
     /// Try to resolve a binding.
     pub fn resolve_binding(&self, id: &str) -> Result<Value, Error> {
-        self.bindings
-            .get(id)
-            .cloned()
-            .ok_or_else(|| Error::UnknownBinding {
+        self.bindings.get(id).cloned().ok_or_else(|| {
+            Error::new(ErrorKind::UnknownBinding {
                 id: id.into(),
                 similar: self
                     .bindings
@@ -310,12 +318,51 @@ impl Context {
                     .cloned()
                     .collect(),
             })
+        })
+    }
+}
+
+/// An error that occurs when a test set could not be constructed.
+#[derive(Debug)]
+pub struct Error {
+    pub kind: ErrorKind,
+    pub span: Option<(usize, usize)>,
+}
+
+impl Error {
+    /// Creates a new error with the given [`ErrorKind`].
+    pub fn new(kind: ErrorKind) -> Self {
+        Self { kind, span: None }
+    }
+
+    /// Attaches a span to this error.
+    pub fn spanned(mut self, span: (usize, usize)) -> Error {
+        self.span = Some(span);
+        self
+    }
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.kind, f)
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.kind.source()
+    }
+}
+
+impl<T: Into<ErrorKind>> From<T> for Error {
+    fn from(value: T) -> Self {
+        Self::new(value.into())
     }
 }
 
 /// An error that occurs when a test set could not be constructed.
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum ErrorKind {
     /// The requested binding could not be found.
     #[error("unknown test set {id}")]
     UnknownBinding {
