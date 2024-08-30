@@ -57,8 +57,7 @@ pub struct AddedReport<'t>(TestJson<'t>);
 impl Report for AddedReport<'_> {
     fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> anyhow::Result<()> {
         write!(writer, "Added ")?;
-        ui::write_colored(&mut writer, Color::Cyan, |w| write!(w, "{}", self.0.id))?;
-        writeln!(writer)?;
+        ui::write_colored(&mut writer, Color::Cyan, |w| writeln!(w, "{}", self.0.id))?;
 
         Ok(())
     }

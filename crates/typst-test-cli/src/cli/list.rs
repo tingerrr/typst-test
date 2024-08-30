@@ -7,7 +7,7 @@ use super::{Context, OperationArgs};
 use crate::report::reports::TestJson;
 use crate::report::{Report, Verbosity};
 use crate::ui;
-use crate::ui::Heading;
+use crate::ui::Indented;
 
 #[derive(clap::Args, Debug, Clone)]
 #[group(id = "list-args")]
@@ -21,8 +21,10 @@ pub struct Args {
 pub struct ListReport<'p>(Vec<TestJson<'p>>);
 
 impl Report for ListReport<'_> {
-    fn report<W: WriteColor>(&self, writer: W, _verbosity: Verbosity) -> anyhow::Result<()> {
-        let mut w = Heading::new(writer, "Tests");
+    fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> anyhow::Result<()> {
+        ui::write_bold(&mut writer, |w| writeln!(w, "Tests"))?;
+
+        let w = &mut Indented::new(writer, 2);
 
         // NOTE: max pading of 50 should be enough for most cases
         let pad = Ord::min(
@@ -42,8 +44,7 @@ impl Report for ListReport<'_> {
                 "compile-only" => Color::Yellow,
                 k => unreachable!("unknown kind: {k}"),
             };
-            ui::write_bold_colored(&mut w, color, |w| write!(w, "{}", test.kind))?;
-            writeln!(w)?;
+            ui::write_bold_colored(w, color, |w| writeln!(w, "{}", test.kind))?;
         }
 
         Ok(())

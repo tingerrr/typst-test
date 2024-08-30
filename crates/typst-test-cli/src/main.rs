@@ -144,12 +144,11 @@ fn main_impl() -> anyhow::Result<ExitCode> {
             })?;
             if !std::env::var("RUST_BACKTRACE").is_ok_and(|var| var == "full") {
                 ctx.reporter.ui().hint_with(|w| {
-                        writeln!(
-                            w,
-                            "consider running with the environment variable RUST_BACKTRACE set to 'full' when reporting issues",
-                        )?;
-                        writeln!(w)
-                    })?;
+                    writeln!(
+                        w,
+                        "consider running with the environment variable RUST_BACKTRACE set to 'full' when reporting issues\n",
+                    )
+                })?;
             }
             ctx.reporter.ui().error_with(|w| writeln!(w, "{err:?}"))?;
 

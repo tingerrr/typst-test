@@ -1,5 +1,3 @@
-use std::io::Write;
-
 use super::Context;
 use crate::cli::{CompileArgs, Configure, ExportArgs, OperationArgs, RunArgs};
 use crate::error::TestFailure;
@@ -60,7 +58,7 @@ pub fn run(mut ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
                     state.event(world, event).unwrap();
                 }
 
-                writeln!(w).unwrap();
+                state.finish().unwrap();
             });
 
             runner.run()

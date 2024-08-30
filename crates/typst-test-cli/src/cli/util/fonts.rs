@@ -7,7 +7,7 @@ use typst::text::FontStyle;
 use crate::cli::Context;
 use crate::report::{Report, Verbosity};
 use crate::ui;
-use crate::ui::{Heading, Indented};
+use crate::ui::Indented;
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct Args {
@@ -34,12 +34,14 @@ struct FontJson<'f> {
 pub struct FontsReport<'f>(Vec<FontJson<'f>>);
 
 impl Report for FontsReport<'_> {
-    fn report<W: WriteColor>(&self, writer: W, _verbosity: Verbosity) -> anyhow::Result<()> {
-        let mut w = Heading::new(writer, "Fonts");
+    fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> anyhow::Result<()> {
+        ui::write_bold(&mut writer, |w| writeln!(w, "Fonts"))?;
+
+        let mut w = Indented::new(writer, 2);
         for font in &self.0 {
             ui::write_ident(&mut w, |w| writeln!(w, "{}", font.name))?;
 
-            let w = &mut Indented::new(&mut w, 2);
+            let mut w = Indented::new(&mut w, 2);
             for variant in &font.variants {
                 writeln!(
                     w,

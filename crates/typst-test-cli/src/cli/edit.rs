@@ -1,5 +1,3 @@
-use std::io::Write;
-
 use typst_test_lib::test::ReferenceKind;
 
 use super::{CompileArgs, Configure, Context, OperationArgs, RunArgs};
@@ -81,7 +79,7 @@ pub fn run(mut ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
                     state.event(world, event).unwrap();
                 }
 
-                writeln!(w).unwrap();
+                state.finish().unwrap();
             });
 
             runner.run()

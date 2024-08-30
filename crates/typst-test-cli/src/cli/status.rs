@@ -36,23 +36,19 @@ impl Report for StatusReport<'_> {
             ui::write_bold_colored(&mut writer, Color::Cyan, |w| write!(w, "{}", &package.name))?;
             write!(writer, ":")?;
             ui::write_bold_colored(&mut writer, Color::Cyan, |w| {
-                write!(w, "{}", &package.version)
+                writeln!(w, "{}", &package.version)
             })?;
-            writeln!(writer)?;
         } else {
             write!(writer, "{:>align$}{}", "Project", delims.open)?;
-            ui::write_bold_colored(&mut writer, Color::Yellow, |w| write!(w, "none"))?;
-            writeln!(writer)?;
+            ui::write_bold_colored(&mut writer, Color::Yellow, |w| writeln!(w, "none"))?;
         }
 
         if let Some(vcs) = &self.0.vcs {
             write!(writer, "{:>align$}{}", "Vcs", delims.middle)?;
-            ui::write_bold_colored(&mut writer, Color::Green, |w| write!(w, "{vcs}"))?;
-            writeln!(writer)?;
+            ui::write_bold_colored(&mut writer, Color::Green, |w| writeln!(w, "{vcs}"))?;
         } else {
             write!(writer, "{:>align$}{}", "Vcs", delims.middle)?;
-            ui::write_bold_colored(&mut writer, Color::Yellow, |w| write!(w, "none"))?;
-            writeln!(writer)?;
+            ui::write_bold_colored(&mut writer, Color::Yellow, |w| writeln!(w, "none"))?;
         }
 
         if self.0.tests.is_empty() {
@@ -87,11 +83,10 @@ impl Report for StatusReport<'_> {
 
         write!(writer, "{:>align$}{}", "Template", delims.close)?;
         if let Some(path) = &self.0.template_path {
-            ui::write_bold_colored(&mut writer, Color::Cyan, |w| write!(w, "{path}"))?;
+            ui::write_bold_colored(&mut writer, Color::Cyan, |w| writeln!(w, "{path}"))?;
         } else {
-            ui::write_bold_colored(&mut writer, Color::Green, |w| write!(w, "none"))?;
+            ui::write_bold_colored(&mut writer, Color::Green, |w| writeln!(w, "none"))?;
         }
-        writeln!(writer)?;
 
         Ok(())
     }

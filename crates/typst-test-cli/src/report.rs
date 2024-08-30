@@ -94,7 +94,11 @@ impl Reporter {
         }
     }
 
-    /// Executes the closure with the given target.
+    /// Displays a [`Report`] with the configured format. If the verbosity is
+    /// set to [`Verbosity::Quiet`] and the format is not [`Format::Json`], then
+    /// nothing is reported.
+    ///
+    /// This unconditionally reports to the primary target.
     pub fn report<R: Report>(&self, report: &R) -> anyhow::Result<()> {
         self.with_target(Target::Primary, |w| {
             if self.format == Format::Json {
@@ -121,8 +125,6 @@ impl Reporter {
 
 /// Common report PODs for stable JSON representation of internal entites.
 pub mod reports {
-    use ui::Heading;
-
     use super::*;
 
     #[derive(Debug, Serialize)]
@@ -230,8 +232,14 @@ pub mod reports {
     }
 
     impl Report for SummaryReport {
-        fn report<W: WriteColor>(&self, writer: W, _verbosity: Verbosity) -> anyhow::Result<()> {
-            let w = &mut Heading::new(writer, "Summary");
+        fn report<W: WriteColor>(
+            &self,
+            mut writer: W,
+            _verbosity: Verbosity,
+        ) -> anyhow::Result<()> {
+            ui::write_bold(&mut writer, |w| writeln!(w, "Summary"))?;
+
+            let w = &mut Indented::new(writer, 2);
 
             let color = if self.is_ok() {
                 Color::Green
@@ -466,6 +474,10 @@ impl<W: WriteColor> LiveReporterState<W> {
         })?;
 
         Ok(())
+    }
+
+    pub fn finish(mut self) -> io::Result<()> {
+        self.live.live(|w| writeln!(w))
     }
 }
 

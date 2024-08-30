@@ -69,11 +69,12 @@ impl Report for InitReport<'_> {
         write!(writer, "Initialized ")?;
         if let Some(package) = &self.0.package {
             write!(writer, "package ")?;
-            ui::write_colored(&mut writer, Color::Cyan, |w| write!(w, "{}", package.name))?
+            ui::write_colored(&mut writer, Color::Cyan, |w| {
+                writeln!(w, "{}", package.name)
+            })?
         } else {
-            write!(writer, "project")?;
+            writeln!(writer, "project")?;
         }
-        writeln!(writer)?;
 
         Ok(())
     }
