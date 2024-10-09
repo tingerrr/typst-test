@@ -103,7 +103,6 @@ fn assert_panic(
 
 #[cfg(test)]
 mod tests {
-    use typst::eval::Tracer;
     use typst::syntax::Source;
 
     use super::*;
@@ -122,7 +121,7 @@ mod tests {
         "#,
         );
 
-        compile::compile(source, &world, &mut Tracer::new()).unwrap();
+        compile::compile(source, &world).output.unwrap();
     }
 
     #[test]
@@ -136,6 +135,6 @@ mod tests {
         "#,
         );
 
-        compile::compile(source, &world, &mut Tracer::new()).unwrap();
+        compile::compile(source, &world).output.unwrap();
     }
 }

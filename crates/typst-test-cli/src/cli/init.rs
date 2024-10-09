@@ -2,6 +2,7 @@ use std::fmt::Display;
 use std::io;
 use std::io::Write;
 
+use ecow::EcoString;
 use serde::Serialize;
 use termcolor::{Color, WriteColor};
 use thiserror::Error;
@@ -35,7 +36,7 @@ pub enum Vcs {
 }
 
 #[derive(Debug, Error)]
-pub struct ProjectAlreadyIntialized(Option<String>);
+pub struct ProjectAlreadyIntialized(Option<EcoString>);
 
 impl Display for ProjectAlreadyIntialized {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

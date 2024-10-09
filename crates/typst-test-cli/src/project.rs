@@ -5,10 +5,11 @@ use std::str::FromStr;
 use std::{fs, io};
 
 use rayon::prelude::*;
+use serde::Deserialize;
 use tiny_skia::Pixmap;
 use toml_edit::DocumentMut;
 use tracing::Level;
-use typst_project::manifest::Manifest;
+use typst_syntax::package::PackageManifest;
 use typst_test_lib::config::Config;
 use typst_test_lib::store::project::v1::ResolverV1;
 use typst_test_lib::store::project::Resolver;
@@ -23,15 +24,34 @@ use typst_test_stdx::result::ResultEx;
 
 use crate::cli;
 
+const MANIFEST_FILE: &str = "typst.toml";
+const MANIFEST_CONFIG_KEY: &str = "typst-test";
+
 const DEFAULT_TEST_INPUT: &str = include_str!("../../../assets/default-test/test.typ");
 const DEFAULT_TEST_OUTPUT: &[u8] = include_bytes!("../../../assets/default-test/test.png");
 
-pub fn try_open_manifest(root: &Path) -> anyhow::Result<Option<Manifest>> {
+pub fn is_project_root(root: &Path) -> anyhow::Result<bool> {
+    let manifest_path = root.join(MANIFEST_FILE);
+    Ok(manifest_path.try_exists()?)
+}
+
+pub fn try_find_project_root(root: &Path) -> anyhow::Result<Option<&Path>> {
+    for ancestor in root.ancestors() {
+        if is_project_root(ancestor)? {
+            return Ok(Some(ancestor));
+        }
+    }
+
+    Ok(None)
+}
+
+pub fn try_open_manifest(root: &Path) -> anyhow::Result<Option<PackageManifest>> {
     tracing::debug!(?root, "reading manifest");
 
-    if typst_project::is_project_root(root)? {
-        let content = std::fs::read_to_string(root.join(typst_project::heuristics::MANIFEST_FILE))?;
-        let manifest = Manifest::from_str(&content)?;
+    if is_project_root(root)? {
+        let content = std::fs::read_to_string(root.join(MANIFEST_FILE))?;
+        let manifest = toml::from_str(&content)?;
+
         Ok(Some(manifest))
     } else {
         Ok(None)
@@ -41,7 +61,7 @@ pub fn try_open_manifest(root: &Path) -> anyhow::Result<Option<Manifest>> {
 #[derive(Debug)]
 pub struct Project {
     config: Config,
-    manifest: Option<Manifest>,
+    manifest: Option<PackageManifest>,
     resolver: ResolverV1,
     vcs: Option<Box<dyn Vcs + Sync>>,
     tests: BTreeMap<Identifier, Test>,
@@ -53,17 +73,13 @@ impl Project {
     pub fn new(
         root: PathBuf,
         vcs: Option<Box<dyn Vcs + Sync>>,
-        manifest: Option<Manifest>,
+        manifest: Option<PackageManifest>,
     ) -> anyhow::Result<Self> {
         let config = manifest
             .as_ref()
-            .and_then(|m| {
-                m.tool
-                    .as_ref()
-                    .map(|t| t.get_section::<Config>("typst-test"))
-            })
+            .and_then(|m| m.tool.sections.get(MANIFEST_CONFIG_KEY))
+            .map(|c| Config::deserialize(c.clone()))
             .transpose()?
-            .flatten()
             .inspect(|config| {
                 tracing::trace!(?config, "read manifest config");
             })
@@ -108,7 +124,7 @@ impl Project {
         &mut self.config
     }
 
-    pub fn manifest(&self) -> Option<&Manifest> {
+    pub fn manifest(&self) -> Option<&PackageManifest> {
         self.manifest.as_ref()
     }
 
@@ -312,7 +328,7 @@ impl Project {
 
     #[tracing::instrument(level = Level::DEBUG, skip(self), fields(config = ?self.config))]
     pub fn write_config(&self) -> anyhow::Result<()> {
-        let path = self.root().join(typst_project::heuristics::MANIFEST_FILE);
+        let path = self.root().join(MANIFEST_FILE);
 
         let content = std::fs::read_to_string(&path)
             .ignore_default(|err| err.kind() == io::ErrorKind::NotFound)?;

@@ -10,16 +10,16 @@ use std::sync::{Mutex, OnceLock};
 use std::{fs, io, mem};
 
 use chrono::{DateTime, Datelike, FixedOffset, Local, Utc};
-use comemo::Prehashed;
 use typst::diag::{FileError, FileResult};
 use typst::foundations::{Bytes, Datetime};
 use typst::syntax::{FileId, Source};
 use typst::text::{Font, FontBook};
+use typst::utils::LazyHash;
 use typst::{Library, World};
+use typst_kit::download::ProgressSink;
+use typst_kit::fonts::{FontSlot, Fonts};
+use typst_kit::package::PackageStorage;
 use typst_test_lib::library::augmented_default_library;
-
-use crate::fonts::{FontSearcher, FontSlot};
-use crate::package::PackageStorage;
 
 /// A world that provides access to the operating system.
 pub struct SystemWorld {
@@ -28,9 +28,9 @@ pub struct SystemWorld {
     /// The root relative to which absolute paths are resolved.
     root: PathBuf,
     /// Typst's standard library.
-    library: Prehashed<Library>,
+    library: LazyHash<Library>,
     /// Metadata about discovered fonts.
-    book: Prehashed<FontBook>,
+    book: LazyHash<FontBook>,
     /// Locations of and storage for lazily loaded fonts.
     fonts: Vec<FontSlot>,
     /// Maps file ids to source files and buffers.
@@ -47,7 +47,7 @@ impl SystemWorld {
     /// Create a new system world.
     pub fn new(
         root: PathBuf,
-        searcher: FontSearcher,
+        fonts: Fonts,
         package_storage: PackageStorage,
         now: Option<DateTime<Utc>>,
     ) -> io::Result<Self> {
@@ -59,9 +59,9 @@ impl SystemWorld {
         Ok(Self {
             workdir: std::env::current_dir().ok(),
             root,
-            library: Prehashed::new(augmented_default_library()),
-            book: Prehashed::new(searcher.book),
-            fonts: searcher.fonts,
+            library: LazyHash::new(augmented_default_library()),
+            book: LazyHash::new(fonts.book),
+            fonts: fonts.fonts,
             slots: Mutex::new(HashMap::new()),
             package_storage,
             now,
@@ -97,15 +97,15 @@ impl SystemWorld {
 }
 
 impl World for SystemWorld {
-    fn library(&self) -> &Prehashed<Library> {
+    fn library(&self) -> &LazyHash<Library> {
         &self.library
     }
 
-    fn book(&self) -> &Prehashed<FontBook> {
+    fn book(&self) -> &LazyHash<FontBook> {
         &self.book
     }
 
-    fn main(&self) -> Source {
+    fn main(&self) -> FileId {
         panic!("system world does not have a main file")
     }
 
@@ -264,7 +264,7 @@ impl<T: Clone> SlotCell<T> {
 
         // Read and hash the file.
         let result = load();
-        let fingerprint = typst::util::hash128(&result);
+        let fingerprint = typst::utils::hash128(&result);
 
         // If the file contents didn't change, yield the old processed data.
         if mem::replace(&mut self.fingerprint, fingerprint) == fingerprint {
@@ -293,7 +293,7 @@ fn system_path(
     let buf;
     let mut root = project_root;
     if let Some(spec) = id.package() {
-        buf = package_storage.package_root(spec)?;
+        buf = package_storage.prepare_package(spec, &mut ProgressSink)?;
         root = &buf;
     }
 

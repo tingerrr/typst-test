@@ -6,6 +6,7 @@ use std::sync::{mpsc, Arc};
 
 use chrono::{DateTime, Utc};
 use clap::ColorChoice;
+use ecow::EcoString;
 use termcolor::Color;
 use thiserror::Error;
 use typst_test_lib::store::vcs::{Git, Vcs};
@@ -16,14 +17,12 @@ use typst_test_lib::{compare, render, test_set};
 use typst_test_stdx::fmt::Term;
 
 use crate::error::{Failure, OperationFailure};
-use crate::fonts::FontSearcher;
-use crate::package::PackageStorage;
 use crate::project::Project;
 use crate::report::{Format, Reporter};
 use crate::test::runner::{Event, Progress, Runner, RunnerConfig};
 use crate::ui::Ui;
 use crate::world::SystemWorld;
-use crate::{project, ui};
+use crate::{kit, project, ui};
 
 pub mod add;
 pub mod config;
@@ -77,7 +76,7 @@ impl Failure for NoProject {
 }
 
 #[derive(Debug, Error)]
-pub struct ProjectNotInitialized(pub Option<String>);
+pub struct ProjectNotInitialized(pub Option<EcoString>);
 
 impl Display for ProjectNotInitialized {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -189,7 +188,7 @@ impl<'a> Context<'a> {
             Some(root) => root.to_path_buf(),
             None => {
                 let pwd = std::env::current_dir()?;
-                match typst_project::try_find_project_root(&pwd)? {
+                match project::try_find_project_root(&pwd)? {
                     Some(root) => {
                         if !root.try_exists()? {
                             anyhow::bail!(OperationFailure::from(RootNotFound(root.to_path_buf())));
@@ -294,8 +293,8 @@ impl<'a> Context<'a> {
     ) -> anyhow::Result<SystemWorld> {
         let world = SystemWorld::new(
             project.root().to_path_buf(),
-            self.args.global.fonts.searcher(),
-            PackageStorage::from_args(&self.args.global.package),
+            kit::fonts_from_args(&self.args.global.fonts),
+            kit::package_storage_from_args(&self.args.global.package),
             compile_args.now,
         )?;
 
@@ -529,7 +528,6 @@ impl Configure for ExportArgs {
     ) -> anyhow::Result<()> {
         let render_strategy = render::Strategy {
             pixel_per_pt: render::ppi_to_ppp(self.pixel_per_inch),
-            fill: typst::visualize::Color::WHITE,
         };
 
         if self.pdf || self.svg {
@@ -685,25 +683,6 @@ pub struct FontArgs {
         global = true,
     )]
     pub font_paths: Vec<PathBuf>,
-}
-
-impl FontArgs {
-    pub fn searcher(&self) -> FontSearcher {
-        let _span = tracing::debug_span!("searching for fonts");
-
-        let mut searcher = FontSearcher::new();
-        searcher.search(
-            self.font_paths.iter().map(PathBuf::as_path),
-            !self.ignore_system_fonts,
-        );
-
-        tracing::debug!(
-            fonts = ?searcher.fonts.len(),
-            included_system_fonts = ?!self.ignore_system_fonts,
-            "collected fonts",
-        );
-        searcher
-    }
 }
 
 #[derive(clap::Args, Debug, Clone)]
