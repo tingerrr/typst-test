@@ -151,16 +151,15 @@ impl Ui {
         let mut buffer = String::new();
         stdin.read_line(&mut buffer)?;
 
-        if buffer.strip_suffix('\n').is_some() {
-            buffer.pop();
-        } else if buffer.is_empty() {
+        let trimmed = buffer.trim();
+        if trimmed.is_empty() {
             anyhow::bail!(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 "Prompt cancelled by EOF",
             ));
         }
 
-        Ok(buffer)
+        Ok(trimmed.to_owned())
     }
 
     /// A shorthand for [`Self::prompt_with`] for confirmations.
