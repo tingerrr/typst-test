@@ -3,7 +3,7 @@ To install `typst-test` on your PC, you must, for the time being, compile it fro
 Once `typst-test` reaches 0.1.0, this restriction will be lifted and each release will provide precompiled binaries for major operating systems (Windows, Linux and macOS).
 
 ## Installation From Source
-To install `typst-test` from source, you must have a Rust toolchain (Rust **v1.79.0+**) and cargo installed.
+To install `typst-test` from source, you must have a Rust toolchain (Rust **v1.80.0+**) and cargo installed.
 
 Run the following command to install the latest nightly version
 ```bash
