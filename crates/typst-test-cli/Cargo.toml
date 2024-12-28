@@ -56,3 +56,4 @@ ureq = { workspace = true, default-features = false, features = ["native-tls", "
 [features]
 default = ["embed-fonts"]
 embed-fonts = ["typst-kit/embed-fonts"]
+vendor-openssl = ["typst-kit/vendor-openssl"]
