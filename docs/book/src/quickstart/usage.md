@@ -11,11 +11,11 @@ How to add such folders to your `PATH` depends on your operating system, but if 
 For the remainder of this document `tt` is used in favor of `typst-test` whenever a command line example is shown.
 When you see an example such as
 ```bash
-tt run -e 'name(~id)'
+tt run -e 'ephemeral() | compile-only()'
 ```
 it is meant to be run as
 ```bash
-typst-test run -e 'name(~id)'
+typst-test run -e 'ephemeral() | compile-only()'
 ```
 
 You can also define an alias of the same name to make typing it easier.
@@ -30,7 +30,7 @@ tt init
 
 This will create the default example to give you a grasp at where tests are located, and how they are structured.
 `typs-test` will look for the project root by checking for directories containing a `typst.toml` manifest file.
-This is because `typst-test` is primarily aimed at developers of packages, if you want to use a different project root, or don't have a `typst-manifest` you can provide the root directory using the `--root` like so.
+This is because `typst-test` is primarily aimed at developers of packages, if you want to use a different project root, or don't have a manifest file, you can provide the root directory using the `--root` like so.
 
 ```bash
 tt init --root ./path/to/root/
@@ -62,11 +62,10 @@ tt run example
 You should see something along the lines of
 
 ```txt
-Running tests
-        ok example
-
-Summary
-  1 / 1 passed.
+  Starting 1 tests (run ID: 4863ce3b-70ea-4aea-9151-b83e25f11c94)
+      pass [ 0s  38ms 413µs] example
+──────────
+   Summary [ 0s  38ms 494µs] 1/1 tests run: all 1 passed
 ```
 
 Let's edit the test to actually do something, the default example test can be found in `<project>/tests/example/` and simply contains `Hello World`.
@@ -79,13 +78,12 @@ Write something else in there and see what happens
 Once we run `typst-test` again we'll see that the test no longer passes:
 
 ```txt
-Running tests
-    failed example
+  Starting 1 tests (run ID: 7cae75f3-3cc3-4770-8e3a-cb87dd6971cf)
+      fail [ 0s  44ms 631µs] example
            Page 1 had 1292 deviations
-           hint: Diff images have been saved at '<project>/tests/example/diff'
-
-Summary
-  0 / 1 passed.
+           hint: Diff images have been saved at '/home/tinger/test/tests/example/diff'
+──────────
+   Summary [ 0s  44ms 762µs] 1/1 tests run: all 1 failed
 ```
 
 `typst-test` has compared the reference output from the original `Hello World` document to the new document and determined that they don't match.
@@ -103,11 +101,19 @@ tt update example
 You should see output similar to
 
 ```txt
-Updating tests
-   updated example
-
-Summary
-  1 / 1 updated.
+  Starting 1 tests (run ID: f11413cf-3f7f-4e02-8269-ad9023dbefab)
+      pass [ 0s  51ms 550µs] example
+──────────
+   Summary [ 0s  51ms 652µs] 1/1 tests run: all 1 passed
 ```
 
 and the test should once again pass.
+
+<div class="warning">
+
+Note that, at the moment typst-test does not compress the reference images, this means that, if you use a version control system like git or mericural, the reference images of persistent tests can quickly bloat your repository if you update them frequently.
+Consider using a program like [`oxipng`][oxipng] to compress them, `typst-test` can still read them without any problems.
+
+</div>
+
+[oxipng]: https://github.com/shssoichiro/oxipng

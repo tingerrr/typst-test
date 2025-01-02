@@ -1,69 +1,33 @@
-use std::io;
+use std::io::Write;
 
-use serde::Serialize;
-use termcolor::{Color, WriteColor};
-use thiserror::Error;
-use typst_test_lib::test_set;
-use typst_test_stdx::fmt::Term;
+use color_eyre::eyre;
+use lib::stdx;
+use lib::stdx::fmt::Term;
+use termcolor::Color;
 
-use super::Context;
-use crate::error::{Failure, OperationFailure};
-use crate::report::reports::ProjectJson;
-use crate::report::{Report, Verbosity};
+use super::{Context, FilterArgs};
 use crate::ui;
-use crate::ui::Ui;
 
 #[derive(clap::Args, Debug, Clone)]
 #[group(id = "uninit-args")]
 pub struct Args {
-    /// Whether or not to skip confirmation
+    /// Whether to the skip confirmation prompt
     #[arg(long, short)]
     pub force: bool,
+
+    #[command(flatten)]
+    pub filter: FilterArgs,
 }
 
-#[derive(Debug, Error)]
-#[error("deleltion aborted by user")]
-pub struct DeletionAborted;
+pub fn run(ctx: &mut Context, args: &Args) -> eyre::Result<()> {
+    let project = ctx.project()?;
+    let set = ctx.test_set(&args.filter)?;
+    let suite = ctx.collect_tests(&project, &set)?;
 
-impl Failure for DeletionAborted {
-    fn report(&self, ui: &Ui) -> io::Result<()> {
-        ui.error("Deletion aborted")
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(transparent)]
-pub struct InitReport<'p>(ProjectJson<'p>);
-
-impl Report for InitReport<'_> {
-    fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> anyhow::Result<()> {
-        write!(writer, "Uninitalized ")?;
-        if let Some(package) = &self.0.package {
-            write!(writer, "package ")?;
-            ui::write_colored(&mut writer, Color::Cyan, |w| write!(w, "{}", package.name))?
-        } else {
-            write!(writer, "project")?;
-        }
-        let count = self.0.tests.len();
-        writeln!(
-            writer,
-            ", removed {} {}",
-            count,
-            Term::simple("test").with(count),
-        )?;
-
-        Ok(())
-    }
-}
-
-pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
-    let mut project = ctx.ensure_init()?;
-    project.collect_tests(test_set::builtin::all())?;
-
-    let len = project.matched().len() + project.filtered().len();
+    let len = suite.len();
 
     let confirmed = args.force
-        || ctx.reporter.ui().prompt_yes_no(
+        || ctx.ui.prompt_yes_no(
             format!(
                 "confirm deletion of {len} {}",
                 Term::simple("test").with(len)
@@ -72,13 +36,27 @@ pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
         )?;
 
     if !confirmed {
-        anyhow::bail!(OperationFailure::from(DeletionAborted));
+        ctx.error_aborted()?;
     }
 
-    project.uninit()?;
+    stdx::fs::remove_dir(project.paths().test_root(), true)?;
 
-    ctx.reporter
-        .report(&InitReport(ProjectJson::new(&project)))?;
+    let mut w = ctx.ui.stderr();
+
+    write!(w, "Uninitialized ")?;
+    if let Some(package) = project.manifest_package_info() {
+        write!(w, "package ")?;
+        ui::write_colored(&mut w, Color::Cyan, |w| write!(w, "{}", package.name))?
+    } else {
+        write!(w, "project")?;
+    }
+    let count = suite.matched().len();
+    writeln!(
+        w,
+        ", removed {} {}",
+        count,
+        Term::simple("test").with(count),
+    )?;
 
     Ok(())
 }

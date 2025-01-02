@@ -2,9 +2,9 @@
 The test library is an augmented standard library, it contains all definitions in the standard library plus some additional modules and functions which help testing packages and debug regressions.
 
 It defines the following modules:
-- `test`: a module with various testing helpers such as `catch` and additonal asserts.
+- `test`: a module with various testing helpers such as `catch` and additional asserts.
 
-The following items are re-exorted in the global scope as well:
+The following items are re-exported in the global scope as well:
 - `assert-panic`: originally `test.assert-panic`
 - `catch`: originally `test.catch`
 

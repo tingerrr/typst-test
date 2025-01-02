@@ -1,76 +1,79 @@
-use super::{CompileArgs, Configure, Context, ExportArgs, OperationArgs, RunArgs};
-use crate::error::TestFailure;
-use crate::project::Project;
-use crate::report::reports::SummaryReport;
-use crate::report::LiveReporterState;
-use crate::test::runner::RunnerConfig;
+use color_eyre::eyre;
+use lib::doc::render::{self, Origin};
+
+use super::{CompileArgs, Context, Direction, ExportArgs, FilterArgs, RunArgs, CANCELLED};
+use crate::cli::TestFailure;
+use crate::report::Reporter;
+use crate::runner::{Action, Runner, RunnerConfig};
 
 #[derive(clap::Args, Debug, Clone)]
 #[group(id = "update-args")]
 pub struct Args {
     #[command(flatten)]
-    pub compile_args: CompileArgs,
+    pub compile: CompileArgs,
 
     #[command(flatten)]
-    pub export_args: ExportArgs,
+    pub export: ExportArgs,
 
     #[command(flatten)]
-    pub run_args: RunArgs,
+    pub run: RunArgs,
 
     #[command(flatten)]
-    pub op_args: OperationArgs,
+    pub filter: FilterArgs,
 }
 
-impl Configure for Args {
-    fn configure(
-        &self,
-        ctx: &mut Context,
-        project: &Project,
-        config: &mut RunnerConfig,
-    ) -> anyhow::Result<()> {
-        self.compile_args.configure(ctx, project, config)?;
-        self.export_args.configure(ctx, project, config)?;
-        self.run_args.configure(ctx, project, config)?;
+pub fn run(ctx: &mut Context, args: &Args) -> eyre::Result<()> {
+    let project = ctx.project()?;
 
-        Ok(())
+    // TODO(tinger): see test_set API
+    let set = ctx.test_set(&FilterArgs {
+        expression: format!("( {} ) & persistent()", args.filter.expression),
+        ..args.filter.clone()
+    })?;
+
+    let suite = ctx.collect_tests(&project, &set)?;
+    let world = ctx.world(&args.compile)?;
+
+    let runner = Runner::new(
+        &project,
+        &suite,
+        &world,
+        RunnerConfig {
+            fail_fast: !args.run.no_fail_fast,
+            pixel_per_pt: render::ppi_to_ppp(args.export.render.pixel_per_inch),
+            action: Action::Update {
+                export: true,
+                origin: args
+                    .export
+                    .render
+                    .direction
+                    .map(|dir| match dir {
+                        Direction::Ltr => Origin::TopLeft,
+                        Direction::Rtl => Origin::TopRight,
+                    })
+                    .unwrap_or_default(),
+            },
+            cancellation: &CANCELLED,
+        },
+    );
+
+    let reporter = Reporter::new(
+        ctx.ui,
+        &project,
+        &world,
+        ctx.ui.can_live_report() && ctx.args.global.output.verbose == 0,
+    );
+    let result = runner.run(&reporter)?;
+
+    if project.vcs().is_some() {
+        ctx.ui.warning_hinted(
+            "Updated references are not compressed, but persisted in a repository",
+            "Consider using a program like `oxipng` to reduce repository bloat",
+        )?;
     }
-}
 
-pub fn run(mut ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
-    let project = ctx.collect_tests(&args.op_args, "update")?;
-    let world = ctx.build_world(&project, &args.compile_args)?;
-    let (runner, rx) = ctx.build_runner(&project, &world, args)?;
-
-    ctx.reporter.run_start("Updating")?;
-
-    let summary = if !args.run_args.summary {
-        rayon::scope(|scope| {
-            let ctx = &mut ctx;
-            let world = &world;
-            let project = &project;
-
-            scope.spawn(move |_| {
-                let reporter = ctx.reporter;
-                let mut w = reporter.ui().stderr();
-                let mut state = LiveReporterState::new(&mut w, "updated", project.matched().len());
-                while let Ok(event) = rx.recv() {
-                    state.event(world, event).unwrap();
-                }
-
-                state.finish().unwrap();
-            });
-
-            runner.run()
-        })?
-    } else {
-        runner.run()?
-    };
-
-    ctx.reporter
-        .report(&SummaryReport::new("updated", &summary))?;
-
-    if !summary.is_ok() {
-        anyhow::bail!(TestFailure);
+    if !result.is_complete_pass() {
+        eyre::bail!(TestFailure);
     }
 
     Ok(())

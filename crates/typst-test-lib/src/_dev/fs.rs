@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use tempdir::TempDir;
 
+use crate::stdx;
+
 pub struct TempEnv {
     root: TempDir,
     found: BTreeMap<PathBuf, Option<Vec<u8>>>,
@@ -16,7 +18,7 @@ pub struct Setup(TempEnv);
 impl Setup {
     pub fn setup_dir<P: AsRef<Path>>(&mut self, path: P) -> &mut Self {
         let abs_path = self.0.root.path().join(path.as_ref());
-        typst_test_stdx::fs::create_dir(abs_path, true).unwrap();
+        stdx::fs::create_dir(abs_path, true).unwrap();
         self
     }
 
@@ -24,7 +26,7 @@ impl Setup {
         let abs_path = self.0.root.path().join(path.as_ref());
         let parent = abs_path.parent().unwrap();
         if parent != self.0.root.path() {
-            typst_test_stdx::fs::create_dir(parent, true).unwrap();
+            stdx::fs::create_dir(parent, true).unwrap();
         }
 
         let content = content.as_ref();
@@ -36,7 +38,7 @@ impl Setup {
         let abs_path = self.0.root.path().join(path.as_ref());
         let parent = abs_path.parent().unwrap();
         if parent != self.0.root.path() {
-            typst_test_stdx::fs::create_dir(parent, true).unwrap();
+            stdx::fs::create_dir(parent, true).unwrap();
         }
 
         std::fs::write(&abs_path, "").unwrap();
@@ -200,5 +202,55 @@ impl TempEnv {
         if mismatch {
             panic!("{msg}")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_temp_env_run() {
+        TempEnv::run(
+            |test| {
+                test.setup_file_empty("foo/bar/empty.txt")
+                    .setup_file_empty("foo/baz/other.txt")
+            },
+            |root| {
+                std::fs::remove_file(root.join("foo/bar/empty.txt")).unwrap();
+            },
+            |test| {
+                test.expect_dir("foo/bar/")
+                    .expect_file_empty("foo/baz/other.txt")
+            },
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_temp_env_run_panic() {
+        TempEnv::run(
+            |test| {
+                test.setup_file_empty("foo/bar/empty.txt")
+                    .setup_file_empty("foo/baz/other.txt")
+            },
+            |root| {
+                std::fs::remove_file(root.join("foo/bar/empty.txt")).unwrap();
+            },
+            |test| test.expect_dir("foo/bar/"),
+        );
+    }
+
+    #[test]
+    fn test_temp_env_run_no_check() {
+        TempEnv::run_no_check(
+            |test| {
+                test.setup_file_empty("foo/bar/empty.txt")
+                    .setup_file_empty("foo/baz/other.txt")
+            },
+            |root| {
+                std::fs::remove_file(root.join("foo/bar/empty.txt")).unwrap();
+            },
+        );
     }
 }

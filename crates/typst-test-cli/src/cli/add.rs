@@ -1,17 +1,15 @@
-use std::io;
 use std::io::Write;
 
-use serde::Serialize;
-use termcolor::{Color, WriteColor};
-use thiserror::Error;
-use typst_test_lib::test::id::Identifier;
-use typst_test_lib::test::ReferenceKind;
-use typst_test_lib::test_set;
+use color_eyre::eyre;
+use lib::doc::render::ppp_to_ppi;
+use lib::doc::Document;
+use lib::test::{Id, Reference, Test};
+use termcolor::Color;
+use typst::diag::Warned;
+use typst_syntax::{FileId, Source, VirtualPath};
 
-use super::Context;
-use crate::error::{Failure, OperationFailure};
-use crate::report::reports::TestJson;
-use crate::report::{Report, Verbosity};
+use super::{CompileArgs, Context, RenderArgs};
+use crate::cli::OperationFailure;
 use crate::ui;
 
 #[derive(clap::Args, Debug, Clone)]
@@ -29,60 +27,67 @@ pub struct Args {
     pub compile_only: bool,
 
     /// Ignore the test template for this test
-    #[arg(long)]
+    #[arg(long, conflicts_with_all = ["ephemeral", "compile-only"])]
     pub no_template: bool,
 
+    #[command(flatten)]
+    pub compile: CompileArgs,
+
+    #[command(flatten)]
+    pub render: RenderArgs,
+
     /// The name of the test to add
-    pub test: Identifier,
+    pub test: Id,
 }
 
-#[derive(Debug, Error)]
-#[error("test '{0}' already exists")]
-pub struct TestExisits(Identifier);
+pub fn run(ctx: &mut Context, args: &Args) -> eyre::Result<()> {
+    let project = ctx.project()?;
+    let suite = ctx.collect_all_tests(&project)?;
 
-impl Failure for TestExisits {
-    fn report(&self, ui: &ui::Ui) -> io::Result<()> {
-        ui.error_with(|w| {
-            write!(w, "Test ")?;
-            ui::write_colored(w, Color::Cyan, |w| write!(w, "{}", self.0))?;
-            writeln!(w, " already exists")
-        })
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(transparent)]
-pub struct AddedReport<'t>(TestJson<'t>);
-
-impl Report for AddedReport<'_> {
-    fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> anyhow::Result<()> {
-        write!(writer, "Added ")?;
-        ui::write_colored(&mut writer, Color::Cyan, |w| writeln!(w, "{}", self.0.id))?;
-
-        Ok(())
-    }
-}
-
-pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
-    let mut project = ctx.ensure_init()?;
-    project.collect_tests(test_set::builtin::all())?;
-    project.load_template()?;
-
-    if project.matched().contains_key(&args.test) {
-        anyhow::bail!(OperationFailure::from(TestExisits(args.test.clone())));
+    if suite.matched().contains_key(&args.test) {
+        ctx.error_test_already_exists(&args.test)?;
+        eyre::bail!(OperationFailure);
     }
 
-    let kind = if args.ephemeral {
-        Some(ReferenceKind::Ephemeral)
-    } else if args.compile_only {
-        None
+    let paths = project.paths();
+    let vcs = project.vcs();
+    let id = args.test.clone();
+
+    if let Some(template) = suite.template().filter(|_| !args.no_template) {
+        if args.ephemeral {
+            Test::create(
+                paths,
+                vcs,
+                id,
+                template,
+                Some(Reference::Ephemeral(template.into())),
+            )?;
+        } else if args.compile_only {
+            Test::create(paths, vcs, id, template, None)?;
+        } else {
+            let world = ctx.world(&args.compile)?;
+
+            // TODO(tinger): read properly report diagnostics
+            let Warned {
+                output,
+                warnings: _,
+            } = Document::compile(
+                Source::new(FileId::new_fake(VirtualPath::new("")), template.to_owned()),
+                &world,
+                ppp_to_ppi(args.render.pixel_per_inch),
+            );
+            let doc = output?;
+
+            Test::create(paths, vcs, id, template, Some(Reference::Persistent(doc)))?;
+        };
     } else {
-        Some(ReferenceKind::Persistent)
-    };
+        Test::create_default(project.paths(), project.vcs(), id)?;
+    }
 
-    project.create_test(args.test.clone(), kind, !args.no_template)?;
-    let test = &project.matched()[&args.test];
-    ctx.reporter.report(&AddedReport(TestJson::new(test)))?;
+    let mut w = ctx.ui.stderr();
+
+    write!(w, "Added ")?;
+    ui::write_colored(&mut w, Color::Cyan, |w| writeln!(w, "{}", args.test))?;
 
     Ok(())
 }

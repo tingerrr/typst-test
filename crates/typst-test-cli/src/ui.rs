@@ -4,27 +4,37 @@ use std::fmt::{Debug, Display};
 use std::io::{BufRead, IsTerminal, Stdin, StdinLock, Write};
 use std::{fmt, io};
 
+use color_eyre::eyre;
+use lib::test::Id;
+use termcolor::{
+    Color, ColorChoice, ColorSpec, HyperlinkSpec, StandardStream, StandardStreamLock, WriteColor,
+};
+
 /// The maximum needed padding to align all standard annotations. The longest of
 /// which is currently `warning:` at 8 bytes.
 ///
 /// This is used in all annotated messages of [`Ui`].
 pub const ANNOTATION_MAX_PADDING: usize = 8;
 
-use termcolor::{
-    Color, ColorChoice, ColorSpec, HyperlinkSpec, StandardStream, StandardStreamLock, WriteColor,
-};
-
+/// A terminal ui wrapper for common tasks such as input prompts and output
+/// messaging.
 #[derive(Debug)]
 pub struct Ui {
+    /// The unlocked stdin stream.
     stdin: Stdin,
+
+    /// The unlocked stdout stream.
     stdout: StandardStream,
+
+    /// The unlocked stderr stream.
     stderr: StandardStream,
 }
 
-fn check_terminal<T: IsTerminal>(t: T, choice: ColorChoice) -> ColorChoice {
+/// Returns whether or not a given output stream is connected to a terminal.
+pub fn check_terminal<T: IsTerminal>(t: T, choice: ColorChoice) -> ColorChoice {
     match choice {
-        // NOTE: when we use auto and the stream is not a terminal, we disable
-        // it since termcolor does not check for this, in any other case we let
+        // when we use auto and the stream is not a terminal, we disable it
+        // since termcolor does not check for this, in any other case we let
         // termcolor figure out what to do
         ColorChoice::Auto if !t.is_terminal() => ColorChoice::Never,
         other => other,
@@ -32,7 +42,7 @@ fn check_terminal<T: IsTerminal>(t: T, choice: ColorChoice) -> ColorChoice {
 }
 
 impl Ui {
-    /// Creates a new `Ui`.
+    /// Creates a new [`Ui`] with the gven color choices for stdout and stderr.
     pub fn new(out: ColorChoice, err: ColorChoice) -> Self {
         Self {
             stdin: io::stdin(),
@@ -100,17 +110,17 @@ impl Ui {
         write_hint_with(&mut self.stderr(), ANNOTATION_MAX_PADDING, h)
     }
 
-    /// A shorthand for [`Self::error_with`].
+    /// A shorthand for [`Ui::error_with`].
     pub fn error(&self, message: impl Display) -> io::Result<()> {
         self.error_with(|w| writeln!(w, "{message}"))
     }
 
-    /// A shorthand for [`Self::warning_with`].
+    /// A shorthand for [`Ui::warning_with`].
     pub fn warning(&self, message: impl Display) -> io::Result<()> {
         self.warning_with(|w| writeln!(w, "{message}"))
     }
 
-    /// A shorthand for [`Self::hint_with`].
+    /// A shorthand for [`Ui::hint_with`].
     pub fn hint(&self, message: impl Display) -> io::Result<()> {
         self.hint_with(|w| writeln!(w, "{message}"))
     }
@@ -125,18 +135,24 @@ impl Ui {
         self.warning_hinted_with(|w| writeln!(w, "{message}"), |w| writeln!(w, "{hint}"))
     }
 
-    /// Returns whether or not a prompt can be displayed.
-    pub fn can_prompt(&self) -> bool {
+    /// Whether a live status report can be printed and cleared using ANSI
+    /// escape codes.
+    pub fn can_live_report(&self) -> bool {
         io::stderr().is_terminal()
+    }
+
+    /// Whether a prompt can be displayed and confirmed by the user.
+    pub fn can_prompt(&self) -> bool {
+        io::stdin().is_terminal() && io::stderr().is_terminal()
     }
 
     /// Prompts the user for input with the given prompt on stderr.
     pub fn prompt_with(
         &self,
         prompt: impl FnOnce(&mut dyn WriteColor) -> io::Result<()>,
-    ) -> anyhow::Result<String> {
+    ) -> eyre::Result<String> {
         if !self.can_prompt() {
-            anyhow::bail!(io::Error::new(
+            eyre::bail!(io::Error::new(
                 io::ErrorKind::Unsupported,
                 "Cannot prompt for input since the output is not connected to a terminal",
             ));
@@ -153,7 +169,7 @@ impl Ui {
 
         let trimmed = buffer.trim();
         if trimmed.is_empty() {
-            anyhow::bail!(io::Error::new(
+            eyre::bail!(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 "Prompt cancelled by EOF",
             ));
@@ -162,12 +178,12 @@ impl Ui {
         Ok(trimmed.to_owned())
     }
 
-    /// A shorthand for [`Self::prompt_with`] for confirmations.
+    /// A shorthand for [`Ui::prompt_with`] for confirmations.
     pub fn prompt_yes_no(
         &self,
         prompt: impl Display,
         default: impl Into<Option<bool>>,
-    ) -> anyhow::Result<bool> {
+    ) -> eyre::Result<bool> {
         let default = default.into();
         let def = match default {
             Some(true) => "Y/n",
@@ -178,7 +194,7 @@ impl Ui {
         let res = self.prompt_with(|err| write!(err, "{prompt} [{def}]: "))?;
 
         Ok(match &res[..] {
-            "" => default.ok_or_else(|| anyhow::anyhow!("expected [y]es or [n]o, got nothing"))?,
+            "" => default.ok_or_else(|| eyre::eyre!("expected [y]es or [n]o, got nothing"))?,
             "y" | "Y" => true,
             "n" | "N" => false,
             _ => {
@@ -187,7 +203,7 @@ impl Ui {
                 } else if res.eq_ignore_ascii_case("no") {
                     false
                 } else {
-                    anyhow::bail!("expected [y]es or [n]o, got: {res:?}");
+                    eyre::bail!("expected [y]es or [n]o, got: {res:?}");
                 }
             }
         })
@@ -279,8 +295,8 @@ pub fn write_annotated<W: WriteColor + ?Sized>(
     let align = max_align.into().unwrap_or(header.len());
     write_bold_colored(w, color, |w| write!(w, "{header:>align$} "))?;
 
-    // NOTE: when taking the indent from the header length, we need to account
-    // for the additonal space
+    // when taking the indent from the header length, we need to account for the
+    // additional space
     f(&mut Indented::continued(w, align + 1))?;
     Ok(())
 }
@@ -348,6 +364,18 @@ pub fn clear_last_lines<W: Write + ?Sized>(w: &mut W, lines: usize) -> io::Resul
     Ok(())
 }
 
+/// Write a test id.
+pub fn write_test_id<W: WriteColor + ?Sized>(w: &mut W, id: &Id) -> io::Result<()> {
+    if !id.module().is_empty() {
+        write_colored(w, Color::Cyan, |w| write!(w, "{}/", id.module()))?;
+    }
+
+    write_bold_colored(w, Color::Blue, |w| write!(w, "{}", id.name()))?;
+
+    Ok(())
+}
+
+/// Counts the lines this writer wrote since the last reset.
 #[derive(Debug)]
 pub struct Counted<W> {
     /// The writer to write to.
@@ -434,6 +462,8 @@ impl<W: WriteColor> WriteColor for Counted<W> {
     }
 }
 
+/// Writes content indented, ensuring color specs are correctly enabled and
+/// disabled.
 #[derive(Debug)]
 pub struct Indented<W> {
     /// The writer to write to.
@@ -569,50 +599,7 @@ impl<W: WriteColor> WriteColor for Indented<W> {
     }
 }
 
-#[derive(Debug)]
-pub struct Live<W> {
-    /// The writer to write to.
-    writer: W,
-
-    /// The lines to clear before each live reporting.
-    to_clear: usize,
-}
-
-impl<W> Live<W> {
-    /// Creates a new writer, which will clear previous lines for each live write.
-    pub fn new(writer: W) -> Self {
-        Self {
-            writer,
-            to_clear: 0,
-        }
-    }
-
-    /// Returns a mutable reference to the inner writer.
-    pub fn inner(&mut self) -> &mut W {
-        &mut self.writer
-    }
-
-    /// Returns the inner writer.
-    pub fn into_inner(self) -> W {
-        self.writer
-    }
-}
-
-impl<W: WriteColor> Live<W> {
-    /// Clears the previously written lines and writes new ones using the given closure.
-    pub fn live<F>(&mut self, f: F) -> io::Result<()>
-    where
-        F: FnOnce(&mut Counted<&mut W>) -> io::Result<()>,
-    {
-        clear_last_lines(&mut self.writer, self.to_clear)?;
-        let mut w = Counted::new(&mut self.writer);
-        f(&mut w)?;
-        self.to_clear = w.lines();
-
-        Ok(())
-    }
-}
-
+/// Ensure Ui is thread safe.
 #[allow(dead_code)]
 fn assert_traits() {
     fn assert_send<T: Send>() {}
@@ -686,6 +673,4 @@ mod tests {
         let str = std::str::from_utf8(&w).unwrap();
         assert_snapshot!(str);
     }
-
-    // TODO: test live
 }

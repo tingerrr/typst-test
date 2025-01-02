@@ -45,7 +45,7 @@ jobs:
 This adds a single step to our job (called `tests`), which checks out the repository, making it available for the following steps.
 
 For now, we'll need `cargo` to download and install `typst-test`, so we install it and cache the installation with a package cache action.
-And then we install `typst-test` straight from Github using the `ci-semi-stable` tag, this tag does not yet have features like test set expressions, but it works just the same otherwise.
+And then we install `typst-test` straight from GitHub using the `backport` branch, this branch does not yet have features like test set expressions, but it is somewhat stable and receives fixes.
 
 ```yml
 steps:
@@ -61,11 +61,11 @@ steps:
     with:
       crate: typst-test
       git: https://github.com/tingerrr/typst-test.git
-      tag: ci-semi-stable
+      branch: backport
 
 ```
 
-Because the `typst-test` version at `ci-semi-stable` does not yet come with it's own Typst compiler, it needs a Typst installation in the runner. Add the folllowing with your prefferred Typst version:
+Because the `typst-test` version at `backport` does not yet come with it's own Typst compiler, it needs a Typst installation in the runner. Add the following with your preferred Typst version:
 
 ```yml
 steps:
@@ -139,7 +139,7 @@ And that's it, you can add this file to your repo, push it to a branch and open 
 >         with:
 >           crate: typst-test
 >           git: https://github.com/tingerrr/typst-test.git
->           tag: ci-semi-stable
+>           branch: backport
 >
 >       - name: Setup typst
 >         uses: yusancky/setup-typst@v2

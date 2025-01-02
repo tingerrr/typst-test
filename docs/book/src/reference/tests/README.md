@@ -26,9 +26,9 @@ There are three kinds of unit tests:
 > Each of those can be selected using one of the [built-in test sets](../test-sets/built-in.md#constants).
 
 Unit tests are the only tests which have access to an extended Typst standard library.
-This extended standard library provides curently provides panic-helpers for catching and comparing panics.
+This extended standard library provides currently provides panic-helpers for catching and comparing panics.
 
-A test is a directory somehwere within the test root (commonly `<project>/tests`), which contains the following entries:
+A test is a directory somewhere within the test root (commonly `<project>/tests`), which contains the following entries:
 - `test.typ`: as the entry point
 - `ref.typ` (optional): for ephemeral tests as the reference entry point
 - `ref/` (optional, temporary): for persistent or ephemeral tests for the reference documents
@@ -37,7 +37,7 @@ A test is a directory somehwere within the test root (commonly `<project>/tests`
 
 The path from the test root to the test script marks the test's identifier. Its test kind is determined by the existence of the ref script and ref directory:
 - If it contains a `ref` directory but no `ref.typ` script, it is considered a persistent test.
-- If it a `ref.typ` script, it is considered an ephermeral test.
+- If it a `ref.typ` script, it is considered an ephemeral test.
 - If it contains neither, it is considered compile only.
 
 Tests may contain other tests at the moment, e.g the following is valid

@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Credits: The Typst Authors
 
-// TODO: upstream this to typst-kit
-#![allow(dead_code)]
+// TODO(tinger): upstream this to typst-kit
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -10,6 +9,7 @@ use std::sync::{Mutex, OnceLock};
 use std::{fs, io, mem};
 
 use chrono::{DateTime, Datelike, FixedOffset, Local, Utc};
+use lib::library::augmented_default_library;
 use typst::diag::{FileError, FileResult};
 use typst::foundations::{Bytes, Datetime};
 use typst::syntax::{FileId, Source};
@@ -19,7 +19,6 @@ use typst::{Library, World};
 use typst_kit::download::ProgressSink;
 use typst_kit::fonts::{FontSlot, Fonts};
 use typst_kit::package::PackageStorage;
-use typst_test_lib::library::augmented_default_library;
 
 /// A world that provides access to the operating system.
 pub struct SystemWorld {
@@ -177,11 +176,6 @@ impl FileSlot {
         }
     }
 
-    /// Whether the file was accessed in the ongoing compilation.
-    fn accessed(&self) -> bool {
-        self.source.accessed() || self.file.accessed()
-    }
-
     /// Marks the file as not yet accessed in preparation of the next
     /// compilation.
     fn reset(&mut self) {
@@ -236,11 +230,6 @@ impl<T: Clone> SlotCell<T> {
             fingerprint: 0,
             accessed: false,
         }
-    }
-
-    /// Whether the cell was accessed in the ongoing compilation.
-    fn accessed(&self) -> bool {
-        self.accessed
     }
 
     /// Marks the cell as not yet accessed in preparation of the next
@@ -335,4 +324,65 @@ enum Now {
     Fixed(DateTime<Utc>),
     /// The current date and time if the time is not externally fixed.
     System(OnceLock<DateTime<Utc>>),
+}
+
+type CodespanResult<T> = Result<T, CodespanError>;
+type CodespanError = codespan_reporting::files::Error;
+
+impl<'a> codespan_reporting::files::Files<'a> for SystemWorld {
+    type FileId = FileId;
+    type Name = String;
+    type Source = Source;
+
+    fn name(&'a self, id: FileId) -> CodespanResult<Self::Name> {
+        let vpath = id.vpath();
+        Ok(if let Some(package) = id.package() {
+            format!("{package}{}", vpath.as_rooted_path().display())
+        } else {
+            // Try to express the path relative to the working directory.
+            vpath
+                .resolve(self.root())
+                // .and_then(|abs| pathdiff::diff_paths(abs, self.workdir()))
+                // .as_deref()
+                .unwrap_or_else(|| vpath.as_rootless_path().to_path_buf())
+                .to_string_lossy()
+                .into()
+        })
+    }
+
+    fn source(&'a self, id: FileId) -> CodespanResult<Self::Source> {
+        Ok(self.lookup(id))
+    }
+
+    fn line_index(&'a self, id: FileId, given: usize) -> CodespanResult<usize> {
+        let source = self.lookup(id);
+        source
+            .byte_to_line(given)
+            .ok_or_else(|| CodespanError::IndexTooLarge {
+                given,
+                max: source.len_bytes(),
+            })
+    }
+
+    fn line_range(&'a self, id: FileId, given: usize) -> CodespanResult<std::ops::Range<usize>> {
+        let source = self.lookup(id);
+        source
+            .line_to_range(given)
+            .ok_or_else(|| CodespanError::LineTooLarge {
+                given,
+                max: source.len_lines(),
+            })
+    }
+
+    fn column_number(&'a self, id: FileId, _: usize, given: usize) -> CodespanResult<usize> {
+        let source = self.lookup(id);
+        source.byte_to_column(given).ok_or_else(|| {
+            let max = source.len_bytes();
+            if given <= max {
+                CodespanError::InvalidCharBoundary { given }
+            } else {
+                CodespanError::IndexTooLarge { given, max }
+            }
+        })
+    }
 }

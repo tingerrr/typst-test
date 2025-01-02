@@ -37,19 +37,19 @@ pub fn define_test_module(scope: &mut Scope) {
     define_prelude(scope)
 }
 
-/// Returns a new test module with the items defined by [`define_test_module`].
+/// Creates a new test module with the items defined by [`define_test_module`].
 pub fn test_module() -> Module {
     let mut scope = Scope::new();
     define_test_module(&mut scope);
     Module::new("test", scope)
 }
 
-/// Returns a new augmented default standard library. See [`augmented_library`].
+/// Creates a new augmented default standard library. See [`augmented_library`].
 pub fn augmented_default_library() -> Library {
     augmented_library(|x| x)
 }
 
-/// Returns a new augmented standard library, applying the given closure to the
+/// Creates a new augmented standard library, applying the given closure to the
 /// builder.
 ///
 /// The augmented standard library contains a new test module and a few items in
@@ -107,7 +107,7 @@ mod tests {
 
     use super::*;
     use crate::_dev::GlobalTestWorld;
-    use crate::compile;
+    use crate::doc::compile;
 
     #[test]
     fn test_catch() {

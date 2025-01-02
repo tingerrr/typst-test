@@ -17,13 +17,13 @@ readme = "README.md"
 
 [workspace.dependencies]
 typst-test-lib = { path = "crates/typst-test-lib" }
-typst-test-stdx = { path = "crates/typst-test-stdx" }
 
-anyhow = "1.0.78"
-clap = "4.4.12"
 bitflags = "2.4.2"
 bytemuck = "1.16.1"
 chrono = "0.4.38"
+clap = "4.4.12"
+color-eyre = "0.6.3"
+ctrlc = "3.4.5"
 codespan-reporting = "0.11.1"
 comemo = "0.4.0"
 dirs = "5.0.1"
@@ -32,7 +32,6 @@ env_proxy = "0.4.1"
 flate2 = "1.0.30"
 fontdb = "0.18.0"
 glob = "0.3.1"
-indoc = "2.0.5"
 insta = "1.39.0"
 ignore = "0.4.22"
 native-tls = "0.2.12"
@@ -64,3 +63,4 @@ typst-render = "0.12.0"
 typst-syntax = "0.12.0"
 unscanny = "0.1.0"
 ureq = { version = "2.9.7", default-features = false }
+uuid = "1.11.0"

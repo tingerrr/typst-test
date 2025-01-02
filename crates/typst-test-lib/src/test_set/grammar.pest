@@ -1,88 +1,91 @@
-main = _{ SOI ~ expr ~ EOI }
+// root expression
+main = { SOI ~ expr ~ EOI }
 
-expr = { op_prefix* ~ term ~ op_postfix* ~ (op_infix ~ op_prefix* ~ term ~ op_postfix*)* }
-term = _{ atom | "(" ~ expr ~ ")" }
-atom = { literal | function | variable }
+// expression parsing
+// expr = { prefix* ~ term ~ postfix* ~ (infix ~ prefix* ~ term ~ postfix* )* }
+expr = { prefix_op* ~ expr_term ~ (infix_op ~ prefix_op* ~ expr_term)* }
+    expr_term = _{ expr_atom | expr_group }
+        expr_group = _{ "(" ~ expr ~ ")" }
+        expr_atom = _{ pat | str | func | id | num }
 
-kw_not = { "not" }
-kw_or = { "or" }
-kw_and = { "and" }
-kw_diff = { "diff" }
-kw_xor = { "xor" }
+    prefix_op = _{ prefix_op_excl | prefix_op_not }
+        prefix_op_excl = { "!" }
+        prefix_op_not = { "not" }
 
-op_complement = { "¬" }
-op_union = { "∪" }
-op_intersection = { "∩" }
-op_backslash = { "\\" }
-op_delta = { "Δ" }
+    infix_op = _{
+        infix_op_caret
+        | infix_op_amper
+        | infix_op_tilde
+        | infix_op_pipe
+        | infix_op_xor
+        | infix_op_and
+        | infix_op_diff
+        | infix_op_or
+    }
+        infix_op_caret = { "^" }
+        infix_op_amper = { "&" }
+        infix_op_tilde = { "~" }
+        infix_op_pipe = { "|" }
+        infix_op_xor = { "xor" }
+        infix_op_and = { "and" }
+        infix_op_diff = { "diff" }
+        infix_op_or = { "or" }
 
-op_exclamation = { "!" }
-op_pipe = { "|" }
-op_ampersand = { "&" }
-op_tilde = { "~" }
-op_caret = { "^" }
+// identifiers
+id = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "-" | "_")* }
 
-op_plus = { "+" }
-op_minus = { "-" }
+// functions
+func = ${ id ~ func_args }
+    func_args = !{ func_args_delim_open ~ func_args_inner? ~ func_args_delim_close }
+    func_args_inner = { expr ~ (func_args_sep ~ expr)* ~ func_args_sep? }
+    func_args_sep = { "," }
+    func_args_delim_open = { "(" }
+    func_args_delim_close = { ")" }
 
-op_prefix = _{ kw_not | op_complement | op_exclamation }
+// test identifier patterns
+// a string specifying what kind of pattern it is using a prefix
+pat = _{ pat_inner }
+    pat_inner = ${ pat_kind ~ pat_sep ~ pat_pat }
+    pat_kind = @{
+        pat_kind_glob
+        | pat_kind_regex
+        | pat_kind_contains
+        | pat_kind_exact
+        | pat_kind_path
+    }
+        pat_kind_glob = { "glob" | "g" }
+        pat_kind_regex =  { "regex" | "r" }
+        pat_kind_contains =  { "contains" | "c" }
+        pat_kind_exact  = { "exact" | "e" }
+        pat_kind_path = { "path" | "p" }
+    pat_pat = _{ str | pat_raw_lit }
+    pat_raw_lit = { !(str_single_delim | str_double_delim) ~ (!WHITESPACE ~ ANY)+ }
+    pat_sep = { ":" }
 
-op_postfix = _{ op_plus | op_minus }
+// strings
+str = _{ str_single | str_double }
+    str_single = ${ str_single_delim ~ str_single_inner ~ str_single_delim }
+        str_single_delim = { "'" }
+        str_single_inner = @{ str_single_char* }
+        str_single_char = _{ !"'" ~ ANY }
+    str_double = ${ str_double_delim ~ str_double_inner ~ str_double_delim }
+        str_double_delim = { "\"" }
+        str_double_inner = @{ str_double_char* }
+        str_double_char = _{
+            !("\"" | "\\") ~ ANY
+            | "\\" ~ str_double_esc_meta
+            | "\\" ~ str_double_esc_ascii
+            | "\\" ~ str_double_esc_unicode
+        }
+        str_double_esc_meta = { "\"" | "\\" }
+        str_double_esc_ascii = { "n" | "r" | "t" }
+        str_double_esc_unicode = @{ "u" ~ "{" ~ ASCII_HEX_DIGIT{1,4} ~ "}" }
 
-op_infix = _{
-  kw_or
-  | kw_and
-  | kw_diff
-  | kw_xor
-  | op_union
-  | op_intersection
-  | op_backslash
-  | op_delta
-  | op_pipe
-  | op_ampersand
-  | op_tilde
-  | op_caret
-}
+// number literals
+num = _{ num_inner }
+    num_inner = ${ num_part+ ~ (num_sep ~ num_part)* }
+    num_part = @{ ASCII_DIGIT+ }
+    num_sep = { "_" }
 
-variable = { identifier }
-
-function = ${ identifier ~ function_arguments }
-  function_arguments = !{ "(" ~ expr? ~ ("," ~ expr)* ~ ","? ~ ")" }
-
-literal = { number | string | pattern }
-  number = @{ ASCII_NONZERO_DIGIT ~ ASCII_DIGIT* }
-  string = { single_string | double_string }
-
-  single_string = _{ "'" ~ single_string_inner ~ "'" }
-  single_string_inner = @{ single_string_char* }
-  single_string_char = _{ !("\'" | "\\") ~ ANY | "\\" ~ "'" | string_escape }
-
-  double_string = _{ "\"" ~ double_string_inner ~ "\"" }
-  double_string_inner = @{ double_string_char* }
-  double_string_char = _{ !("\"" | "\\") ~ ANY | "\\" ~ "\"" | string_escape }
-
-  string_escape = _{
-    "\\" ~ ("\\" | "n" | "r" | "t")
-    | "\\" ~ ("u" ~ "{" ~ ASCII_HEX_DIGIT{4} ~ "}")
-  }
-
-  pattern = ${ pattern_prefix ~ pattern_inner }
-  pattern_prefix = _{
-	pattern_prefix_contains
-    | pattern_prefix_exact
-    | pattern_prefix_regex
-    | pattern_prefix_glob
-  }
-  pattern_prefix_contains = { "~" }
-  pattern_prefix_exact = { "=" }
-  pattern_prefix_regex = { ":" }
-  pattern_prefix_glob = { "#" }
-  pattern_inner = _{ string | pattern_raw }
-  pattern_raw = { pattern_segment+ }
-  pattern_segment = _{ pattern_group | pattern_char+ }
-  pattern_group = _{ "(" ~ pattern_raw? ~ ")" }
-  pattern_char = _{ !(WHITESPACE | "," | "("| ")") ~ ANY }
-
-identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_" | "-")* }
-
+// special rules
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }

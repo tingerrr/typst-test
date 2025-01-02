@@ -1,92 +1,88 @@
-use super::{CompareArgs, CompileArgs, Configure, Context, ExportArgs, OperationArgs, RunArgs};
-use crate::error::TestFailure;
-use crate::project::Project;
-use crate::report::reports::SummaryReport;
-use crate::report::LiveReporterState;
-use crate::test::runner::RunnerConfig;
+use std::ops::Not;
+
+use color_eyre::eyre;
+use lib::doc::compare::Strategy;
+use lib::doc::render::{self, Origin};
+
+use super::{
+    CompareArgs, CompileArgs, Context, Direction, ExportArgs, FilterArgs, RunArgs, CANCELLED,
+};
+use crate::cli::TestFailure;
+use crate::report::Reporter;
+use crate::runner::{Action, Runner, RunnerConfig};
 
 #[derive(clap::Args, Debug, Clone)]
 #[group(id = "run-args")]
 pub struct Args {
     #[command(flatten)]
-    pub compile_args: CompileArgs,
+    pub compile: CompileArgs,
 
     /// Do not compare tests
     #[arg(long, short = 'C')]
     pub no_compare: bool,
 
     #[command(flatten)]
-    pub compare_args: CompareArgs,
+    pub compare: CompareArgs,
 
     /// Do not export any documents
     #[arg(long, short = 'E')]
     pub no_export: bool,
 
     #[command(flatten)]
-    pub export_args: ExportArgs,
+    pub export: ExportArgs,
 
     #[command(flatten)]
-    pub run_args: RunArgs,
+    pub run: RunArgs,
 
     #[command(flatten)]
-    pub op_args: OperationArgs,
+    pub filter: FilterArgs,
 }
 
-impl Configure for Args {
-    fn configure(
-        &self,
-        ctx: &mut Context,
-        project: &Project,
-        config: &mut RunnerConfig,
-    ) -> anyhow::Result<()> {
-        self.compile_args.configure(ctx, project, config)?;
-        if !self.no_compare {
-            self.compare_args.configure(ctx, project, config)?;
-        }
-        if !self.no_export {
-            self.export_args.configure(ctx, project, config)?;
-        }
-        self.run_args.configure(ctx, project, config)?;
+pub fn run(ctx: &mut Context, args: &Args) -> eyre::Result<()> {
+    let project = ctx.project()?;
+    let set = ctx.test_set(&args.filter)?;
+    let suite = ctx.collect_tests(&project, &set)?;
+    let world = ctx.world(&args.compile)?;
 
-        Ok(())
-    }
-}
+    let origin = args
+        .export
+        .render
+        .direction
+        .map(|dir| match dir {
+            Direction::Ltr => Origin::TopLeft,
+            Direction::Rtl => Origin::TopRight,
+        })
+        .unwrap_or_default();
 
-pub fn run(mut ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
-    let project = ctx.collect_tests(&args.op_args, None)?;
-    let world = ctx.build_world(&project, &args.compile_args)?;
-    let (runner, rx) = ctx.build_runner(&project, &world, args)?;
+    let runner = Runner::new(
+        &project,
+        &suite,
+        &world,
+        RunnerConfig {
+            fail_fast: !args.run.no_fail_fast,
+            pixel_per_pt: render::ppi_to_ppp(args.export.render.pixel_per_inch),
+            action: Action::Run {
+                strategy: args.no_compare.not().then_some(Strategy::Simple {
+                    max_delta: args.compare.max_delta,
+                    max_deviation: args.compare.max_deviation,
+                }),
+                export: !args.no_export,
+                origin,
+            },
+            cancellation: &CANCELLED,
+        },
+    );
 
-    ctx.reporter.run_start("Running")?;
+    let reporter = Reporter::new(
+        ctx.ui,
+        &project,
+        &world,
+        ctx.ui.can_live_report() && ctx.args.global.output.verbose == 0,
+    );
+    let result = runner.run(&reporter)?;
 
-    let summary = if !args.run_args.summary {
-        rayon::scope(|scope| {
-            let ctx = &mut ctx;
-            let world = &world;
-            let project = &project;
-
-            scope.spawn(move |_| {
-                let reporter = ctx.reporter;
-                let mut w = reporter.ui().stderr();
-                let mut state = LiveReporterState::new(&mut w, "tested", project.matched().len());
-                while let Ok(event) = rx.recv() {
-                    state.event(world, event).unwrap();
-                }
-
-                state.finish().unwrap();
-            });
-
-            runner.run()
-        })?
-    } else {
-        runner.run()?
-    };
-
-    ctx.reporter
-        .report(&SummaryReport::new("passed", &summary))?;
-
-    if !summary.is_ok() {
-        anyhow::bail!(TestFailure);
+    if !result.is_complete_pass() {
+        eyre::bail!(TestFailure);
     }
 
     Ok(())

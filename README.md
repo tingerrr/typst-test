@@ -16,9 +16,8 @@ However, the book [includes a suggested workaround for this](https://tingerrr.gi
 ## Stability
 `typst-test` currently makes no stability guarantees, it is considered pre-0.1.0, see the [Milestones] for its progress towards a first release.
 However, all PRs and pushes to main are tested in CI.
-A reasonably "stable" version of `typst-test` is available at the `ci-semi-stable` tag.
+A reasonably "stable" version of `typst-test` is available at the `backport` branch, which will receive fixes until 0.1.0.
 This version is already used in the CI of various Typst packages, such as cetz, codly, valkyrie, hydra or subpar.
-Some prior changes impacting users of `typst-test` are documented in the [migration log][migrating].
 
 ## Documentation
 To see how to get started with `typst-test`, check out the [Book].
@@ -29,7 +28,6 @@ It provides a few chapters aimed to get you started with `typst-test`.
 ## Contribution
 See [CONTRIBUTING.md][contrib] if you want to contribute to `typst-test`.
 
-[migrating]: migrating.md
 [contrib]: CONTRIBUTING.md
 
 [Typst]: https://typst.app

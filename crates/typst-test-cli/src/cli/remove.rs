@@ -1,39 +1,52 @@
-use serde::Serialize;
-use termcolor::{Color, WriteColor};
-use typst_test_stdx::fmt::Term;
+use std::io::Write;
 
-use super::{Context, OperationArgs};
-use crate::report::{Report, Verbosity};
+use color_eyre::eyre;
+use lib::stdx::fmt::Term;
+use termcolor::Color;
+
+use super::{Context, FilterArgs};
 use crate::ui;
 
 #[derive(clap::Args, Debug, Clone)]
 #[group(id = "remove-args")]
 pub struct Args {
+    /// Whether to the skip confirmation prompt
+    #[arg(long, short)]
+    pub force: bool,
+
     #[command(flatten)]
-    pub op_args: OperationArgs,
+    pub filter: FilterArgs,
 }
 
-#[derive(Debug, Serialize)]
-pub struct RemoveReport {
-    removed: usize,
-}
+pub fn run(ctx: &mut Context, args: &Args) -> eyre::Result<()> {
+    let project = ctx.project()?;
+    let set = ctx.test_set(&args.filter)?;
+    let suite = ctx.collect_tests(&project, &set)?;
 
-impl Report for RemoveReport {
-    fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> anyhow::Result<()> {
-        write!(writer, "Removed ")?;
-        ui::write_bold_colored(&mut writer, Color::Green, |w| write!(w, "{}", self.removed))?;
-        writeln!(writer, " {}", Term::simple("test").with(self.removed))?;
+    let len = suite.matched().len();
 
-        Ok(())
+    let confirmed = args.force
+        || ctx.ui.prompt_yes_no(
+            format!(
+                "confirm deletion of {len} {}",
+                Term::simple("test").with(len)
+            ),
+            false,
+        )?;
+
+    if !confirmed {
+        ctx.error_aborted()?;
     }
-}
 
-pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
-    let mut project = ctx.collect_tests(&args.op_args, "remove")?;
+    for test in suite.matched().values() {
+        test.delete(project.paths())?;
+    }
 
-    let len = project.matched().len();
-    project.delete_tests()?;
-    ctx.reporter.report(&RemoveReport { removed: len })?;
+    let mut w = ctx.ui.stderr();
+
+    write!(w, "Removed ")?;
+    ui::write_bold_colored(&mut w, Color::Green, |w| write!(w, "{len}"))?;
+    writeln!(w, " {}", Term::simple("test").with(len))?;
 
     Ok(())
 }

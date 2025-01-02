@@ -1,104 +1,99 @@
-use serde::Serialize;
-use termcolor::{Color, WriteColor};
-use typst_test_lib::test_set;
+use std::io::Write;
+
+use color_eyre::eyre;
+use lib::test::Kind;
+use termcolor::Color;
 
 use super::Context;
-use crate::report::reports::ProjectJson;
-use crate::report::{Report, Verbosity};
+use crate::json::ProjectJson;
 use crate::ui;
 
-#[derive(Debug, Serialize)]
-#[serde(transparent)]
-pub struct StatusReport<'p>(ProjectJson<'p>);
-
-impl Report for StatusReport<'_> {
-    fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> anyhow::Result<()> {
-        struct Delims {
-            open: &'static str,
-            middle: &'static str,
-            close: &'static str,
-        }
-
-        let delims = Delims {
-            open: " ┌ ",
-            middle: " ├ ",
-            close: " └ ",
-        };
-
-        let align = ["Template", "Project", "Tests"]
-            .map(str::len)
-            .into_iter()
-            .max()
-            .unwrap();
-
-        if let Some(package) = &self.0.package {
-            write!(writer, "{:>align$}{}", "Project", delims.open)?;
-            ui::write_bold_colored(&mut writer, Color::Cyan, |w| write!(w, "{}", &package.name))?;
-            write!(writer, ":")?;
-            ui::write_bold_colored(&mut writer, Color::Cyan, |w| {
-                writeln!(w, "{}", &package.version)
-            })?;
-        } else {
-            write!(writer, "{:>align$}{}", "Project", delims.open)?;
-            ui::write_bold_colored(&mut writer, Color::Yellow, |w| writeln!(w, "none"))?;
-        }
-
-        if let Some(vcs) = &self.0.vcs {
-            write!(writer, "{:>align$}{}", "Vcs", delims.middle)?;
-            ui::write_bold_colored(&mut writer, Color::Green, |w| writeln!(w, "{vcs}"))?;
-        } else {
-            write!(writer, "{:>align$}{}", "Vcs", delims.middle)?;
-            ui::write_bold_colored(&mut writer, Color::Yellow, |w| writeln!(w, "none"))?;
-        }
-
-        if self.0.tests.is_empty() {
-            write!(writer, "{:>align$}{}", "Tests", delims.middle)?;
-            ui::write_bold_colored(&mut writer, Color::Cyan, |w| writeln!(w, "none"))?;
-        } else {
-            let mut persistent = 0;
-            let mut ephemeral = 0;
-            let mut compile_only = 0;
-
-            for test in &self.0.tests {
-                match test.kind {
-                    "persistent" => persistent += 1,
-                    "ephemeral" => ephemeral += 1,
-                    "compile-only" => compile_only += 1,
-                    k => unreachable!("unknown kind: {k}"),
-                }
-            }
-
-            write!(writer, "{:>align$}{}", "Tests", delims.middle)?;
-            ui::write_bold_colored(&mut writer, Color::Green, |w| write!(w, "{persistent}"))?;
-            writeln!(writer, " persistent")?;
-
-            write!(writer, "{:>align$}{}", "", delims.middle)?;
-            ui::write_bold_colored(&mut writer, Color::Green, |w| write!(w, "{ephemeral}"))?;
-            writeln!(writer, " ephemeral")?;
-
-            write!(writer, "{:>align$}{}", "", delims.middle)?;
-            ui::write_bold_colored(&mut writer, Color::Yellow, |w| write!(w, "{compile_only}"))?;
-            writeln!(writer, " compile-only")?;
-        }
-
-        write!(writer, "{:>align$}{}", "Template", delims.close)?;
-        if let Some(path) = &self.0.template_path {
-            ui::write_bold_colored(&mut writer, Color::Cyan, |w| writeln!(w, "{path}"))?;
-        } else {
-            ui::write_bold_colored(&mut writer, Color::Green, |w| writeln!(w, "none"))?;
-        }
-
-        Ok(())
-    }
+#[derive(clap::Args, Debug, Clone)]
+#[group(id = "status-args")]
+pub struct Args {
+    /// Print a JSON describing the project to stdout
+    #[arg(long)]
+    pub json: bool,
 }
 
-pub fn run(ctx: &mut Context) -> anyhow::Result<()> {
-    let mut project = ctx.ensure_init()?;
-    project.collect_tests(test_set::builtin::all())?;
-    project.load_template()?;
+pub fn run(ctx: &mut Context, args: &Args) -> eyre::Result<()> {
+    let project = ctx.project()?;
+    let suite = ctx.collect_all_tests(&project)?;
 
-    ctx.reporter
-        .report(&StatusReport(ProjectJson::new(&project)))?;
+    let delim_open = " ┌ ";
+    let delim_middle = " ├ ";
+    let delim_close = " └ ";
+
+    if args.json {
+        serde_json::to_writer_pretty(ctx.ui.stdout(), &ProjectJson::new(&project, &suite))?;
+        return Ok(());
+    }
+
+    let mut w = ctx.ui.stderr();
+
+    let align = ["Template", "Project", "Tests"]
+        .map(str::len)
+        .into_iter()
+        .max()
+        .unwrap();
+
+    if let Some(package) = project.manifest_package_info() {
+        write!(w, "{:>align$}{}", "Project", delim_open)?;
+        ui::write_bold_colored(&mut w, Color::Cyan, |w| write!(w, "{}", &package.name))?;
+        write!(w, ":")?;
+        ui::write_bold_colored(&mut w, Color::Cyan, |w| write!(w, "{}", &package.version))?;
+    } else {
+        write!(w, "{:>align$}{}", "Project", delim_open)?;
+        ui::write_bold_colored(&mut w, Color::Yellow, |w| write!(w, "none"))?;
+    }
+    writeln!(w)?;
+
+    write!(w, "{:>align$}{}", "Vcs", delim_middle)?;
+    if let Some(vcs) = project.vcs() {
+        ui::write_bold_colored(&mut w, Color::Green, |w| write!(w, "{vcs}"))?;
+    } else {
+        ui::write_bold_colored(&mut w, Color::Yellow, |w| write!(w, "none"))?;
+    }
+    writeln!(w)?;
+
+    if suite.matched().is_empty() {
+        write!(w, "{:>align$}{}", "Tests", delim_close)?;
+        ui::write_bold_colored(&mut w, Color::Cyan, |w| write!(w, "none"))?;
+        writeln!(w)?;
+    } else {
+        let mut persistent = 0;
+        let mut ephemeral = 0;
+        let mut compile_only = 0;
+
+        for test in suite.matched().values() {
+            match test.kind() {
+                Kind::Persistent => persistent += 1,
+                Kind::Ephemeral => ephemeral += 1,
+                Kind::CompileOnly => compile_only += 1,
+            }
+        }
+
+        write!(w, "{:>align$}{}", "Tests", delim_middle)?;
+        ui::write_bold_colored(&mut w, Color::Green, |w| write!(w, "{persistent}"))?;
+        writeln!(w, " persistent")?;
+
+        write!(w, "{:>align$}{}", "", delim_middle)?;
+        ui::write_bold_colored(&mut w, Color::Green, |w| write!(w, "{ephemeral}"))?;
+        writeln!(w, " ephemeral")?;
+
+        write!(w, "{:>align$}{}", "", delim_close)?;
+        ui::write_bold_colored(&mut w, Color::Yellow, |w| write!(w, "{compile_only}"))?;
+        writeln!(w, " compile-only")?;
+    }
+
+    // TODO(tinger): this may be misunderstood as the package being a template
+    // write!(w, "{:>align$}{}", "Template", delims.close)?;
+    // if let Some(path) = suite.template() {
+    //     ui::write_bold_colored(&mut w, Color::Cyan, |w| write!(w, "{path}"))?;
+    // } else {
+    //     ui::write_bold_colored(&mut w, Color::Green, |w| write!(w, "none"))?;
+    // }
+    // writeln!(w)?;
 
     Ok(())
 }

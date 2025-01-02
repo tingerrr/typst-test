@@ -1,13 +1,31 @@
 use std::path::PathBuf;
 
+use color_eyre::eyre;
 use typst_kit::download::Downloader;
 use typst_kit::fonts::{FontSearcher, Fonts};
 use typst_kit::package::PackageStorage;
 
-use crate::cli::{FontArgs, PackageArgs};
+use crate::cli::{CompileArgs, FontArgs, PackageArgs};
+use crate::world::SystemWorld;
+
+pub fn world(
+    project_root: PathBuf,
+    font_args: &FontArgs,
+    package_args: &PackageArgs,
+    compile_args: &CompileArgs,
+) -> eyre::Result<SystemWorld> {
+    let world = SystemWorld::new(
+        project_root,
+        fonts_from_args(font_args),
+        package_storage_from_args(package_args),
+        compile_args.now,
+    )?;
+
+    Ok(world)
+}
 
 pub fn downloader_from_args(args: &PackageArgs) -> Downloader {
-    let agent = concat!("typst-test/", env!("CARGO_PKG_VERSION"));
+    let agent = format!("{}/{}", lib::TOOL_NAME, env!("CARGO_PKG_VERSION"));
 
     match args.certificate.clone() {
         Some(path) => Downloader::with_path(agent, path),

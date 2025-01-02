@@ -1,99 +1,56 @@
-use std::fmt::Display;
-use std::io;
 use std::io::Write;
 
-use ecow::EcoString;
-use serde::Serialize;
-use termcolor::{Color, WriteColor};
-use thiserror::Error;
+use color_eyre::eyre;
+use lib::project::Project;
+use lib::stdx;
+use lib::test::{Id, Test};
+use termcolor::Color;
 
 use super::Context;
-use crate::error::{Failure, OperationFailure};
-use crate::report::reports::ProjectJson;
-use crate::report::{Report, Verbosity};
+use crate::cli::OperationFailure;
 use crate::ui;
-use crate::ui::Ui;
 
 #[derive(clap::Parser, Debug, Clone)]
 #[group(id = "init-args")]
 pub struct Args {
     /// Do not create a default example test
     #[arg(long)]
-    no_example: bool,
-
-    /// Which VCS to use for ignoring files
-    #[arg(long, default_value = "git")]
-    vcs: Vcs,
+    pub no_example: bool,
 }
 
-#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Vcs {
-    /// The git VCS.
-    Git,
+pub fn run(ctx: &mut Context, args: &Args) -> eyre::Result<()> {
+    let root = ctx.root()?;
 
-    /// No VCS.
-    None,
-}
+    // NOTE(tinger): we use Project discover here because it has the benefit of
+    // also checking for the vcs
+    let Some(project) = Project::discover(root, true)? else {
+        eyre::bail!(OperationFailure);
+    };
 
-#[derive(Debug, Error)]
-pub struct ProjectAlreadyIntialized(Option<EcoString>);
-
-impl Display for ProjectAlreadyIntialized {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.0.as_deref() {
-            Some(name) => write!(f, "Package '{name}' was already initialized"),
-            None => write!(f, "Project was already initialized"),
-        }
-    }
-}
-
-impl Failure for ProjectAlreadyIntialized {
-    fn report(&self, ui: &Ui) -> io::Result<()> {
-        ui.error_with(|w| {
-            if let Some(name) = self.0.as_deref() {
-                write!(w, "Package ")?;
-                ui::write_colored(w, Color::Cyan, |w| write!(w, "{name}"))?
-            } else {
-                write!(w, "Project ")?;
-            }
-            writeln!(w, " was already initialized")
-        })
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(transparent)]
-pub struct InitReport<'p>(ProjectJson<'p>);
-
-impl Report for InitReport<'_> {
-    fn report<W: WriteColor>(&self, mut writer: W, _verbosity: Verbosity) -> anyhow::Result<()> {
-        write!(writer, "Initialized ")?;
-        if let Some(package) = &self.0.package {
-            write!(writer, "package ")?;
-            ui::write_colored(&mut writer, Color::Cyan, |w| {
-                writeln!(w, "{}", package.name)
-            })?
-        } else {
-            writeln!(writer, "project")?;
-        }
-
-        Ok(())
-    }
-}
-
-pub fn run(ctx: &mut Context, args: &Args) -> anyhow::Result<()> {
-    let mut project = ctx.ensure_project()?;
-
-    if project.is_init()? {
-        anyhow::bail!(OperationFailure::from(ProjectAlreadyIntialized(
-            project.manifest().map(|m| m.package.name.to_owned())
-        )));
+    if project.paths().test_root().try_exists()? {
+        ctx.error_project_already_initialized(project.manifest().map(|m| m.package.name.as_str()))?;
+        eyre::bail!(OperationFailure);
     }
 
-    project.init(args.no_example, args.vcs)?;
+    stdx::fs::create_dir(project.paths().test_root(), false)?;
 
-    ctx.reporter
-        .report(&InitReport(ProjectJson::new(&project)))?;
+    if !args.no_example {
+        Test::create_default(
+            project.paths(),
+            project.vcs(),
+            Id::new("example").expect("the id is valid and unique"),
+        )?;
+    }
+
+    let mut w = ctx.ui.stderr();
+
+    write!(w, "Initialized ")?;
+    if let Some(package) = project.manifest_package_info() {
+        write!(w, "package ")?;
+        ui::write_colored(&mut w, Color::Cyan, |w| writeln!(w, "{}", package.name))?
+    } else {
+        writeln!(w, "project")?;
+    }
 
     Ok(())
 }

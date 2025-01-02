@@ -1,42 +1,30 @@
-use std::io;
-use std::io::{IsTerminal, Write};
+//! A test runner for t4gl set suites.
+
+use std::io::{self, Write};
 use std::process::ExitCode;
+use std::sync::atomic::Ordering;
 
-use clap::{ColorChoice, Parser};
-use error::{OperationFailure, TestFailure};
-use tracing::Level;
+use clap::Parser;
+use cli::Context;
+use color_eyre::eyre;
+use lib::config::{Config, ConfigLayer};
+use termcolor::{StandardStream, WriteColor};
+use tracing::level_filters::LevelFilter;
 use tracing_subscriber::filter::Targets;
-use tracing_subscriber::prelude::*;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 use tracing_tree::HierarchicalLayer;
-use ui::Ui;
 
-use crate::cli::Context;
-use crate::report::Reporter;
+use crate::cli::{Args, OperationFailure, TestFailure};
+use crate::ui::Ui;
 
 mod cli;
-mod error;
+mod json;
 mod kit;
-mod project;
 mod report;
-mod test;
+mod runner;
 mod ui;
 mod world;
-
-fn is_color(color: clap::ColorChoice, is_stderr: bool) -> bool {
-    match color {
-        clap::ColorChoice::Auto => {
-            if is_stderr {
-                io::stderr().is_terminal()
-            } else {
-                io::stdout().is_terminal()
-            }
-        }
-        clap::ColorChoice::Always => true,
-        clap::ColorChoice::Never => false,
-    }
-}
-
-const IS_OUTPUT_STDERR: bool = false;
 
 fn main() -> ExitCode {
     match main_impl() {
@@ -48,48 +36,57 @@ fn main() -> ExitCode {
     }
 }
 
-fn main_impl() -> anyhow::Result<ExitCode> {
-    let args = cli::Args::parse();
+fn main_impl() -> eyre::Result<ExitCode> {
+    let args = Args::parse();
 
-    // BUG: this interferes with the live printing
-    if args.global.output.verbose >= 1 {
-        tracing_subscriber::registry()
-            .with(
-                HierarchicalLayer::new(4)
-                    .with_targets(true)
-                    .with_ansi(is_color(args.global.output.color, IS_OUTPUT_STDERR)),
-            )
-            .with(Targets::new().with_target(
-                std::env!("CARGO_CRATE_NAME"),
-                match args.global.output.verbose {
-                    1 => Level::ERROR,
-                    2 => Level::WARN,
-                    3 => Level::INFO,
-                    4 => Level::DEBUG,
-                    _ => Level::TRACE,
-                },
-            ))
-            .init();
-    }
+    color_eyre::install()?;
 
     let cc = match args.global.output.color {
-        ColorChoice::Auto => termcolor::ColorChoice::Auto,
-        ColorChoice::Always => termcolor::ColorChoice::Always,
-        ColorChoice::Never => termcolor::ColorChoice::Never,
+        clap::ColorChoice::Auto => termcolor::ColorChoice::Auto,
+        clap::ColorChoice::Always => termcolor::ColorChoice::Always,
+        clap::ColorChoice::Never => termcolor::ColorChoice::Never,
     };
 
-    // TODO: simpler output when using plain
-    let reporter = Reporter::new(
-        Ui::new(cc, cc),
-        report::Verbosity::All,
-        args.global.output.format,
-    );
+    let ui = Ui::new(cc, cc);
+
+    // this is a hack, termcolor does not expose any way for us to easily reuse
+    // their internal mechanism of checking whether the given stream is color
+    // capable without constructing a stream and asking for it
+    let tracing_ansi = StandardStream::stderr(cc).supports_color();
+
+    tracing_subscriber::registry()
+        .with(
+            // we set with_ansi to true, because ui handles the usage of color
+            // through termcolor::StandardStream
+            HierarchicalLayer::new(4)
+                .with_targets(true)
+                .with_ansi(tracing_ansi),
+        )
+        .with(Targets::new().with_target(
+            lib::TOOL_NAME,
+            match args.global.output.verbose {
+                0 => LevelFilter::OFF,
+                1 => LevelFilter::ERROR,
+                2 => LevelFilter::WARN,
+                3 => LevelFilter::INFO,
+                4 => LevelFilter::DEBUG,
+                5.. => LevelFilter::TRACE,
+            },
+        ))
+        .init();
+
+    if let Err(err) = ctrlc::set_handler(|| {
+        cli::CANCELLED.store(true, Ordering::SeqCst);
+    }) {
+        ui.error_hinted_with(
+            |w| writeln!(w, "couldn't register ctrl-c handler:\n{err}"),
+            |w| writeln!(w, "pressing ctrl-c will discard output of failed tests"),
+        )?;
+    }
 
     if let Some(jobs) = args.global.jobs {
         let jobs = if jobs < 2 {
-            reporter
-                .ui()
-                .warning("at least 2 threads are needed, using 2")?;
+            ui.warning("at least 2 threads are needed, using 2")?;
             2
         } else {
             jobs
@@ -101,7 +98,10 @@ fn main_impl() -> anyhow::Result<ExitCode> {
             .ok();
     }
 
-    let mut ctx = Context::new(&args, &reporter);
+    let mut config = Config::new(None);
+    config.user = ConfigLayer::collect_user()?;
+
+    let mut ctx = Context::new(&args, &ui);
 
     let exit_code = match ctx.run() {
         Ok(()) => cli::EXIT_OK,
@@ -113,8 +113,7 @@ fn main_impl() -> anyhow::Result<ExitCode> {
                     break 'err cli::EXIT_TEST_FAILURE;
                 }
 
-                if let Some(OperationFailure(err)) = cause.downcast_ref() {
-                    err.report(ctx.reporter.ui())?;
+                if let Some(OperationFailure) = cause.downcast_ref() {
                     break 'err cli::EXIT_OPERATION_FAILURE;
                 }
             }
@@ -129,7 +128,7 @@ fn main_impl() -> anyhow::Result<ExitCode> {
                 break 'err cli::EXIT_OK;
             }
 
-            ctx.reporter.ui().error_with(|w| {
+            ctx.ui.error_with(|w| {
                 writeln!(
                     w,
                     "typst-test ran into an unexpected error, this is most likely a bug"
@@ -141,20 +140,20 @@ fn main_impl() -> anyhow::Result<ExitCode> {
                 )
             })?;
             if !std::env::var("RUST_BACKTRACE").is_ok_and(|var| var == "full") {
-                ctx.reporter.ui().hint_with(|w| {
+                ctx.ui.hint_with(|w| {
                     writeln!(
                         w,
                         "consider running with the environment variable RUST_BACKTRACE set to 'full' when reporting issues\n",
                     )
                 })?;
             }
-            ctx.reporter.ui().error_with(|w| writeln!(w, "{err:?}"))?;
+            ctx.ui.error_with(|w| writeln!(w, "{err:?}"))?;
 
             cli::EXIT_OPERATION_FAILURE
         }
     };
 
-    ctx.reporter.ui().flush()?;
+    ctx.ui.flush()?;
 
     Ok(ExitCode::from(exit_code))
 }

@@ -20,7 +20,7 @@ Each of the final commits should have a clear commit message starting with `a(b)
 - `fix` for fixing bugs
 - `docs` for changing, fixing or adding new documentation
 - `feat` for a new feature of any kind
-- `chore` for anything else like cleanups or refactors, these shold not have any externally observerable change in behavior (other than speed ups)
+- `chore` for anything else like cleanups or refactors, these should not have any externally observable change in behavior (other than speed ups)
 
 `b` is optional, but may be a term like:
 - `cli` for change to the cli crate
@@ -68,12 +68,12 @@ This means that the commits landing on main must likewise be a linear history, a
 
 There are two was to add PRs to main:
 1. The squash workflow: Squash all commits and add them to main.
-   It's fairly easy to get a single commit on main which is atomic, but such commits may get unecessarily large.
+   It's fairly easy to get a single commit on main which is atomic, but such commits may get unnecessarily large.
    This is avoided where possible.
 1. The rebase workflow: All commits are added individually on main.
-   This is done most often and the main reaons your commits should all individually be valid states of the repository.
+   This is done most often and the main reasons your commits should all individually be valid states of the repository.
 
-## Adressing Reivew
+## Addressing Review
 Say you created a PR with this history:
 
 ```txt

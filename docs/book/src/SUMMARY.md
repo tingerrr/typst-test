@@ -9,7 +9,6 @@
 - [Writing Tests]()
 - [Using Test Sets](./guides/test-sets.md)
 - [Watching for Changes](./guides/watching.md)
-- [Automation]()
 - [Setting Up CI](./guides/ci.md)
 
 # Reference
@@ -17,7 +16,6 @@
   - [Annotations](./reference/tests/annotations.md)
   - [Test Library](./reference/tests/lib.md)
 - [Test Set Language](./reference/test-sets/README.md)
-  - [Grammar](./reference/test-sets/grammar.md)
   - [Built-in Test Sets](./reference/test-sets/built-in.md)
 - [Configuration Schema]()
   - [Template]()
