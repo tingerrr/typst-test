@@ -267,7 +267,7 @@ impl TestContext<'_, '_, '_> {
         typst.args(["compile", "--root"]);
         typst.arg(self.project_context.project.root());
         typst.arg(file);
-        typst.arg(folder.join("{n}").with_extension("png"));
+        typst.arg(folder.join("{p}").with_extension("png"));
 
         tracing::trace!(args = ?[&typst], "running typst");
         let output = typst.output().map_err(|e| {
