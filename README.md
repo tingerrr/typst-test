@@ -10,8 +10,11 @@ Out of the box `typst-test` supports the following features:
 - provide extra scripting functionality
 - running custom scripts for test automation
 
+`typst-test` does not currently include a "watch" command to automatically run anytime a file changes.
+However, the book [includes a suggested workaround for this](https://tingerrr.github.io/typst-test/guides/watching.html).
+
 ## Stability
-`typst-test` currently makes no stability guarantees, it is considered pre-0.1.0, see the [Milestones] for it's progress towards a first release.
+`typst-test` currently makes no stability guarantees, it is considered pre-0.1.0, see the [Milestones] for its progress towards a first release.
 However, all PRs and pushes to main are tested in CI.
 A reasonably "stable" version of `typst-test` is available at the `ci-semi-stable` tag.
 This version is already used in the CI of various Typst packages, such as cetz, codly, valkyrie, hydra or subpar.

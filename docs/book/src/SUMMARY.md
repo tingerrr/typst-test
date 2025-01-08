@@ -8,6 +8,7 @@
 # Guides
 - [Writing Tests]()
 - [Using Test Sets](./guides/test-sets.md)
+- [Watching for Changes](./guides/watching.md)
 - [Automation]()
 - [Setting Up CI](./guides/ci.md)
 
