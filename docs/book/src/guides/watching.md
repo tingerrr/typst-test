@@ -17,12 +17,21 @@ watchexec \
   "typst-test r"
 ```
 
-This will run `typst-test r` whenever any file changes other than those in your tests' `{diff,out}` directories.
-
 You may create an alias in your shell to make it more convenient:
 
 ```bash
 alias ttw="watchexec --watch . --clear --ignore 'tests/**/diff/**' --ignore 'tests/**/out/**' 'typst-test r'"
 ```
 
-Note, if your tests change any files in your package source tree, you may need to include them as additional `--ignore <glob>` patterns to the command.
+This will automatically run `typst-test r` whenever any file changes other than those in your tests' `{diff,out}` directories.
+
+<div class="warning">
+
+Notes:
+
+1. The command we're using here, using `typst-test r`, runs all tests anytime any file changes.
+   If you want different behavior, you need to modify the command appropriately.
+
+2. Although unlikely, if your tests change any files in your package source tree, you may need to include them as additional `--ignore <glob>` patterns to the command.
+
+</div>
