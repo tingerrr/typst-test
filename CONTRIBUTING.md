@@ -16,20 +16,19 @@ Any contributions are welcome, from implementing large features to fixing small 
 1. Once reviewed it is either squashed and merged, or rebased on main.
 
 ## Commit Messages
-Each of the final commits should have a clear commit message starting with `a(b):`, where `a` is a general term like:
+Each of the final commits should have a clear commit message starting with a prefix indicating what was done:
 - `fix` for fixing bugs
 - `docs` for changing, fixing or adding new documentation
 - `feat` for a new feature of any kind
 - `chore` for anything else like cleanups or refactors, these should not have any externally observable change in behavior (other than speed ups)
-
-`b` is optional, but may be a term like:
 - `cli` for change to the cli crate
 - `lib` for changes to the library crate
 - `book` for changes to the book
 - `ci` for changes to ci workflows
 - `vcs` for changes to features regarding VCS
-- a path to a file for various other changes concerning specific things like scripts (rarely used)
-- a path to module or type in the code base (`lib::test::Test`/`lib::Test`) for very specific refactors
+- etc.
+
+Prefixes can be chanined like `fix: cli: ...` to make it clear that a fix was cli specific.
 
 This is generally optional, but helps developers filter out commits when bug hunting.
 After this should follow a short summary of what the commit changes followed by a more elaborate description.

@@ -19,9 +19,9 @@ run *args='--release':
 
 # run tests and checks similar to CI
 ci $RUSTFLAGS='-Dwarnings' $RUSTDOCFLAGS='-Dwarnings':
-	# FIXME: See https://github.com/rust-lang/rust/issues/128538
-	# add back doc tests by removing --all-targets
-	cargo +1.80 test --workspace --all-targets
+	# FIXME(tinger): See https://github.com/rust-lang/rust/issues/128538 if you get
+	# high CPU doc tests
+	cargo +1.80 test --workspace
 	cargo +1.80 clippy --workspace
 	cargo +1.80 fmt --all --check
 	cargo +1.80 doc --workspace --no-deps
