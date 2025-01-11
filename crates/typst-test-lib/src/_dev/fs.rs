@@ -9,7 +9,7 @@ use crate::stdx;
 pub struct TempEnv {
     root: TempDir,
     found: BTreeMap<PathBuf, Option<Vec<u8>>>,
-    expected: BTreeMap<PathBuf, Option<Vec<u8>>>,
+    expected: BTreeMap<PathBuf, Option<Option<Vec<u8>>>>,
 }
 
 /// Set up the project structure.
@@ -55,10 +55,19 @@ impl Expect {
         self
     }
 
-    pub fn expect_file<P: AsRef<Path>>(&mut self, path: P, content: impl AsRef<[u8]>) -> &mut Self {
+    pub fn expect_file<P: AsRef<Path>>(&mut self, path: P) -> &mut Self {
+        self.0.add_expected(path.as_ref().to_path_buf(), Some(None));
+        self
+    }
+
+    pub fn expect_file_content<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+        content: impl AsRef<[u8]>,
+    ) -> &mut Self {
         let content = content.as_ref();
         self.0
-            .add_expected(path.as_ref().to_path_buf(), Some(content.to_owned()));
+            .add_expected(path.as_ref().to_path_buf(), Some(Some(content.to_owned())));
         self
     }
 
@@ -110,7 +119,7 @@ impl TempEnv {
 }
 
 impl TempEnv {
-    fn add_expected(&mut self, expected: PathBuf, content: Option<Vec<u8>>) {
+    fn add_expected(&mut self, expected: PathBuf, content: Option<Option<Vec<u8>>>) {
         for ancestor in expected.ancestors() {
             self.expected.insert(ancestor.to_path_buf(), None);
         }
@@ -154,8 +163,10 @@ impl TempEnv {
             if let Some(found) = self.found.remove(&expected_path) {
                 let expected = expected_value.unwrap_or_default();
                 let found = found.unwrap_or_default();
-                if expected != found {
-                    not_matched.insert(expected_path, (found, expected));
+                if let Some(expected) = expected {
+                    if expected != found {
+                        not_matched.insert(expected_path, (found, expected));
+                    }
                 }
             } else {
                 not_found.insert(expected_path);

@@ -527,10 +527,10 @@ mod tests {
                 .unwrap();
             },
             |root| {
-                root.expect_file("tests/compile-only/test.typ", "Hello World")
-                    .expect_file("tests/ephemeral/test.typ", "Hello World")
-                    .expect_file("tests/ephemeral/ref.typ", "Hello\nWorld")
-                    .expect_file("tests/persistent/test.typ", "Hello World")
+                root.expect_file_content("tests/compile-only/test.typ", "Hello World")
+                    .expect_file_content("tests/ephemeral/test.typ", "Hello World")
+                    .expect_file_content("tests/ephemeral/ref.typ", "Hello\nWorld")
+                    .expect_file_content("tests/persistent/test.typ", "Hello World")
                     .expect_dir("tests/persistent/ref")
             },
         );
@@ -547,12 +547,12 @@ mod tests {
                 test("persistent").make_ephemeral(&paths, None).unwrap();
             },
             |root| {
-                root.expect_file("tests/compile-only/test.typ", "Hello World")
-                    .expect_file("tests/compile-only/ref.typ", "Hello World")
-                    .expect_file("tests/ephemeral/test.typ", "Hello World")
-                    .expect_file("tests/ephemeral/ref.typ", "Hello World")
-                    .expect_file("tests/persistent/test.typ", "Hello World")
-                    .expect_file("tests/persistent/ref.typ", "Hello World")
+                root.expect_file_content("tests/compile-only/test.typ", "Hello World")
+                    .expect_file_content("tests/compile-only/ref.typ", "Hello World")
+                    .expect_file_content("tests/ephemeral/test.typ", "Hello World")
+                    .expect_file_content("tests/ephemeral/ref.typ", "Hello World")
+                    .expect_file_content("tests/persistent/test.typ", "Hello World")
+                    .expect_file_content("tests/persistent/ref.typ", "Hello World")
             },
         );
     }
@@ -576,11 +576,11 @@ mod tests {
                     .unwrap();
             },
             |root| {
-                root.expect_file("tests/compile-only/test.typ", "Hello World")
+                root.expect_file_content("tests/compile-only/test.typ", "Hello World")
                     .expect_dir("tests/compile-only/ref")
-                    .expect_file("tests/ephemeral/test.typ", "Hello World")
+                    .expect_file_content("tests/ephemeral/test.typ", "Hello World")
                     .expect_dir("tests/ephemeral/ref")
-                    .expect_file("tests/persistent/test.typ", "Hello World")
+                    .expect_file_content("tests/persistent/test.typ", "Hello World")
                     .expect_dir("tests/persistent/ref")
             },
         );
@@ -599,9 +599,9 @@ mod tests {
                 test("persistent").make_compile_only(&paths, None).unwrap();
             },
             |root| {
-                root.expect_file("tests/compile-only/test.typ", "Hello World")
-                    .expect_file("tests/ephemeral/test.typ", "Hello World")
-                    .expect_file("tests/persistent/test.typ", "Hello World")
+                root.expect_file_content("tests/compile-only/test.typ", "Hello World")
+                    .expect_file_content("tests/ephemeral/test.typ", "Hello World")
+                    .expect_file_content("tests/persistent/test.typ", "Hello World")
             },
         );
     }

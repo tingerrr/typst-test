@@ -274,9 +274,9 @@ mod tests {
                 doc.save(root).unwrap();
             },
             |root| {
-                root.expect_file("1.png", doc.buffers[0].encode_png().unwrap())
-                    .expect_file("2.png", doc.buffers[1].encode_png().unwrap())
-                    .expect_file("3.png", doc.buffers[2].encode_png().unwrap())
+                root.expect_file_content("1.png", doc.buffers[0].encode_png().unwrap())
+                    .expect_file_content("2.png", doc.buffers[1].encode_png().unwrap())
+                    .expect_file_content("3.png", doc.buffers[2].encode_png().unwrap())
             },
         );
     }

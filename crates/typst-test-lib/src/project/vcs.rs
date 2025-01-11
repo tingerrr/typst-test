@@ -141,7 +141,7 @@ mod tests {
             },
             |root| {
                 root.expect_dir("tests/fancy/out")
-                    .expect_file("tests/fancy/out/.gitignore", GITIGNORE_CONTENT)
+                    .expect_file_content("tests/fancy/out/.gitignore", GITIGNORE_CONTENT)
             },
         );
     }
@@ -161,7 +161,7 @@ mod tests {
             },
             |root| {
                 root.expect_dir("tests/fancy/out")
-                    .expect_file("tests/fancy/out/.gitignore", GITIGNORE_CONTENT)
+                    .expect_file_content("tests/fancy/out/.gitignore", GITIGNORE_CONTENT)
             },
         );
     }
