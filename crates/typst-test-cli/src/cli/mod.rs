@@ -456,13 +456,7 @@ pub struct OutputArgs {
     ///
     /// Logs are written to stderr, the increasing number of verbose flags
     /// corresponds to the log levels ERROR, WARN, INFO, DEBUG, TRACE.
-    #[arg(
-        long,
-        short,
-        action = clap::ArgAction::Count,
-        conflicts_with = "quiet",
-        global = true
-    )]
+    #[arg(long, short, action = clap::ArgAction::Count, global = true)]
     pub verbose: u8,
 }
 

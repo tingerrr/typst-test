@@ -27,7 +27,7 @@ pub struct Args {
     pub compile_only: bool,
 
     /// Ignore the test template for this test
-    #[arg(long, conflicts_with_all = ["ephemeral", "compile-only"])]
+    #[arg(long, conflicts_with_all = ["ephemeral", "compile_only"])]
     pub no_template: bool,
 
     #[command(flatten)]
