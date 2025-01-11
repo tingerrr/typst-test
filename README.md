@@ -34,5 +34,5 @@ See [CONTRIBUTING.md][contrib] if you want to contribute to `typst-test`.
 [Book]: https://tingerrr.github.io/typst-test/index.html
 [Milestones]: https://github.com/tingerrr/typst-test/milestones
 
-[demo-thumb]: https://asciinema.org/a/669405.svg
-[demo]: https://asciinema.org/a/669405
+[demo-thumb]: https://asciinema.org/a/rW9HGUBbtBnmkSddgbKb7hRlI.svg
+[demo]: https://asciinema.org/a/rW9HGUBbtBnmkSddgbKb7hRlI
