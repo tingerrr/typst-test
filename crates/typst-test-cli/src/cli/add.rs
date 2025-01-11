@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use color_eyre::eyre;
-use lib::doc::render::ppp_to_ppi;
+use lib::doc::render::ppi_to_ppp;
 use lib::doc::Document;
 use lib::test::{Id, Reference, Test};
 use termcolor::Color;
@@ -74,14 +74,14 @@ pub fn run(ctx: &mut Context, args: &Args) -> eyre::Result<()> {
             } = Document::compile(
                 Source::new(FileId::new_fake(VirtualPath::new("")), template.to_owned()),
                 &world,
-                ppp_to_ppi(args.render.pixel_per_inch),
+                ppi_to_ppp(args.render.pixel_per_inch),
             );
             let doc = output?;
 
             Test::create(paths, vcs, id, template, Some(Reference::Persistent(doc)))?;
         };
     } else {
-        Test::create_default(project.paths(), project.vcs(), id)?;
+        Test::create_default(paths, vcs, id)?;
     }
 
     let mut w = ctx.ui.stderr();
