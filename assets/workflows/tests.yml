@@ -25,7 +25,7 @@ jobs:
         with:
           crate: typst-test
           git: https://github.com/tingerrr/typst-test.git
-          branch: ci-semi-stable
+          branch: backport
 
       - name: Setup typst
         uses: yusancky/setup-typst@v2
