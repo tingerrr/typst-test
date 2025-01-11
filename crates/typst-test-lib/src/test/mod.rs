@@ -179,10 +179,9 @@ impl Test {
 
 impl Test {
     /// Creates a new default test on disk.
-    pub fn create_default(paths: &Paths, vcs: Option<&Vcs>, id: Id) -> Result<Test, CreateError> {
+    pub fn create_default(paths: &Paths, id: Id) -> Result<Test, CreateError> {
         Self::create(
             paths,
-            vcs,
             id,
             DEFAULT_TEST_INPUT,
             Some(Reference::Persistent(Document::new([Pixmap::decode_png(
@@ -195,7 +194,6 @@ impl Test {
     /// Creates a new test on disk.
     pub fn create(
         paths: &Paths,
-        vcs: Option<&Vcs>,
         id: Id,
         source: &str,
         reference: Option<Reference>,
@@ -236,20 +234,16 @@ impl Test {
                 this.create_reference_script(paths, reference.as_str())?;
             }
             Some(Reference::Persistent(reference)) => {
-                this.create_reference_documents(paths, &reference)?;
+                this.create_reference_documents(paths, None, &reference)?;
             }
             None => {}
-        }
-
-        if let Some(vcs) = vcs {
-            this.ignore_temporary_directories(paths, vcs)?;
         }
 
         Ok(this)
     }
 
     /// Creates this test's temporary directories, if they don't exist yet.
-    pub fn create_temporary_directories(&self, paths: &Paths) -> io::Result<()> {
+    pub fn create_temporary_directories(&self, paths: &Paths, vcs: Option<&Vcs>) -> io::Result<()> {
         self.delete_temporary_directories(paths)?;
 
         if self.kind.is_ephemeral() {
@@ -258,6 +252,11 @@ impl Test {
 
         stdx::fs::create_dir(paths.test_out_dir(&self.id), true)?;
         stdx::fs::create_dir(paths.test_diff_dir(&self.id), true)?;
+
+        if let Some(vcs) = vcs {
+            self.ignore_temporary_directories(paths, vcs)?;
+        }
+
         Ok(())
     }
 
@@ -279,6 +278,7 @@ impl Test {
     pub fn create_reference_documents(
         &self,
         paths: &Paths,
+        vcs: Option<&Vcs>,
         reference: &Document,
     ) -> Result<(), SaveError> {
         // NOTE(tinger): if there are already more pages than we want to create,
@@ -289,6 +289,13 @@ impl Test {
         let ref_dir = paths.test_ref_dir(&self.id);
         stdx::fs::create_dir(&ref_dir, true)?;
         reference.save(&ref_dir)?;
+
+        if self.kind().is_ephemeral() {
+            if let Some(vcs) = vcs {
+                self.ignore_reference_documents(paths, vcs)?;
+            }
+        }
+
         Ok(())
     }
 
@@ -381,7 +388,7 @@ impl Test {
         reference: &Document,
     ) -> Result<(), SaveError> {
         self.delete_reference_script(paths)?;
-        self.create_reference_documents(paths, reference)?;
+        self.create_reference_documents(paths, vcs, reference)?;
         if let Some(vcs) = vcs {
             self.unignore_reference_documents(paths, vcs)?;
         }
@@ -422,23 +429,22 @@ impl Test {
     /// Loads the reference test script source of this test, if this test is
     /// ephemeral.
     pub fn load_reference_source(&self, paths: &Paths) -> io::Result<Option<Source>> {
-        match self.kind {
-            Kind::Ephemeral => {
-                let ref_script = paths.test_ref_script(&self.id);
-                Ok(Some(Source::new(
-                    FileId::new(
-                        None,
-                        VirtualPath::new(
-                            ref_script
-                                .strip_prefix(paths.project_root())
-                                .unwrap_or(&ref_script),
-                        ),
-                    ),
-                    std::fs::read_to_string(ref_script)?,
-                )))
-            }
-            _ => Ok(None),
+        if !self.kind().is_ephemeral() {
+            return Ok(None);
         }
+
+        let ref_script = paths.test_ref_script(&self.id);
+        Ok(Some(Source::new(
+            FileId::new(
+                None,
+                VirtualPath::new(
+                    ref_script
+                        .strip_prefix(paths.project_root())
+                        .unwrap_or(&ref_script),
+                ),
+            ),
+            std::fs::read_to_string(ref_script)?,
+        )))
     }
 
     /// Loads the persistent reference pages of this test, if they exist.
@@ -501,16 +507,15 @@ mod tests {
     }
 
     #[test]
-    fn test_create_new() {
+    fn test_create() {
         _dev::fs::TempEnv::run(
             |root| root.setup_dir("tests"),
             |root| {
                 let paths = Paths::new(root, None);
-                Test::create(&paths, None, id("compile-only"), "Hello World", None).unwrap();
+                Test::create(&paths, id("compile-only"), "Hello World", None).unwrap();
 
                 Test::create(
                     &paths,
-                    None,
                     id("ephemeral"),
                     "Hello World",
                     Some(Reference::Ephemeral("Hello\nWorld".into())),
@@ -519,18 +524,21 @@ mod tests {
 
                 Test::create(
                     &paths,
-                    None,
                     id("persistent"),
                     "Hello World",
                     Some(Reference::Persistent(Document::new(vec![]))),
                 )
                 .unwrap();
+
+                Test::create_default(&paths, id("default")).unwrap();
             },
             |root| {
                 root.expect_file_content("tests/compile-only/test.typ", "Hello World")
                     .expect_file_content("tests/ephemeral/test.typ", "Hello World")
                     .expect_file_content("tests/ephemeral/ref.typ", "Hello\nWorld")
                     .expect_file_content("tests/persistent/test.typ", "Hello World")
+                    .expect_file_content("tests/default/test.typ", DEFAULT_TEST_INPUT)
+                    .expect_file("tests/default/ref/1.png")
                     .expect_dir("tests/persistent/ref")
             },
         );

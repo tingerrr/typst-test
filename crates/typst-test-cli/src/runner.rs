@@ -144,6 +144,7 @@ impl TestRunner<'_, '_, '_> {
         // TODO(tinger): don't exit early if there are still exports possible
 
         let paths = self.project_runner.project.paths();
+        let vcs = self.project_runner.project.vcs();
 
         match self.project_runner.config.action {
             Action::Run {
@@ -213,7 +214,7 @@ impl TestRunner<'_, '_, '_> {
                     let output = self.compile_out_doc(output)?;
                     let output = self.render_out_doc(output)?;
 
-                    self.test.create_reference_documents(paths, &output)?;
+                    self.test.create_reference_documents(paths, vcs, &output)?;
 
                     if export {
                         let reference = self.load_ref_doc()?;
@@ -249,8 +250,10 @@ impl TestRunner<'_, '_, '_> {
     pub fn prepare(&mut self) -> eyre::Result<()> {
         tracing::trace!(test = ?self.test.id(), "clearing temporary directories");
 
-        self.test
-            .create_temporary_directories(self.project_runner.project.paths())?;
+        self.test.create_temporary_directories(
+            self.project_runner.project.paths(),
+            self.project_runner.project.vcs(),
+        )?;
 
         Ok(())
     }

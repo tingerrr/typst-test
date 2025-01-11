@@ -37,7 +37,6 @@ pub fn run(ctx: &mut Context, args: &Args) -> eyre::Result<()> {
     if !args.no_example {
         Test::create_default(
             project.paths(),
-            project.vcs(),
             Id::new("example").expect("the id is valid and unique"),
         )?;
     }

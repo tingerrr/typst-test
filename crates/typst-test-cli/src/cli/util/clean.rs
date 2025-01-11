@@ -14,7 +14,7 @@ pub fn run(ctx: &mut Context) -> eyre::Result<()> {
     let len = suite.matched().len();
 
     for test in suite.matched().values() {
-        test.create_temporary_directories(project.paths())?;
+        test.create_temporary_directories(project.paths(), project.vcs())?;
     }
 
     let mut w = ctx.ui.stderr();

@@ -50,20 +50,18 @@ pub fn run(ctx: &mut Context, args: &Args) -> eyre::Result<()> {
     }
 
     let paths = project.paths();
-    let vcs = project.vcs();
     let id = args.test.clone();
 
     if let Some(template) = suite.template().filter(|_| !args.no_template) {
         if args.ephemeral {
             Test::create(
                 paths,
-                vcs,
                 id,
                 template,
                 Some(Reference::Ephemeral(template.into())),
             )?;
         } else if args.compile_only {
-            Test::create(paths, vcs, id, template, None)?;
+            Test::create(paths, id, template, None)?;
         } else {
             let world = ctx.world(&args.compile)?;
 
@@ -78,10 +76,10 @@ pub fn run(ctx: &mut Context, args: &Args) -> eyre::Result<()> {
             );
             let doc = output?;
 
-            Test::create(paths, vcs, id, template, Some(Reference::Persistent(doc)))?;
+            Test::create(paths, id, template, Some(Reference::Persistent(doc)))?;
         };
     } else {
-        Test::create_default(paths, vcs, id)?;
+        Test::create_default(paths, id)?;
     }
 
     let mut w = ctx.ui.stderr();

@@ -7,6 +7,7 @@ use std::fmt::{self, Debug, Display};
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
+use crate::stdx;
 use crate::stdx::result::ResultEx;
 
 /// The name of the git ignore file.
@@ -85,10 +86,12 @@ impl Vcs {
         match self.kind {
             Kind::Git => {
                 let gitignore = path.join(GITIGNORE_NAME);
+                stdx::fs::create_dir(path, true)?;
                 fs::write(gitignore, GITIGNORE_CONTENT)?;
             }
             Kind::Mercurial => {
                 let hgignore = path.join(HGIGNORE_NAME);
+                stdx::fs::create_dir(path, true)?;
                 fs::write(hgignore, HGIGNORE_CONTENT)?;
             }
         }
