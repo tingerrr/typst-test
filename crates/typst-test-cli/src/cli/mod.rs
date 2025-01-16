@@ -466,7 +466,7 @@ pub struct OutputArgs {
 
 /// Run and manage tests for typst projects
 #[derive(clap::Parser, Debug, Clone)]
-#[clap(after_long_help = AFTER_LONG_ABOUT)]
+#[command(version, after_long_help = AFTER_LONG_ABOUT)]
 pub struct Args {
     #[command(flatten)]
     pub global: GlobalArgs,

@@ -2,6 +2,7 @@ use color_eyre::eyre;
 
 use super::Context;
 
+pub mod about;
 pub mod clean;
 pub mod fonts;
 
@@ -15,6 +16,10 @@ pub struct Args {
 
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum Command {
+    /// Print information about this program
+    #[command()]
+    About,
+
     /// Remove test output artifacts
     #[command()]
     Clean,
@@ -27,6 +32,7 @@ pub enum Command {
 impl Command {
     pub fn run(&self, ctx: &mut Context) -> eyre::Result<()> {
         match self {
+            Command::About => about::run(ctx),
             Command::Clean => clean::run(ctx),
             Command::Fonts(args) => fonts::run(ctx, args),
         }
