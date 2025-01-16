@@ -336,21 +336,7 @@ impl TestRunner<'_, '_, '_> {
     pub fn compile_out_doc(&mut self, output: Source) -> eyre::Result<TypstDocument> {
         tracing::trace!(test = ?self.test.id(), "compiling output document");
 
-        let Warned { output, warnings } = compile::compile(output, self.project_runner.world);
-        self.result.set_warnings(warnings);
-
-        let doc = match output {
-            Ok(doc) => {
-                self.result.set_passed_compilation();
-                doc
-            }
-            Err(err) => {
-                self.result.set_failed_test_compilation(err);
-                eyre::bail!(TestFailure);
-            }
-        };
-
-        Ok(doc)
+        self.compile_inner(output)
     }
 
     pub fn compile_ref_doc(&mut self, reference: Source) -> eyre::Result<TypstDocument> {
@@ -360,7 +346,11 @@ impl TestRunner<'_, '_, '_> {
             eyre::bail!("attempted to compile reference for compile-only test");
         }
 
-        let Warned { output, warnings } = compile::compile(reference, self.project_runner.world);
+        self.compile_inner(reference)
+    }
+
+    fn compile_inner(&mut self, source: Source) -> eyre::Result<TypstDocument> {
+        let Warned { output, warnings } = compile::compile(source, self.project_runner.world);
         self.result.set_warnings(warnings);
 
         let doc = match output {
