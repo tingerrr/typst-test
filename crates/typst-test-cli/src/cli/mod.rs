@@ -331,14 +331,18 @@ pub struct CompileArgs {
     ///
     /// For more information, see
     /// <https://reproducible-builds.org/specs/source-date-epoch/>.
-    #[clap(
-        long = "creation-timestamp",
+    #[arg(
+        visible_alias = "creation-timestamp",
         env = "SOURCE_DATE_EPOCH",
         value_name = "UNIX_TIMESTAMP",
         value_parser = parse_source_date_epoch,
         global = true,
     )]
     pub now: Option<DateTime<Utc>>,
+
+    /// Promote warnings to errors
+    #[arg(long, global = true)]
+    pub promote_warnings: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, clap::ValueEnum)]

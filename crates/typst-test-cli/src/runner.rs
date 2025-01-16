@@ -7,7 +7,7 @@ use lib::doc::render::Origin;
 use lib::doc::{compare, compile, Document};
 use lib::project::Project;
 use lib::test::{Kind, Suite, SuiteResult, Test, TestResult, TestResultKind};
-use typst::diag::Warned;
+use typst::diag::{Severity, Warned};
 use typst::model::Document as TypstDocument;
 use typst::syntax::Source;
 
@@ -41,6 +41,9 @@ pub enum Action {
 
 #[derive(Debug, Clone)]
 pub struct RunnerConfig<'c> {
+    /// Whether to promote warnings to errors.
+    pub promote_warnings: bool,
+
     /// Whether to stop after the first failure.
     pub fail_fast: bool,
 
@@ -350,15 +353,39 @@ impl TestRunner<'_, '_, '_> {
     }
 
     fn compile_inner(&mut self, source: Source) -> eyre::Result<TypstDocument> {
-        let Warned { output, warnings } = compile::compile(source, self.project_runner.world);
-        self.result.set_warnings(warnings);
+        let Warned {
+            output,
+            mut warnings,
+        } = compile::compile(source, self.project_runner.world);
+
+        if self.project_runner.config.promote_warnings {
+            warnings = warnings
+                .into_iter()
+                .map(|mut warning| {
+                    warning.severity = Severity::Error;
+                    warning.with_hint("this warning was promoted to an error")
+                })
+                .collect();
+        }
 
         let doc = match output {
             Ok(doc) => {
                 self.result.set_passed_compilation();
+                if self.project_runner.config.promote_warnings {
+                    self.result
+                        .set_failed_reference_compilation(compile::Error(warnings));
+                    eyre::bail!(TestFailure);
+                } else {
+                    self.result.set_warnings(warnings);
+                }
                 doc
             }
-            Err(err) => {
+            Err(mut err) => {
+                if self.project_runner.config.promote_warnings {
+                    err.0.extend(warnings);
+                } else {
+                    self.result.set_warnings(warnings);
+                }
                 self.result.set_failed_reference_compilation(err);
                 eyre::bail!(TestFailure);
             }
