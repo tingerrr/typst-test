@@ -87,26 +87,19 @@ impl Suite {
                 tracing::debug!(id = %test.id(), "filtered test");
                 self.filtered.insert(id, test);
             }
-        }
+        } else {
+            for entry in fs::read_dir(&abs)? {
+                let entry = entry?;
 
-        for entry in fs::read_dir(&abs)? {
-            let entry = entry?;
+                if entry.metadata()?.is_dir() {
+                    let abs = entry.path();
+                    let rel = abs
+                        .strip_prefix(paths.test_root())
+                        .expect("entry must be in full");
 
-            if entry.metadata()?.is_dir() {
-                let abs = entry.path();
-                let rel = abs
-                    .strip_prefix(paths.test_root())
-                    .expect("entry must be in full");
-
-                tracing::trace!(path = ?rel, "reading directory entry");
-
-                let name = entry.file_name();
-
-                if Id::RESERVED_COMPONENTS.iter().any(|&r| r == name) {
-                    continue;
+                    tracing::trace!(path = ?rel, "reading directory entry");
+                    self.collect_dir(paths, rel, test_set)?;
                 }
-
-                self.collect_dir(paths, rel, test_set)?;
             }
         }
 

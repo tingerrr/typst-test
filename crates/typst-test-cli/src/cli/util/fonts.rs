@@ -9,6 +9,7 @@ use crate::ui::Indented;
 use crate::{kit, ui};
 
 #[derive(clap::Args, Debug, Clone)]
+#[group(id = "util-font-args")]
 pub struct Args {
     /// List variants alongside fonts
     #[arg(long)]

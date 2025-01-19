@@ -5,6 +5,7 @@ use super::Context;
 pub mod about;
 pub mod clean;
 pub mod fonts;
+pub mod migrate;
 
 #[derive(clap::Args, Debug, Clone)]
 #[group(id = "util-args")]
@@ -27,6 +28,10 @@ pub enum Command {
     /// List all available fonts
     #[command()]
     Fonts(fonts::Args),
+
+    /// Migrate the test structure to the new version
+    #[command()]
+    Migrate(migrate::Args),
 }
 
 impl Command {
@@ -35,6 +40,7 @@ impl Command {
             Command::About => about::run(ctx),
             Command::Clean => clean::run(ctx),
             Command::Fonts(args) => fonts::run(ctx, args),
+            Command::Migrate(args) => migrate::run(ctx, args),
         }
     }
 }

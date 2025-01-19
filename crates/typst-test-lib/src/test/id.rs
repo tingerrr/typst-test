@@ -15,20 +15,12 @@ use thiserror::Error;
 /// Each part of the path must be a simple id containing only ASCII
 /// alpha-numeric characters, dashes `-` or underscores `_` and start with an
 /// alphabetic character. This restriction may be lifted in the future.
-///
-/// Some ids are reserved for special folders:
-/// - `ref`: reference image storage
-/// - `out`: output image storage
-/// - `diff`: difference image storage
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
 pub struct Id(EcoString);
 
 impl Id {
     /// The test component separator.
     pub const SEPARATOR: &'static str = "/";
-
-    /// The reserved ids, these cannot be used as parts in a path.
-    pub const RESERVED_COMPONENTS: &'static [&'static str] = &["ref", "out", "diff"];
 }
 
 impl Id {
@@ -116,7 +108,6 @@ impl Id {
     /// assert!( Id::is_valid("a"));
     /// assert!(!Id::is_valid("a//b"));  // empty component
     /// assert!(!Id::is_valid("a/"));    // empty component
-    /// assert!(!Id::is_valid("a/ref")); // reserved component
     /// ```
     pub fn is_valid<S: AsRef<str>>(string: S) -> bool {
         Self::validate(string).is_ok()
@@ -139,7 +130,6 @@ impl Id {
     /// assert!( Id::is_component_valid("a1"));
     /// assert!(!Id::is_component_valid("1a"));  // invalid char
     /// assert!(!Id::is_component_valid("a "));  // invalid char
-    /// assert!(!Id::is_component_valid("ref")); // reserved component
     /// ```
     pub fn is_component_valid<S: AsRef<str>>(component: S) -> bool {
         Self::validate_component(component).is_ok()
@@ -151,10 +141,6 @@ impl Id {
 
         if component.is_empty() {
             return Err(ParseIdError::Empty);
-        }
-
-        if let Some(reserved) = Self::RESERVED_COMPONENTS.iter().find(|&&r| r == component) {
-            return Err(ParseIdError::ReservedFragment(reserved));
         }
 
         let mut chars = component.chars().peekable();
@@ -454,14 +440,11 @@ pub enum ParseIdError {
     #[error("id contained an invalid fragment")]
     InvalidFragment,
 
-    /// An id contained a reserved fragment.
-    #[error("id contained a reserved fragment: '{0}'")]
-    ReservedFragment(&'static str),
-
     /// An id contained empty or no fragments.
     #[error("id contained empty or no fragments")]
     Empty,
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -513,7 +496,6 @@ mod tests {
         assert!(Id::new("/a").is_err());
         assert!(Id::new("a/").is_err());
         assert!(Id::new("a//b").is_err());
-        assert!(Id::new("a/ref").is_err());
 
         assert!(Id::new("a ").is_err());
         assert!(Id::new("1a").is_err());

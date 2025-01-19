@@ -142,7 +142,19 @@ impl Context<'_> {
             |w| {
                 write!(w, "use '")?;
                 ui::write_colored(w, Color::Cyan, |w| write!(w, "all:"))?;
-                write!(w, "{expr}' to confirm using all tests")
+                writeln!(w, "{expr}' to confirm using all tests")
+            },
+        )
+    }
+
+    pub fn error_nested_tests(&self) -> io::Result<()> {
+        self.ui.error_hinted_with(
+            |w| writeln!(w, "Found nested tests"),
+            |w| {
+                writeln!(w, "This is no longer supported")?;
+                write!(w, "You can run ")?;
+                ui::write_colored(w, Color::Cyan, |w| write!(w, "typst-test util migrate"))?;
+                writeln!(w, " to automatically fix the tests")
             },
         )
     }
@@ -223,7 +235,13 @@ impl Context<'_> {
 
     /// Collect and filter tests for the given project.
     pub fn collect_tests(&self, project: &Project, set: &TestSet) -> eyre::Result<Suite> {
+        if !util::migrate::collect_old_structure(project.paths(), "self")?.is_empty() {
+            self.error_nested_tests()?;
+            eyre::bail!(OperationFailure);
+        }
+
         let suite = Suite::collect(project.paths(), set)?;
+
         Ok(suite)
     }
 
