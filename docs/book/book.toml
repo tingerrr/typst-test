@@ -1,7 +1,7 @@
 [book]
 title = "typst-test"
 description = "A guide and reference document for typst-test."
-authors = ["tingerrr <me@tinger.dev>"]
+authors = ["tingerrr <tinger@tinger.dev>"]
 language = "en"
 multilingual = false
 src = "src"

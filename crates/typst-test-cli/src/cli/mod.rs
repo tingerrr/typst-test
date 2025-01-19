@@ -313,7 +313,8 @@ pub struct FilterArgs {
 
     /// The exact tests to operate on
     ///
-    /// Equivalent to passing `--expression 'exact:a | exact:b | ...'`.
+    /// Equivalent to passing `--expression 'exact:a | exact:b | ...'` and
+    /// implies `--no-implicit-skip`.
     #[arg(required = false, conflicts_with = "expression")]
     pub tests: Vec<String>,
 }

@@ -1,6 +1,15 @@
 # Annotations
-Tests may contain annotations at the start of the file.
-These annotations are placed on the leading doc comment of the file itself.
+Tests may contain annotations which are used for configuring the test runner for each test.
+These annotations are placed on a leading doc comment at the start of the test script, i.e. they must be before any content or imports.
+The doc comment may contain any content after the annotations, any empty lines are ignored.
+
+For ephemeral regression tests only the main test file will be checked for annotations, the reference file will be ignored.
+
+<div class="warning">
+
+The syntax for annotations may change if typst adds first class annotation or documentation comment syntax.
+
+</div>
 
 ```typst
 /// [skip]
@@ -12,10 +21,8 @@ These annotations are placed on the leading doc comment of the file itself.
 ...
 ```
 
-Annotations may only be placed at the start of the doc comment on individual lines without anything between them (no empty lines or other content).
-
-The following annotations exist:
+The following annotations are available:
 
 |Annotation|Description|
 |---|---|
-|`skip`|Takes not arguments, marks the test as part of the `skip` test set, can only be used once.|
+|`skip`|Marks the test as part of the `skip()` test set.|

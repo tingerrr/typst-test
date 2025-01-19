@@ -1,37 +1,28 @@
 # Watching for Changes
+`typst-test` does not currently support a `watch` sub command the same way `typst` does.
+However, you can work around this by using [`watchexec`] or an equivalent tool which re-runs `typst-test` whenever a file in your project changes.
 
-`typst-test` does not currently support a "watch" command, which is common in this sort of tooling.
-This is due to some of the complexity in how it uses the core Typst libraries.
-
-However, you may workaround this by using [`watchexec`](https://watchexec.github.io/).
-To begin, install it following the installation instructions in its [README](https://github.com/watchexec/watchexec).
-
-Then, run a command like this in your package root directory, which is the same directory with your `typst.toml` and `README.md` file:
-
-```bash
+Let's look at a concrete example with `watchexec`.
+Navigate to your project root directory, i.e. that whhich contains your `typst.toml` manifest and run:
+```shell
 watchexec \
   --watch . \
   --clear \
   --ignore 'tests/**/diff/**' \
   --ignore 'tests/**/out/**' \
-  "typst-test r"
+  --ignore 'tests/**/ref/**' \
+  "tt run"
 ```
 
-You may create an alias in your shell to make it more convenient:
+Of course a shell alias or task runner definition makes this more convenient.
+While this is running, any change to a file in your project which is not excluded by the patterns proivided using the `--ignore` flag will trigger a re-run of `tt run`.
 
-```bash
-alias ttw="watchexec --watch . --clear --ignore 'tests/**/diff/**' --ignore 'tests/**/out/**' 'typst-test r'"
-```
-
-This will automatically run `typst-test r` whenever any file changes other than those in your tests' `{diff,out}` directories.
+If you have other files youmay edit which don't influence the outcome of your test suite, then you should ignore them too.
 
 <div class="warning">
 
-Notes:
-
-1. The command we're using here, using `typst-test r`, runs all tests anytime any file changes.
-   If you want different behavior, you need to modify the command appropriately.
-
-2. Although unlikely, if your tests change any files in your package source tree, you may need to include them as additional `--ignore <glob>` patterns to the command.
+Keep in mind that `tt run`, will run _all_ on every change, so this may not be appropriate for you if you have a large test suite.
 
 </div>
+
+[`watchexec`]: https://watchexec.github.io/
