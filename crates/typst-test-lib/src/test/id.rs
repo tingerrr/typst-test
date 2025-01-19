@@ -215,6 +215,24 @@ impl Id {
         c.rest
     }
 
+    /// The ancestors of this id, this corresponds to the ancestors of the
+    /// test's path.
+    ///
+    /// # Examples
+    /// ```
+    /// # use typst_test_lib::test::Id;
+    /// let id = Id::new("a/b/c")?;
+    /// let mut ancestors = id.ancestors();
+    /// assert_eq!(ancestors.next(), Some("a/b/c"));
+    /// assert_eq!(ancestors.next(), Some("a/b"));
+    /// assert_eq!(ancestors.next(), Some("a"));
+    /// assert_eq!(ancestors.next(), None);
+    /// # Ok::<_, Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn ancestors(&self) -> Ancestors<'_> {
+        Ancestors { rest: &self.0 }
+    }
+
     /// The components of this id, this corresponds to the components of the
     /// test's path.
     ///
@@ -361,8 +379,32 @@ impl PartialEq<Id> for EcoString {
     }
 }
 
-/// An iterator over components of an id, returned by
-/// [`Id::components`].
+/// Returned by [`Id::ancestors`].
+#[derive(Debug)]
+pub struct Ancestors<'id> {
+    rest: &'id str,
+}
+
+impl<'id> Iterator for Ancestors<'id> {
+    type Item = &'id str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let ret = self.rest;
+        self.rest = self
+            .rest
+            .rsplit_once(Id::SEPARATOR)
+            .map(|(rest, _)| rest)
+            .unwrap_or("");
+
+        if ret.is_empty() {
+            return None;
+        }
+
+        Some(ret)
+    }
+}
+
+/// Returned by [`Id::components`].
 #[derive(Debug)]
 pub struct Components<'id> {
     rest: &'id str,
@@ -423,6 +465,14 @@ pub enum ParseIdError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_ancestors() {
+        assert_eq!(
+            Id::new("a/b/c").unwrap().ancestors().collect::<Vec<_>>(),
+            ["a/b/c", "a/b", "a"]
+        );
+    }
 
     #[test]
     fn test_components() {
