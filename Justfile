@@ -1,5 +1,9 @@
 book-src := justfile_directory() / 'docs' / 'book'
 
+# the cargo variable is used to run `cargo` in the nix dev shell, but
+# `cargo +1.80` outside of it
+CARGO_1_80 := env('CARGO_1_80', 'cargo +1.80')
+
 [private]
 default:
 	@just --unsorted --list --list-submodules
@@ -21,10 +25,10 @@ run *args='--release':
 ci $RUSTFLAGS='-Dwarnings' $RUSTDOCFLAGS='-Dwarnings':
 	# FIXME(tinger): See https://github.com/rust-lang/rust/issues/128538 if you get
 	# high CPU doc tests
-	cargo +1.80 test --workspace
-	cargo +1.80 clippy --workspace
-	cargo +1.80 fmt --all --check
-	cargo +1.80 doc --workspace --no-deps
+	{{ CARGO_1_80 }} test --workspace
+	{{ CARGO_1_80 }} clippy --workspace
+	{{ CARGO_1_80 }} fmt --all --check
+	{{ CARGO_1_80 }} doc --workspace --no-deps
 
 # clean all temporary directories and build artifacts
 clean:
