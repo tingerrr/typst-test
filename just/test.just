@@ -18,8 +18,7 @@ cli *args:
 
 # run the doc tests
 doc *args:
-	# TODO: this currently deadlocks my pc at 100% CPU
-	# cargo test --workspace --doc {{ args }}
+	cargo test --workspace --doc {{ args }}
 
 # run cargo insta and review the snapshot changes
 review *args='--review':
