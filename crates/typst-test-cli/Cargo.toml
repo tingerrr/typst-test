@@ -35,6 +35,7 @@ fontdb.workspace = true
 insta = { workspace = true, features = ["yaml"] }
 native-tls.workspace = true
 once_cell.workspace = true
+oxipng.workspace = true
 rayon.workspace = true
 semver.workspace = true
 serde.workspace = true

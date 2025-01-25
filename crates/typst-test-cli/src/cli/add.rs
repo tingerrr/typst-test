@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::ops::Not;
 
 use color_eyre::eyre;
 use lib::doc::render::ppi_to_ppp;
@@ -8,9 +9,9 @@ use termcolor::Color;
 use typst::diag::Warned;
 use typst_syntax::{FileId, Source, VirtualPath};
 
-use super::{CompileArgs, Context, RenderArgs};
+use super::{CompileArgs, Context, ExportArgs};
 use crate::cli::OperationFailure;
-use crate::ui;
+use crate::{ui, DEFAULT_OPTIMIZE_OPTIONS};
 
 #[derive(clap::Args, Debug, Clone)]
 #[group(id = "add-args")]
@@ -34,7 +35,7 @@ pub struct Args {
     pub compile: CompileArgs,
 
     #[command(flatten)]
-    pub render: RenderArgs,
+    pub export: ExportArgs,
 
     /// The name of the test to add
     pub test: Id,
@@ -72,11 +73,22 @@ pub fn run(ctx: &mut Context, args: &Args) -> eyre::Result<()> {
             } = Document::compile(
                 Source::new(FileId::new_fake(VirtualPath::new("")), template.to_owned()),
                 &world,
-                ppi_to_ppp(args.render.pixel_per_inch),
+                ppi_to_ppp(args.export.render.pixel_per_inch),
             );
             let doc = output?;
 
-            Test::create(paths, id, template, Some(Reference::Persistent(doc)))?;
+            Test::create(
+                paths,
+                id,
+                template,
+                Some(Reference::Persistent(
+                    doc,
+                    args.export
+                        .no_optimize_references
+                        .not()
+                        .then(|| Box::new(DEFAULT_OPTIMIZE_OPTIONS.clone())),
+                )),
+            )?;
         };
     } else {
         Test::create_default(paths, id)?;

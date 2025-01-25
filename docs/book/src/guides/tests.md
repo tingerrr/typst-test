@@ -87,15 +87,6 @@ You should see output similar to
 
 and the test should once again pass.
 
-<div class="warning">
-
-Note that, at the moment `typst-test` does not compress the reference images, this means that, if you use a version control system like git or mericural, the reference images of persistent tests can quickly bloat your repository, if you update them frequently.
-Consider using a program like [`oxipng`][oxipng] to compress them, `typst-test` can still read them without any problems.
-
-`typst-test` will warn you when you update your images for now, in the future it will compress images automatically if they are created as persistent references, see [#72].
-
-</div>
-
 This test is still somewhat arcane, let's actually test something interesting, like the API of your fancy package.
 
 Let's say you have this function inside your `src/lib.typ` file:
@@ -197,7 +188,6 @@ See [#34].
 
 This should equip you with all the knowledge of how to reliably test your projects, but if you're still curious about all the details check out the [reference for tests][tests].
 
-[#72]: https://github.com/tingerrr/typst-test/issues/72
 [#73]: https://github.com/tingerrr/typst-test/issues/73
 [#49]: https://github.com/tingerrr/typst-test/issues/49
 [#34]: https://github.com/tingerrr/typst-test/issues/34

@@ -8,6 +8,7 @@ use clap::Parser;
 use cli::Context;
 use color_eyre::eyre;
 use lib::config::{Config, ConfigLayer};
+use once_cell::sync::Lazy;
 use termcolor::{StandardStream, WriteColor};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::filter::Targets;
@@ -25,6 +26,10 @@ mod report;
 mod runner;
 mod ui;
 mod world;
+
+/// The default optimization options to use.
+pub static DEFAULT_OPTIMIZE_OPTIONS: Lazy<oxipng::Options> =
+    Lazy::new(oxipng::Options::max_compression);
 
 fn main() -> ExitCode {
     match main_impl() {

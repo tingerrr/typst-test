@@ -392,9 +392,13 @@ pub struct ExportArgs {
     #[command(flatten)]
     pub render: RenderArgs,
 
-    /// Whether to save temporary output, such as ephemeral references
+    /// Whether to skip saving temporary output, such as ephemeral references
     #[arg(long, global = true)]
     pub no_save_temporary: bool,
+
+    /// Whether to skip optimizing reference images
+    #[arg(long, global = true)]
+    pub no_optimize_references: bool,
 }
 
 #[derive(clap::Args, Debug, Clone)]

@@ -37,7 +37,7 @@ pub enum Reference {
     Ephemeral(EcoString),
 
     /// Persistent references which are stored on disk.
-    Persistent(Document),
+    Persistent(Document, Option<Box<oxipng::Options>>),
 }
 
 /// The kind of a unit test.
@@ -86,7 +86,7 @@ impl Reference {
     pub fn kind(&self) -> Kind {
         match self {
             Self::Ephemeral(_) => Kind::Ephemeral,
-            Self::Persistent(_) => Kind::Persistent,
+            Self::Persistent(_, _) => Kind::Persistent,
         }
     }
 }
@@ -184,10 +184,13 @@ impl Test {
             paths,
             id,
             DEFAULT_TEST_INPUT,
-            Some(Reference::Persistent(Document::new([Pixmap::decode_png(
-                DEFAULT_TEST_OUTPUT,
-            )
-            .expect("bytes come from a valid PNG")]))),
+            // NOTE(tinger): this image is already optimized
+            Some(Reference::Persistent(
+                Document::new([
+                    Pixmap::decode_png(DEFAULT_TEST_OUTPUT).expect("bytes come from a valid PNG")
+                ]),
+                None,
+            )),
         )
     }
 
@@ -233,8 +236,8 @@ impl Test {
             Some(Reference::Ephemeral(reference)) => {
                 this.create_reference_script(paths, reference.as_str())?;
             }
-            Some(Reference::Persistent(reference)) => {
-                this.create_reference_documents(paths, None, &reference)?;
+            Some(Reference::Persistent(reference, options)) => {
+                this.create_reference_documents(paths, None, &reference, options.as_deref())?;
             }
             None => {}
         }
@@ -280,6 +283,7 @@ impl Test {
         paths: &Paths,
         vcs: Option<&Vcs>,
         reference: &Document,
+        optimize_options: Option<&oxipng::Options>,
     ) -> Result<(), SaveError> {
         // NOTE(tinger): if there are already more pages than we want to create,
         // the surplus pages would persist and make every comparison fail due to
@@ -288,7 +292,7 @@ impl Test {
 
         let ref_dir = paths.test_ref_dir(&self.id);
         stdx::fs::create_dir(&ref_dir, true)?;
-        reference.save(&ref_dir)?;
+        reference.save(&ref_dir, optimize_options)?;
 
         if self.kind().is_ephemeral() {
             if let Some(vcs) = vcs {
@@ -386,9 +390,10 @@ impl Test {
         paths: &Paths,
         vcs: Option<&Vcs>,
         reference: &Document,
+        optimize_options: Option<&oxipng::Options>,
     ) -> Result<(), SaveError> {
         self.delete_reference_script(paths)?;
-        self.create_reference_documents(paths, vcs, reference)?;
+        self.create_reference_documents(paths, vcs, reference, optimize_options)?;
         if let Some(vcs) = vcs {
             self.unignore_reference_documents(paths, vcs)?;
         }
@@ -526,7 +531,7 @@ mod tests {
                     &paths,
                     id("persistent"),
                     "Hello World",
-                    Some(Reference::Persistent(Document::new(vec![]))),
+                    Some(Reference::Persistent(Document::new(vec![]), None)),
                 )
                 .unwrap();
 
@@ -572,15 +577,15 @@ mod tests {
             |root| {
                 let paths = Paths::new(root, None);
                 test("compile-only")
-                    .make_persistent(&paths, None, &Document::new([]))
+                    .make_persistent(&paths, None, &Document::new([]), None)
                     .unwrap();
 
                 test("ephemeral")
-                    .make_persistent(&paths, None, &Document::new([]))
+                    .make_persistent(&paths, None, &Document::new([]), None)
                     .unwrap();
 
                 test("persistent")
-                    .make_persistent(&paths, None, &Document::new([]))
+                    .make_persistent(&paths, None, &Document::new([]), None)
                     .unwrap();
             },
             |root| {

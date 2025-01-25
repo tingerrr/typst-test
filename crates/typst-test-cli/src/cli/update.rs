@@ -40,6 +40,7 @@ pub fn run(ctx: &mut Context, args: &Args) -> eyre::Result<()> {
         &world,
         RunnerConfig {
             promote_warnings: args.compile.promote_warnings,
+            optimize: !args.export.no_optimize_references,
             fail_fast: !args.run.no_fail_fast,
             pixel_per_pt: render::ppi_to_ppp(args.export.render.pixel_per_inch),
             action: Action::Update {
@@ -65,13 +66,6 @@ pub fn run(ctx: &mut Context, args: &Args) -> eyre::Result<()> {
         ctx.ui.can_live_report() && ctx.args.global.output.verbose == 0,
     );
     let result = runner.run(&reporter)?;
-
-    if project.vcs().is_some() {
-        ctx.ui.warning_hinted(
-            "Updated references are not compressed, but persisted in a repository",
-            "Consider using a program like `oxipng` to reduce repository bloat",
-        )?;
-    }
 
     if !result.is_complete_pass() {
         eyre::bail!(TestFailure);

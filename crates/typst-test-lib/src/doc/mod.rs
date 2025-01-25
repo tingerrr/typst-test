@@ -151,18 +151,27 @@ impl Document {
     ///
     /// # Panics
     /// Panics if `num == 0`.
-    pub fn save<P: AsRef<Path>>(&self, dir: P) -> Result<(), SaveError> {
+    pub fn save<P: AsRef<Path>>(
+        &self,
+        dir: P,
+        optimize_options: Option<&oxipng::Options>,
+    ) -> Result<(), SaveError> {
         for (num, page) in self
             .buffers
             .iter()
             .enumerate()
             .map(|(idx, page)| (idx + 1, page))
         {
-            page.save_png(
-                dir.as_ref()
-                    .join(num.to_string())
-                    .with_extension(PAGE_EXTENSION),
-            )?;
+            let path = dir
+                .as_ref()
+                .join(num.to_string())
+                .with_extension(PAGE_EXTENSION);
+
+            if let Some(options) = optimize_options {
+                oxipng::optimize_from_memory(page.data(), options)?;
+            } else {
+                page.save_png(path)?;
+            }
         }
 
         Ok(())
@@ -245,6 +254,10 @@ pub enum LoadError {
 /// Returned by [`Document::save`].
 #[derive(Debug, Error)]
 pub enum SaveError {
+    /// A page could not be optimized.
+    #[error("a page could not be optimized")]
+    Optimize(#[from] oxipng::PngError),
+
     /// A page could not be encoded.
     #[error("a page could not be encoded")]
     Page(#[from] png::EncodingError),
@@ -271,7 +284,7 @@ mod tests {
         _dev::fs::TempEnv::run(
             |root| root,
             |root| {
-                doc.save(root).unwrap();
+                doc.save(root, None).unwrap();
             },
             |root| {
                 root.expect_file_content("1.png", doc.buffers[0].encode_png().unwrap())

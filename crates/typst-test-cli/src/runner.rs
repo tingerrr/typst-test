@@ -14,6 +14,7 @@ use typst::syntax::Source;
 use crate::cli::TestFailure;
 use crate::report::Reporter;
 use crate::world::SystemWorld;
+use crate::DEFAULT_OPTIMIZE_OPTIONS;
 
 #[derive(Debug, Clone)]
 pub enum Action {
@@ -43,6 +44,9 @@ pub enum Action {
 pub struct RunnerConfig<'c> {
     /// Whether to promote warnings to errors.
     pub promote_warnings: bool,
+
+    /// Whether to optimize reference documents.
+    pub optimize: bool,
 
     /// Whether to stop after the first failure.
     pub fail_fast: bool,
@@ -217,7 +221,15 @@ impl TestRunner<'_, '_, '_> {
                     let output = self.compile_out_doc(output)?;
                     let output = self.render_out_doc(output)?;
 
-                    self.test.create_reference_documents(paths, vcs, &output)?;
+                    self.test.create_reference_documents(
+                        paths,
+                        vcs,
+                        &output,
+                        self.project_runner
+                            .config
+                            .optimize
+                            .then_some(&*DEFAULT_OPTIMIZE_OPTIONS),
+                    )?;
 
                     if export {
                         let reference = self.load_ref_doc()?;
@@ -406,6 +418,7 @@ impl TestRunner<'_, '_, '_> {
                 .project
                 .paths()
                 .test_ref_dir(self.test.id()),
+            None,
         )?;
 
         Ok(())
@@ -419,6 +432,7 @@ impl TestRunner<'_, '_, '_> {
                 .project
                 .paths()
                 .test_out_dir(self.test.id()),
+            None,
         )?;
 
         Ok(())
@@ -436,6 +450,7 @@ impl TestRunner<'_, '_, '_> {
                 .project
                 .paths()
                 .test_diff_dir(self.test.id()),
+            None,
         )?;
 
         Ok(())

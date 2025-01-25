@@ -60,6 +60,7 @@ pub fn run(ctx: &mut Context, args: &Args) -> eyre::Result<()> {
         &world,
         RunnerConfig {
             promote_warnings: args.compile.promote_warnings,
+            optimize: !args.export.no_optimize_references,
             fail_fast: !args.run.no_fail_fast,
             pixel_per_pt: render::ppi_to_ppp(args.export.render.pixel_per_inch),
             action: Action::Run {

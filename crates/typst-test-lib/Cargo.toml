@@ -22,6 +22,7 @@ ecow.workspace = true
 glob.workspace = true
 ignore.workspace = true
 once_cell.workspace = true
+oxipng.workspace = true
 pest_derive.workspace = true
 pest.workspace = true
 png.workspace = true
