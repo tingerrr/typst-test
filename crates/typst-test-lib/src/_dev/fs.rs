@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use tempdir::TempDir;
 
-use crate::stdx;
+use crate::{stdx, TOOL_NAME};
 
 pub struct TempEnv {
     root: TempDir,
@@ -84,7 +84,7 @@ impl TempEnv {
         expect: impl FnOnce(&mut Expect) -> &mut Expect,
     ) {
         let dir = Self {
-            root: TempDir::new("typst-test").unwrap(),
+            root: TempDir::new(TOOL_NAME).unwrap(),
             found: BTreeMap::new(),
             expected: BTreeMap::new(),
         };
@@ -105,7 +105,7 @@ impl TempEnv {
 
     pub fn run_no_check(setup: impl FnOnce(&mut Setup) -> &mut Setup, test: impl FnOnce(&Path)) {
         let dir = Self {
-            root: TempDir::new("typst-test").unwrap(),
+            root: TempDir::new(TOOL_NAME).unwrap(),
             found: BTreeMap::new(),
             expected: BTreeMap::new(),
         };
