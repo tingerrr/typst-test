@@ -160,7 +160,7 @@ Let's import our function and test it:
 // Note that we get an array of strings back if a panic occured, or `none` if
 // there was no panic.
 #assert.eq(
-  catch(() => frobnicate(none)).first(),
+  catch(() => frobnicate(none)),
   "panicked with: Cannot frobnicate `none`!",
 )
 ```

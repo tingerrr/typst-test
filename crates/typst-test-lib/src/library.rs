@@ -22,7 +22,7 @@ use comemo::Tracked;
 use ecow::EcoString;
 use typst::diag::{bail, SourceResult};
 use typst::engine::Engine;
-use typst::foundations::{func, Array, Context, Func, Module, Repr, Scope, Str, Value};
+use typst::foundations::{func, Context, Func, Module, Repr, Scope, Str, Value};
 use typst::{Library, LibraryBuilder};
 
 /// Defines prelude items for the given scope, this is a subset of
@@ -69,8 +69,12 @@ fn catch(engine: &mut Engine, context: Tracked<Context>, func: Func) -> Value {
     func.call::<[Value; 0]>(engine, context, [])
         .map(|_| Value::None)
         .unwrap_or_else(|errors| {
-            Value::Array(Array::from_iter(
-                errors.into_iter().map(|e| Value::Str(Str::from(e.message))),
+            Value::Str(Str::from(
+                errors
+                    .first()
+                    .expect("should contain at least one diagnostic")
+                    .message
+                    .clone(),
             ))
         })
 }
@@ -117,7 +121,7 @@ mod tests {
             #let errors = catch(() => {
                 panic()
             })
-            #assert.eq(errors.first(), "panicked")
+            #assert.eq(errors, "panicked")
         "#,
         );
 
