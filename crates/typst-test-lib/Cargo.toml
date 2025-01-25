@@ -14,31 +14,29 @@ readme.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bitflags.workspace = true
-bytemuck.workspace = true
 comemo.workspace = true
 dirs.workspace = true
 ecow.workspace = true
 glob.workspace = true
-ignore.workspace = true
 once_cell.workspace = true
 oxipng.workspace = true
-pest_derive.workspace = true
 pest.workspace = true
+pest_derive.workspace = true
 png.workspace = true
-serde = { workspace = true, features = ["derive"] }
-strsim.workspace = true
 rayon.workspace = true
 regex.workspace = true
-tiny-skia.workspace = true
+serde = { workspace = true, features = ["derive"] }
+strsim.workspace = true
 thiserror.workspace = true
-toml.workspace = true
+tiny-skia.workspace = true
 tracing.workspace = true
-typst.workspace = true
+toml.workspace = true
 typst-render.workspace = true
+typst.workspace = true
 uuid = { workspace = true, features = ["v4", "serde"] }
 
 [dev-dependencies]
-tempdir.workspace = true
-typst-assets = { workspace = true, features = ["fonts"] }
-typst-dev-assets.workspace = true
+bytemuck = "1.16.1"
+tempdir = "0.3.7"
+typst-assets = { version = "0.12.0", features = ["fonts"] }
+typst-dev-assets = { git = "https://github.com/typst/typst-dev-assets", rev = "ee8ae61" }

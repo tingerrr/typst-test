@@ -20,39 +20,30 @@ path = "src/main.rs"
 [dependencies]
 lib = { path = "../typst-test-lib", package = "typst-test-lib" }
 
-bitflags.workspace = true
 chrono = { workspace = true, features = ["serde"] }
 clap = { workspace = true, features = ["derive", "env"] }
-color-eyre.workspace = true
-ctrlc.workspace = true
 codespan-reporting.workspace = true
+color-eyre.workspace = true
 comemo.workspace = true
+ctrlc.workspace = true
 dirs.workspace = true
 ecow.workspace = true
-env_proxy.workspace = true
-flate2.workspace = true
 fontdb.workspace = true
 insta = { workspace = true, features = ["yaml"] }
-native-tls.workspace = true
 once_cell.workspace = true
 oxipng.workspace = true
 rayon.workspace = true
-semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tar.workspace = true
 termcolor.workspace = true
-tiny-skia.workspace = true
 thiserror.workspace = true
-toml.workspace = true
-toml_edit.workspace = true
-tracing.workspace = true
+tiny-skia.workspace = true
 tracing-subscriber.workspace = true
 tracing-tree.workspace = true
-typst.workspace = true
+tracing.workspace = true
 typst-kit.workspace = true
 typst-syntax.workspace = true
-ureq = { workspace = true, default-features = false, features = ["native-tls", "gzip", "json"] }
+typst.workspace = true
 uuid = { workspace = true, features = ["serde", "v4"] }
 
 [features]
