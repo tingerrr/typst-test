@@ -1,8 +1,0 @@
----
-source: crates/typst-test-cli/src/ui.rs
-expression: str
----
-[0m[1mHeading[0m
-  Hello
-
-  World

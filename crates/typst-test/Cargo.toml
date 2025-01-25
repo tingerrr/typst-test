@@ -1,5 +1,5 @@
 [package]
-name = "typst-test-cli"
+name = "typst-test"
 version.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -12,7 +12,7 @@ keywords.workspace = true
 readme.workspace = true
 
 [[bin]]
-name = "typst-test"
+name = "tt"
 path = "src/main.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

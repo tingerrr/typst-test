@@ -153,7 +153,7 @@ impl Context<'_> {
             |w| {
                 writeln!(w, "This is no longer supported")?;
                 write!(w, "You can run ")?;
-                ui::write_colored(w, Color::Cyan, |w| write!(w, "typst-test util migrate"))?;
+                ui::write_colored(w, Color::Cyan, |w| write!(w, "tt util migrate"))?;
                 writeln!(w, " to automatically fix the tests")
             },
         )
