@@ -335,6 +335,7 @@ pub struct CompileArgs {
     /// For more information, see
     /// <https://reproducible-builds.org/specs/source-date-epoch/>.
     #[arg(
+        long,
         visible_alias = "creation-timestamp",
         env = "SOURCE_DATE_EPOCH",
         value_name = "UNIX_TIMESTAMP",
