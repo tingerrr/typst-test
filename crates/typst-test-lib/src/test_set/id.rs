@@ -1,4 +1,4 @@
-//! Test set ids.
+//! Test set identifiers.
 
 use std::borrow::Borrow;
 use std::fmt::{self, Debug, Display};
@@ -6,6 +6,8 @@ use std::str::FromStr;
 
 use ecow::EcoString;
 use thiserror::Error;
+
+use super::eval::{Context, Error, Eval, Value};
 
 /// An id for test sets.
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -152,6 +154,12 @@ impl PartialEq<EcoString> for Id {
 impl PartialEq<Id> for EcoString {
     fn eq(&self, other: &Id) -> bool {
         self == other.as_str()
+    }
+}
+
+impl Eval for Id {
+    fn eval(&self, ctx: &Context) -> Result<Value, Error> {
+        ctx.resolve(self)
     }
 }
 

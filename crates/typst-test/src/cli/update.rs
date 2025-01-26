@@ -1,5 +1,6 @@
 use color_eyre::eyre;
 use lib::doc::render::{self, Origin};
+use lib::test_set::eval;
 
 use super::{CompileArgs, Context, Direction, ExportArgs, FilterArgs, RunArgs, CANCELLED};
 use crate::cli::TestFailure;
@@ -24,13 +25,8 @@ pub struct Args {
 
 pub fn run(ctx: &mut Context, args: &Args) -> eyre::Result<()> {
     let project = ctx.project()?;
-
-    // TODO(tinger): see test_set API
-    let set = ctx.test_set(&FilterArgs {
-        expression: format!("( {} ) & persistent()", args.filter.expression),
-        ..args.filter.clone()
-    })?;
-
+    let mut set = ctx.test_set(&args.filter)?;
+    set.add_intersection(eval::Set::built_in_persistent());
     let suite = ctx.collect_tests(&project, &set)?;
     let world = ctx.world(&args.compile)?;
 

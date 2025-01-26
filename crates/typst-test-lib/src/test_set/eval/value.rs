@@ -1,9 +1,11 @@
-use ecow::eco_vec;
+//! Expression evaluation result values.
+
+use ecow::EcoString;
 
 use super::{Error, Func, Set};
-use crate::test_set::parse::{Num, Pat, Str};
+use crate::test_set::Pat;
 
-/// The value a test set expression can evaluate to.
+/// The value of a test set expression.
 #[derive(Debug, Clone)]
 pub enum Value {
     /// A test set.
@@ -13,10 +15,10 @@ pub enum Value {
     Func(Func),
 
     /// An unsigned integer.
-    Num(Num),
+    Num(usize),
 
     /// A string.
-    Str(Str),
+    Str(String),
 
     /// A pattern.
     Pat(Pat),
@@ -34,7 +36,7 @@ impl Value {
         }
     }
 
-    /// Convert this value into a [`T`] or return an error.
+    /// Convert this value into a `T` or return an error.
     pub fn expect_type<T: TryFromValue>(&self) -> Result<T, Error> {
         T::try_from_value(self)
     }
@@ -52,15 +54,27 @@ impl From<Func> for Value {
     }
 }
 
-impl From<Num> for Value {
-    fn from(value: Num) -> Self {
+impl From<usize> for Value {
+    fn from(value: usize) -> Self {
         Self::Num(value)
     }
 }
 
-impl From<Str> for Value {
-    fn from(value: Str) -> Self {
+impl From<String> for Value {
+    fn from(value: String) -> Self {
         Self::Str(value)
+    }
+}
+
+impl From<EcoString> for Value {
+    fn from(value: EcoString) -> Self {
+        Self::Str(value.into())
+    }
+}
+
+impl From<&str> for Value {
+    fn from(value: &str) -> Self {
+        Self::Str(value.into())
     }
 }
 
@@ -74,44 +88,6 @@ impl From<Pat> for Value {
 pub trait TryFromValue: Sized {
     fn try_from_value(value: &Value) -> Result<Self, Error>;
 }
-
-macro_rules! impl_try_from_value {
-    ($id:ident) => {
-        impl TryFromValue for $id {
-            fn try_from_value(value: &Value) -> Result<Self, Error> {
-                Ok(match value {
-                    Value::$id(set) => set.clone(),
-                    _ => {
-                        return Err(Error::TypeMismatch {
-                            expected: eco_vec![Type::$id],
-                            found: value.as_type(),
-                        })
-                    }
-                })
-            }
-        }
-    };
-}
-
-impl TryFromValue for Set {
-    fn try_from_value(value: &Value) -> Result<Self, Error> {
-        Ok(match value {
-            Value::Set(set) => set.clone(),
-            Value::Pat(pat) => Set::built_in_pattern(pat.clone()),
-            _ => {
-                return Err(Error::TypeMismatch {
-                    expected: eco_vec![Type::Set, Type::Pat],
-                    found: value.as_type(),
-                })
-            }
-        })
-    }
-}
-
-impl_try_from_value!(Func);
-impl_try_from_value!(Num);
-impl_try_from_value!(Str);
-impl_try_from_value!(Pat);
 
 /// The type of an expression. This is primarily used for diagnostics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

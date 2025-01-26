@@ -185,6 +185,7 @@ mod tests {
     use super::*;
     use crate::_dev;
     use crate::test::{Annotation, Kind};
+    use crate::test_set::eval;
 
     #[test]
     fn test_collect() {
@@ -212,7 +213,11 @@ mod tests {
             },
             |root| {
                 let paths = Paths::new(root, None);
-                let suite = Suite::collect(&paths, &TestSet::all()).unwrap();
+                let suite = Suite::collect(
+                    &paths,
+                    &TestSet::new(eval::Context::empty(), eval::Set::built_in_all()),
+                )
+                .unwrap();
 
                 let tests = [
                     ("compile-only", Kind::CompileOnly, eco_vec![]),

@@ -1,9 +1,9 @@
 //! Test set expression parsing.
 
+use std::borrow::Cow;
 use std::char::CharTryFromError;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::Deref;
 use std::sync::{Arc, LazyLock};
 
 use pest::iterators::Pair;
@@ -11,6 +11,8 @@ use pest::pratt_parser::PrattParser;
 use pest::Parser;
 use pest_derive::Parser;
 use thiserror::Error;
+
+use super::{Glob, Id, Pat, Regex};
 
 /// An error for parsing failures.
 #[derive(Debug, Error)]
@@ -255,226 +257,18 @@ impl Rule {
     }
 }
 
-/// Define a simple str wrapper new type.
-macro_rules! define_str_newtype {
-    (
-        $(#[$meta:meta])*
-        $vis:vis struct $id:ident;
-    ) => {
-        $(#[$meta])*
-        #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-        $vis struct $id(pub Arc<String>);
-
-        impl $id {
-            #[doc = concat!("Creates a new [`", stringify!($id), "`] from the given string.")]
-            pub fn new<S: Into<String>>(str: S) -> Self {
-                Self(Arc::new(str.into()))
-            }
-
-            /// The inner string.
-            pub fn as_str(&self) -> &str {
-                &self.0
-            }
-        }
-
-        impl Debug for $id {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.pad(&self.0)
-            }
-        }
-
-        impl Deref for $id {
-            type Target = str;
-
-            fn deref(&self) -> &Self::Target {
-                self.as_str()
-            }
-        }
-
-        impl AsRef<str> for $id {
-            fn as_ref(&self) -> &str {
-                self.as_str()
-            }
-        }
-    };
-}
-
-define_str_newtype! {
-    /// An identifier.
-    pub struct Ident;
-}
-
-define_str_newtype! {
-    /// A string literal.
-    pub struct Str;
-}
-
-define_str_newtype! {
-    /// A path literal.
-    pub struct Path;
-}
-
-/// A glob pattern literal.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Glob(pub Arc<glob::Pattern>);
-
-impl Glob {
-    /// Creates a new [`Glob`] from the given pattern.
-    pub fn new(pat: glob::Pattern) -> Self {
-        Self(Arc::new(pat))
-    }
-
-    /// The inner glob pattern.
-    pub fn as_glob(&self) -> &glob::Pattern {
-        &self.0
-    }
-
-    /// The inner string.
-    pub fn as_str(&self) -> &str {
-        self.0.as_str()
-    }
-}
-
-impl Debug for Glob {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0.as_str())
-    }
-}
-
-impl Deref for Glob {
-    type Target = glob::Pattern;
-
-    fn deref(&self) -> &Self::Target {
-        self.as_glob()
-    }
-}
-
-impl AsRef<glob::Pattern> for Glob {
-    fn as_ref(&self) -> &glob::Pattern {
-        self.as_glob()
-    }
-}
-
-impl AsRef<str> for Glob {
-    fn as_ref(&self) -> &str {
-        self.as_str()
-    }
-}
-
-/// A regex pattern literal.
-#[derive(Clone)]
-pub struct Regex(pub Arc<regex::Regex>);
-
-impl Regex {
-    /// Creates a new [`Regex`] from the given pattern.
-    pub fn new(pat: regex::Regex) -> Self {
-        Self(Arc::new(pat))
-    }
-
-    /// The inner regex pattern.
-    pub fn as_regex(&self) -> &regex::Regex {
-        &self.0
-    }
-
-    /// The inner string.
-    pub fn as_str(&self) -> &str {
-        self.0.as_str()
-    }
-}
-
-impl Debug for Regex {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0.as_str())
-    }
-}
-
-impl PartialEq for Regex {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.as_str() == other.0.as_str()
-    }
-}
-
-impl Eq for Regex {}
-
-impl Hash for Regex {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0.as_str().hash(state);
-    }
-}
-
-impl Deref for Regex {
-    type Target = regex::Regex;
-
-    fn deref(&self) -> &Self::Target {
-        self.as_regex()
-    }
-}
-
-impl AsRef<regex::Regex> for Regex {
-    fn as_ref(&self) -> &regex::Regex {
-        self.as_regex()
-    }
-}
-
-impl AsRef<str> for Regex {
-    fn as_ref(&self) -> &str {
-        self.as_str()
-    }
-}
-
-/// A number literal.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Num(pub usize);
-
-/// A pattern matching identifiers of tests.
-#[derive(Clone, PartialEq, Eq, Hash)]
-pub enum Pat {
-    /// A regex pattern, matches if the glob matches the haystack.
-    Glob(Glob),
-
-    /// A regex pattern, matches if the regex matches the haystack.
-    Regex(Regex),
-
-    /// A contains pattern, matches if the pattern is contained in the haystack.
-    Contains(Str),
-
-    /// An exact pattern, matches if the pattern equals the haystack.
-    Exact(Str),
-
-    /// A path pattern, matches if the pattern refers to the haystack.
-    ///
-    /// Absolute paths will be treated as relative from the suite root, relative
-    /// paths will be treated as relative to a PWD given by the evaluation
-    /// context.
-    Path(Path),
-}
-
-impl Debug for Pat {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let (prefix, pat) = match self {
-            Pat::Glob(glob) => ("glob", glob.as_str()),
-            Pat::Regex(regex) => ("regex", regex.as_str()),
-            Pat::Contains(pat) => ("contains", pat.as_str()),
-            Pat::Exact(pat) => ("exact", pat.as_str()),
-            Pat::Path(path) => ("path", path.as_str()),
-        };
-
-        write!(f, "{prefix}:{pat:?}")
-    }
-}
-
 /// An atom, i.e. a leaf node within a test set expression such as an identifier
 /// or pattern.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Atom {
     /// An identifier.
-    Ident(Ident),
+    Id(Id),
 
     /// A number literal.
-    Num(Num),
+    Num(usize),
 
     /// A string literal.
-    Str(Str),
+    Str(String),
 
     /// A pattern literal.
     Pat(Pat),
@@ -484,7 +278,7 @@ pub enum Atom {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Function {
     /// The identifier of this function.
-    pub id: Ident,
+    pub id: Id,
 
     /// The arguments of this function.
     pub args: Vec<Expr>,
@@ -584,11 +378,12 @@ pub fn parse(input: &str) -> Result<Expr, Error> {
 fn parse_expr(pair: Pair<Rule>, pratt: &PrattParser<Rule>) -> Result<Expr, Error> {
     pratt
         .map_primary(|primary| match primary.as_rule() {
-            Rule::id => parse_id(primary).map(Atom::Ident).map(Expr::Atom),
+            Rule::id => parse_id(primary).map(Atom::Id).map(Expr::Atom),
             Rule::pat_inner => parse_pat(primary).map(Atom::Pat).map(Expr::Atom),
-            Rule::str_single | Rule::str_double => {
-                parse_str(primary).map(Atom::Str).map(Expr::Atom)
-            }
+            Rule::str_single | Rule::str_double => parse_str(primary)
+                .map(Cow::into_owned)
+                .map(Atom::Str)
+                .map(Expr::Atom),
             Rule::num_inner => parse_num(primary).map(Atom::Num).map(Expr::Atom),
             Rule::func => parse_func(primary, pratt).map(Expr::Func),
             Rule::expr => parse_expr(primary, pratt),
@@ -613,9 +408,9 @@ fn parse_expr(pair: Pair<Rule>, pratt: &PrattParser<Rule>) -> Result<Expr, Error
 }
 
 /// Parse the given pair into an identifier.
-fn parse_id(pair: Pair<Rule>) -> Result<Ident, Error> {
+fn parse_id(pair: Pair<Rule>) -> Result<Id, Error> {
     pair.expect_rules(&[Rule::id])?;
-    Ok(Ident::new(pair.as_str()))
+    Ok(Id::new(pair.as_str()).expect("the grammar ensures validity"))
 }
 
 /// Parse the given pair into a pattern literal.
@@ -628,24 +423,22 @@ fn parse_pat(pair: Pair<Rule>) -> Result<Pat, Error> {
     let inner = pairs.expect_pair(&[Rule::pat_raw_lit, Rule::str_double, Rule::str_single])?;
     pairs.expect_end()?;
 
-    let pat = if inner.as_rule() == Rule::pat_raw_lit {
-        Str::new(inner.as_str())
+    let pat: Cow<str> = if inner.as_rule() == Rule::pat_raw_lit {
+        inner.as_str().into()
     } else {
         parse_str(inner)?
     };
 
     Ok(match kind {
-        "g" | "glob" => Pat::Glob(Glob::new(glob::Pattern::new(&pat.0)?)),
-        "r" | "regex" => Pat::Regex(Regex::new(regex::Regex::new(&pat.0)?)),
-        "c" | "contains" => Pat::Contains(pat),
-        "e" | "exact" => Pat::Exact(pat),
-        "p" | "path" => Pat::Path(Path(pat.0)),
+        "g" | "glob" => Pat::Glob(Glob::new(glob::Pattern::new(&pat)?)),
+        "r" | "regex" => Pat::Regex(Regex::new(regex::Regex::new(&pat)?)),
+        "e" | "exact" => Pat::Exact(pat.into()),
         _ => unreachable!("unhandled kind: {kind:?}"),
     })
 }
 
 /// Parse the given pair into a number literal.
-fn parse_num(pair: Pair<Rule>) -> Result<Num, Error> {
+fn parse_num(pair: Pair<Rule>) -> Result<usize, Error> {
     pair.expect_rules(&[Rule::num_inner])?;
     let mut s = pair.as_str().as_bytes();
     let mut num = 0;
@@ -667,11 +460,11 @@ fn parse_num(pair: Pair<Rule>) -> Result<Num, Error> {
         num += (d - b'0') as usize;
     }
 
-    Ok(Num(num))
+    Ok(num)
 }
 
 /// Parse the given pair into a string literal.
-fn parse_str(pair: Pair<Rule>) -> Result<Str, Error> {
+fn parse_str(pair: Pair<'_, Rule>) -> Result<Cow<'_, str>, Error> {
     pair.expect_rules(&[Rule::str_single, Rule::str_double])?;
 
     let mut pairs = pair.into_inner();
@@ -681,10 +474,10 @@ fn parse_str(pair: Pair<Rule>) -> Result<Str, Error> {
     pairs.expect_end()?;
 
     match inner.as_rule() {
-        Rule::str_single_inner => Ok(Str::new(inner.as_str())),
+        Rule::str_single_inner => Ok(inner.as_str().into()),
         Rule::str_double_inner => {
             if !inner.as_str().contains('\\') {
-                Ok(Str::new(inner.as_str()))
+                Ok(inner.as_str().into())
             } else {
                 let mut buf = String::with_capacity(inner.as_str().len());
 
@@ -721,7 +514,7 @@ fn parse_str(pair: Pair<Rule>) -> Result<Str, Error> {
                     }
                 }
 
-                Ok(Str::new(buf))
+                Ok(buf.into())
             }
         }
         _ => unreachable!(),
@@ -779,7 +572,7 @@ mod tests {
     fn test_parse_single_string() {
         assert_eq!(
             parse(r#"'a string \'"#).unwrap(),
-            Expr::Atom(Atom::Str(Str::new(r#"a string \"#)))
+            Expr::Atom(Atom::Str(r#"a string \"#.into()))
         );
     }
 
@@ -787,30 +580,30 @@ mod tests {
     fn test_parse_double_string() {
         assert_eq!(
             parse(r#""a string \" \u{30}""#).unwrap(),
-            Expr::Atom(Atom::Str(Str::new(r#"a string " 0"#)))
+            Expr::Atom(Atom::Str(r#"a string " 0"#.into()))
         );
     }
 
     #[test]
-    fn test_parse_ident() {
+    fn test_parse_identifier() {
         assert_eq!(
             parse("abc").unwrap(),
-            Expr::Atom(Atom::Ident(Ident::new("abc")))
+            Expr::Atom(Atom::Id(Id::new("abc").unwrap()))
         );
         assert_eq!(
             parse("a-bc").unwrap(),
-            Expr::Atom(Atom::Ident(Ident::new("a-bc")))
+            Expr::Atom(Atom::Id(Id::new("a-bc").unwrap()))
         );
         assert_eq!(
             parse("a__bc-").unwrap(),
-            Expr::Atom(Atom::Ident(Ident::new("a__bc-")))
+            Expr::Atom(Atom::Id(Id::new("a__bc-").unwrap()))
         );
     }
 
     #[test]
     fn test_parse_number() {
-        assert_eq!(parse("1234").unwrap(), Expr::Atom(Atom::Num(Num(1234))));
-        assert_eq!(parse("1_000").unwrap(), Expr::Atom(Atom::Num(Num(1000))));
+        assert_eq!(parse("1234").unwrap(), Expr::Atom(Atom::Num(1234)));
+        assert_eq!(parse("1_000").unwrap(), Expr::Atom(Atom::Num(1000)));
     }
 
     #[test]
@@ -838,8 +631,8 @@ mod tests {
             ))))
         );
         assert_eq!(
-            parse("p:a/b").unwrap(),
-            Expr::Atom(Atom::Pat(Pat::Path(Path::new("a/b"))))
+            parse("e:a/b").unwrap(),
+            Expr::Atom(Atom::Pat(Pat::Exact("a/b".into())))
         );
     }
 
@@ -848,14 +641,14 @@ mod tests {
         assert_eq!(
             parse("func()").unwrap(),
             Expr::Func(Function {
-                id: Ident::new("func"),
+                id: Id::new("func").unwrap(),
                 args: vec![],
             })
         );
         assert_eq!(
             parse("func(  )").unwrap(),
             Expr::Func(Function {
-                id: Ident::new("func"),
+                id: Id::new("func").unwrap(),
                 args: vec![],
             })
         );
@@ -864,13 +657,13 @@ mod tests {
     #[test]
     fn test_parse_func_simple_args() {
         assert_eq!(
-            parse("func( a, 1  , p:'a/b')").unwrap(),
+            parse("func( a, 1  , e:'a/b')").unwrap(),
             Expr::Func(Function {
-                id: Ident::new("func"),
+                id: Id::new("func").unwrap(),
                 args: vec![
-                    Expr::Atom(Atom::Ident(Ident::new("a"))),
-                    Expr::Atom(Atom::Num(Num(1))),
-                    Expr::Atom(Atom::Pat(Pat::Path(Path::new("a/b"))))
+                    Expr::Atom(Atom::Id(Id::new("a").unwrap())),
+                    Expr::Atom(Atom::Num(1)),
+                    Expr::Atom(Atom::Pat(Pat::Exact("a/b".into())))
                 ],
             })
         );
@@ -884,7 +677,7 @@ mod tests {
                 op: PrefixOp::Not,
                 expr: Arc::new(Expr::Prefix {
                     op: PrefixOp::Not,
-                    expr: Arc::new(Expr::Atom(Atom::Num(Num(0)))),
+                    expr: Arc::new(Expr::Atom(Atom::Num(0))),
                 }),
             }
         );
@@ -898,10 +691,10 @@ mod tests {
                 op: InfixOp::Union,
                 lhs: Arc::new(Expr::Infix {
                     op: InfixOp::Inter,
-                    lhs: Arc::new(Expr::Atom(Atom::Num(Num(0)))),
-                    rhs: Arc::new(Expr::Atom(Atom::Num(Num(1)))),
+                    lhs: Arc::new(Expr::Atom(Atom::Num(0))),
+                    rhs: Arc::new(Expr::Atom(Atom::Num(1))),
                 }),
-                rhs: Arc::new(Expr::Atom(Atom::Num(Num(2)))),
+                rhs: Arc::new(Expr::Atom(Atom::Num(2))),
             }
         );
 
@@ -909,11 +702,11 @@ mod tests {
             parse("0 and (1 or 2)").unwrap(),
             Expr::Infix {
                 op: InfixOp::Inter,
-                lhs: Arc::new(Expr::Atom(Atom::Num(Num(0)))),
+                lhs: Arc::new(Expr::Atom(Atom::Num(0))),
                 rhs: Arc::new(Expr::Infix {
                     op: InfixOp::Union,
-                    lhs: Arc::new(Expr::Atom(Atom::Num(Num(1)))),
-                    rhs: Arc::new(Expr::Atom(Atom::Num(Num(2)))),
+                    lhs: Arc::new(Expr::Atom(Atom::Num(1))),
+                    rhs: Arc::new(Expr::Atom(Atom::Num(2))),
                 }),
             }
         );
@@ -932,10 +725,10 @@ mod tests {
                     op: PrefixOp::Not,
                     expr: Arc::new(Expr::Infix {
                         op: InfixOp::Union,
-                        lhs: Arc::new(Expr::Atom(Atom::Ident(Ident::new("abc")))),
+                        lhs: Arc::new(Expr::Atom(Atom::Id(Id::new("abc").unwrap()))),
                         rhs: Arc::new(Expr::Func(Function {
-                            id: Ident::new("func"),
-                            args: vec![Expr::Atom(Atom::Num(Num(0)))]
+                            id: Id::new("func").unwrap(),
+                            args: vec![Expr::Atom(Atom::Num(0))]
                         })),
                     }),
                 }),

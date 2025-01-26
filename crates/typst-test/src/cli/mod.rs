@@ -10,7 +10,7 @@ use color_eyre::eyre::WrapErr;
 use lib::config::{Config, ConfigLayer};
 use lib::project::Project;
 use lib::test::{Id, Suite};
-use lib::test_set::{self, Error as TestSetError, TestSet};
+use lib::test_set::{self, eval, Error as TestSetError, TestSet};
 use termcolor::Color;
 use thiserror::Error;
 
@@ -212,25 +212,37 @@ impl Context<'_> {
 
     /// Create a new test set from the arguments with the given context.
     pub fn test_set(&self, filter: &FilterArgs) -> eyre::Result<TestSet> {
-        let mut ctx = test_set::Context::new();
-        ctx.bind_built_ins();
+        if !filter.tests.is_empty() {
+            let mut tests = filter
+                .tests
+                .iter()
+                .map(|test| eval::Set::built_in_pattern(test_set::Pat::Exact(test.into())));
 
-        // TODO(tinger): see test_set module todo
-        // if self.tests.is_empty() {}
+            let a = tests.next();
+            let b = tests.next();
 
-        let mut set = match TestSet::parse_and_evaluate(ctx, &filter.expression) {
-            Ok(set) => set,
-            Err(err) => {
-                self.error_test_set_failure(err)?;
-                eyre::bail!(OperationFailure);
+            let set = a
+                .and_then(|a| b.map(|b| (a, b)))
+                .map(|(a, b)| eval::Set::built_in_union(a, b, tests))
+                .unwrap_or_default();
+
+            Ok(TestSet::new(eval::Context::empty(), set))
+        } else {
+            let ctx = eval::Context::with_built_ins();
+            let mut set = match TestSet::parse_and_evaluate(ctx, &filter.expression) {
+                Ok(set) => set,
+                Err(err) => {
+                    self.error_test_set_failure(err)?;
+                    eyre::bail!(OperationFailure);
+                }
+            };
+
+            if !filter.no_implicit_skip {
+                set.add_implicit_skip();
             }
-        };
 
-        if !filter.no_implicit_skip {
-            set.add_implicit_skip();
-        };
-
-        Ok(set)
+            Ok(set)
+        }
     }
 
     /// Collect and filter tests for the given project.
@@ -247,7 +259,10 @@ impl Context<'_> {
 
     /// Collect all tests for the given project.
     pub fn collect_all_tests(&self, project: &Project) -> eyre::Result<Suite> {
-        let suite = Suite::collect(project.paths(), &TestSet::all())?;
+        let suite = Suite::collect(
+            project.paths(),
+            &TestSet::new(eval::Context::empty(), eval::Set::built_in_all()),
+        )?;
         Ok(suite)
     }
 
@@ -314,11 +329,13 @@ pub struct FilterArgs {
     #[allow(rustdoc::bare_urls)]
     /// A test set expression which selects which tests to operate on
     ///
-    /// Note that this expression will be wrapped with `(...) ~ skip()` unless
-    /// `--no-iimplicit-skip` is provided.
+    /// Note that some commands will wrap the expression in `(...) ~ skip()`
+    /// unless `--no-implicit-skip` is provided, these include `list`, `run` and
+    /// `update`.
     ///
-    /// See https://github.com/tingerrr/typst-test for an introduction on the
-    /// test set language.
+    /// See the language reference and guide a
+    /// https://tingerrr.github.io/typst-test/index.html
+    /// for more info.
     #[arg(short, long, default_value = "all()")]
     pub expression: String,
 

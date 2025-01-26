@@ -3,21 +3,20 @@
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
 
-use ecow::{EcoString, EcoVec};
+use ecow::EcoVec;
 use thiserror::Error;
 
-use self::value::{Type, Value};
 use super::id::Id;
-use super::parse::{Atom, Expr, Function, InfixOp, Pat, PrefixOp};
+use super::parse::{self, Expr, Function, InfixOp, PrefixOp};
 use crate::stdx::fmt::{Separators, Term};
-use crate::test::Id as TestId;
 
-pub mod func;
-pub mod set;
-pub mod value;
+mod func;
+mod set;
+mod value;
 
 pub use self::func::Func;
 pub use self::set::Set;
+pub use self::value::{TryFromValue, Type, Value};
 
 /// A trait for expressions to be evaluated and matched.
 pub trait Eval {
@@ -25,29 +24,10 @@ pub trait Eval {
     fn eval(&self, ctx: &Context) -> Result<Value, Error>;
 }
 
-impl Pat {
-    /// Whether this pattern matches the given test identifier.
-    pub fn matches(&self, id: &TestId) -> bool {
-        match self {
-            Self::Glob(pat) => pat.matches(id.as_str()),
-            Self::Regex(regex) => regex.is_match(id.as_str()),
-            Self::Contains(pat) => id.as_str().contains(pat.as_str()),
-            Self::Exact(pat) => id.as_str() == pat.as_str(),
-            Self::Path(path) => id.as_str().starts_with(path.as_str()),
-        }
-    }
-}
-
-impl Eval for Pat {
-    fn eval(&self, _ctx: &Context) -> Result<Value, Error> {
-        Ok(Value::Pat(self.clone()))
-    }
-}
-
-impl Eval for Atom {
+impl Eval for parse::Atom {
     fn eval(&self, ctx: &Context) -> Result<Value, Error> {
         Ok(match self {
-            Self::Ident(id) => ctx.resolve(id)?,
+            Self::Id(id) => ctx.resolve(id.as_str())?,
             Self::Num(n) => Value::Num(*n),
             Self::Str(s) => Value::Str(s.clone()),
             Self::Pat(pat) => pat.eval(ctx)?,
@@ -57,7 +37,7 @@ impl Eval for Atom {
 
 impl Eval for Function {
     fn eval(&self, ctx: &Context) -> Result<Value, Error> {
-        let func: Func = ctx.resolve(&self.id.0)?.expect_type()?;
+        let func: Func = ctx.resolve(&self.id)?.expect_type()?;
         let args = self
             .args
             .iter()
@@ -106,14 +86,16 @@ pub struct Context {
 
 impl Context {
     /// Create a new evaluation context with no bindings.
-    pub fn new() -> Self {
+    pub fn empty() -> Self {
         Self {
             bindings: BTreeMap::new(),
         }
     }
 
     /// Binds the built-in functions and values.
-    pub fn bind_built_ins(&mut self) {
+    pub fn with_built_ins() -> Self {
+        let mut bindings = BTreeMap::new();
+
         for (id, f) in [
             (
                 "all",
@@ -125,13 +107,23 @@ impl Context {
             ("ephemeral", Func::built_in_ephemeral),
             ("persistent", Func::built_in_persistent),
         ] {
-            self.bindings
-                .insert(Id::new(id).unwrap(), Value::Func(Func::new(f)));
+            bindings.insert(Id::new(id).unwrap(), Value::Func(Func::new(f)));
         }
+
+        Self { bindings }
+    }
+}
+
+impl Context {
+    /// Inserts a new binding, possibly overriding an old one, returns the old
+    /// binding if there was one.
+    pub fn bind<T: Into<Value>>(&mut self, id: Id, value: T) -> Option<Value> {
+        self.bindings.insert(id, value.into())
     }
 
     /// Resolves a binding with the given identifier.
-    pub fn resolve(&self, id: &str) -> Result<Value, Error> {
+    pub fn resolve<I: AsRef<str>>(&self, id: I) -> Result<Value, Error> {
+        let id = id.as_ref();
         self.bindings
             .get(id)
             .cloned()
@@ -150,9 +142,7 @@ impl Context {
 
 impl Default for Context {
     fn default() -> Self {
-        let mut this = Self::new();
-        this.bind_built_ins();
-        this
+        Self::with_built_ins()
     }
 }
 
@@ -162,16 +152,16 @@ pub enum Error {
     /// The requested binding could not be found.
     UnknownBinding {
         /// The given identifier.
-        id: EcoString,
+        id: String,
     },
 
     /// A function received an incorrect argument count.
     InvalidArgumentCount {
         /// The identifier of the function.
-        func: EcoString,
+        func: String,
 
         /// The minimum or exact expected number of arguments, interpretation
-        /// depends on [`is_min`].
+        /// depends on `is_min`.
         expected: usize,
 
         /// Whether the expected number is the minimum and allows more arguments.
@@ -243,27 +233,5 @@ impl Display for Error {
             Error::Regex(_) => write!(f, "could not parse regex"),
             Error::Glob(_) => write!(f, "could not parse glob"),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::test_set::parse::Path;
-
-    fn test_id(id: &str) -> TestId {
-        TestId::new(id).unwrap()
-    }
-
-    #[test]
-    fn test_path_pattern_matches() {
-        let pat = Pat::Path(Path::new("a/b/c"));
-
-        assert!(pat.matches(&test_id("a/b/c")));
-        assert!(pat.matches(&test_id("a/b/c/d")));
-
-        assert!(!pat.matches(&test_id("a")));
-        assert!(!pat.matches(&test_id("a/b")));
-        assert!(!pat.matches(&test_id("x/a/b/c")));
     }
 }

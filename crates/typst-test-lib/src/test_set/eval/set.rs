@@ -1,14 +1,18 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use super::{Context, Error};
+use ecow::eco_vec;
+
+use super::{Context, Error, TryFromValue, Type, Value};
 use crate::test::Test;
-use crate::test_set::parse::Pat;
+use crate::test_set::Pat;
 
 /// The backing implementation for a [`Set`].
 type SetImpl = Arc<dyn Fn(&Context, &Test) -> Result<bool, Error> + 'static>;
 
 /// A set value, can be used to check if a test is contained in it.
+///
+/// The defaut value is the `none` set, that which contains no tests.
 #[derive(Clone)]
 pub struct Set(SetImpl);
 
@@ -35,7 +39,7 @@ impl Debug for Set {
 
 impl Default for Set {
     fn default() -> Self {
-        Self::built_in_comp(Self::built_in_skip())
+        Self::built_in_none()
     }
 }
 
@@ -74,7 +78,7 @@ impl Set {
     ///
     /// This is the test set created by pattern literals like `r:'foot-(\w-)+'`.
     pub fn built_in_pattern(pat: Pat) -> Self {
-        Self::new(move |_, test| Ok(pat.matches(test.id())))
+        Self::new(move |_, test| Ok(pat.is_match(test.id())))
     }
 
     /// Construct a set which contains all tests _not_ contained in the given
@@ -130,9 +134,9 @@ impl Set {
     /// Construct a set which contains all tests which are contained in the
     /// first but not the second set.
     ///
-    /// This is the test set created by `a ~ b`.
+    /// This is the test set created by `a ~ b` and is equivalent to `a & !b`.
     pub fn built_in_diff(a: Set, b: Set) -> Self {
-        Self::new(move |ctx, test| Ok(a.contains(ctx, test)? & !b.contains(ctx, test)?))
+        Self::new(move |ctx, test| Ok(a.contains(ctx, test)? && !b.contains(ctx, test)?))
     }
 
     /// Construct a set which contains all tests which are contained in the
@@ -141,5 +145,20 @@ impl Set {
     /// This is the test set created by `a ^ b`.
     pub fn built_in_sym_diff(a: Set, b: Set) -> Self {
         Self::new(move |ctx, test| Ok(a.contains(ctx, test)? ^ b.contains(ctx, test)?))
+    }
+}
+
+impl TryFromValue for Set {
+    fn try_from_value(value: &Value) -> Result<Self, Error> {
+        Ok(match value {
+            Value::Set(set) => set.clone(),
+            Value::Pat(pat) => Set::built_in_pattern(pat.clone()),
+            _ => {
+                return Err(Error::TypeMismatch {
+                    expected: eco_vec![Type::Set, Type::Pat],
+                    found: value.as_type(),
+                })
+            }
+        })
     }
 }

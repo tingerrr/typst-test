@@ -1,22 +1,31 @@
 //! A functional set-based DSL for filtering tests.
-
-// TODO(tinger): Link to book, expose API to create simple test sets
-// programmatically.
+//!
+//! See the language [reference] and [guide] for more info.
+//!
+//! [reference]: https://tingerrr.github.io/typst-test/reference/test-sets/index.html
+//! [guide]: https://tingerrr.github.io/typst-test/guides/test-sets.html
 
 use std::mem;
 use std::str::FromStr;
 
 use thiserror::Error;
 
-use self::eval::{Eval, Set};
+use self::eval::{Context, Eval, Set};
 use crate::test::Test;
 
-mod eval;
+pub mod eval;
+mod glob;
 mod id;
+mod num;
 mod parse;
+mod pat;
+mod regex;
+mod str;
 
-pub use self::eval::Context;
+pub use self::glob::Glob;
 pub use self::id::{Id, ParseIdError};
+pub use self::pat::Pat;
+pub use self::regex::Regex;
 
 /// A parsed test set expression, this type can only be parsed from a string and
 /// not created manually at the moment.
@@ -73,20 +82,17 @@ pub struct TestSet {
 }
 
 impl TestSet {
-    /// Creates a new test set which contains all tests.
-    ///
-    /// This will contain an empty [`Context`] and return `true` for
-    /// [`TestSet::all`].
-    pub fn all() -> Self {
+    /// Creates a new test set.
+    pub fn new(ctx: Context, set: Set) -> Self {
         Self {
-            all: true,
-            ctx: Context::new(),
-            set: Set::built_in_all(),
+            all: false,
+            ctx,
+            set,
         }
     }
 
     /// Create a new test set from the given context and expression.
-    pub fn evaluate(ctx: Context, expr: TestSetExpr) -> Result<Self, Error> {
+    pub fn evaluate(ctx: eval::Context, expr: TestSetExpr) -> Result<Self, Error> {
         let TestSetExpr { all, expr } = expr;
         let set = expr.eval(&ctx).and_then(|value| value.expect_type())?;
 
@@ -98,10 +104,14 @@ impl TestSet {
         Self::evaluate(ctx, TestSetExpr::parse(input)?)
     }
 
-    /// Adds an implicit `(...) ~ skip()` around the expression, this is used to
-    /// easily filter out skipped test for default test sets.
+    /// Adds an implicit `(...) ~ skip()` around the expression.
     pub fn add_implicit_skip(&mut self) {
         self.set = Set::built_in_diff(mem::take(&mut self.set), Set::built_in_skip());
+    }
+
+    /// Adds an implicit `(...) & set()` around the expression.
+    pub fn add_intersection(&mut self, set: Set) {
+        self.set = Set::built_in_inter(mem::take(&mut self.set), set, []);
     }
 }
 
