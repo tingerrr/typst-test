@@ -11,7 +11,7 @@ This is because `typst-test` is primarily aimed at developers of packages.
 If you want to use a different project root, or don't have a manifest file, you can provide the root directory using the `--root` like so.
 
 ```bash
-tt init --root ./path/to/root/
+tt list --root ./path/to/root/
 ```
 
 Keep in mind that you must pass this option to every command that operates on a project.

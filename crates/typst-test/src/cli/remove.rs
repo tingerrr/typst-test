@@ -20,7 +20,8 @@ pub struct Args {
 
 pub fn run(ctx: &mut Context, args: &Args) -> eyre::Result<()> {
     let project = ctx.project()?;
-    let suite = ctx.collect_all_tests(&project)?;
+    let set = ctx.test_set(&args.filter)?;
+    let suite = ctx.collect_tests(&project, &set)?;
 
     let len = suite.matched().len();
 

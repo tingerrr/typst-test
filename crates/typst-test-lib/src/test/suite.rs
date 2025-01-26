@@ -49,21 +49,30 @@ impl Suite {
             this.template = Some(content);
         }
 
-        tracing::debug!("collecting from test root directory");
-        for entry in fs::read_dir(root)? {
-            let entry = entry?;
+        match root.read_dir() {
+            Ok(read_dir) => {
+                tracing::debug!("collecting from test root directory");
+                for entry in read_dir {
+                    let entry = entry?;
 
-            if entry.metadata()?.is_dir() {
-                let abs = entry.path();
-                let rel = abs
-                    .strip_prefix(paths.test_root())
-                    .expect("entry must be in full");
+                    if entry.metadata()?.is_dir() {
+                        let abs = entry.path();
+                        let rel = abs
+                            .strip_prefix(paths.test_root())
+                            .expect("entry must be in full");
 
-                this.collect_dir(paths, rel, test_set)?;
+                        this.collect_dir(paths, rel, test_set)?;
+                    }
+                }
+
+                Ok(this)
             }
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                tracing::debug!("regression test suite empty");
+                Ok(this)
+            }
+            Err(err) => Err(err.into()),
         }
-
-        Ok(this)
     }
 
     /// Recursively collect tests in the given directory.

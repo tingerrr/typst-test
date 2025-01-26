@@ -19,12 +19,10 @@ use crate::ui::{self, Ui};
 use crate::world::SystemWorld;
 
 pub mod add;
-pub mod init;
 pub mod list;
 pub mod remove;
 pub mod run;
 pub mod status;
-pub mod uninit;
 pub mod update;
 pub mod util;
 
@@ -89,30 +87,6 @@ impl Context<'_> {
                 writeln!(w)
             },
         )
-    }
-
-    pub fn error_project_already_initialized(&self, package_name: Option<&str>) -> io::Result<()> {
-        self.ui.error_with(|w| {
-            if let Some(name) = package_name {
-                write!(w, "Package ")?;
-                ui::write_colored(w, Color::Cyan, |w| write!(w, "{name}"))?;
-            } else {
-                write!(w, "Project")?;
-            }
-            writeln!(w, " was already initialized")
-        })
-    }
-
-    pub fn error_project_not_initialized(&self, package_name: Option<&str>) -> io::Result<()> {
-        self.ui.error_with(|w| {
-            if let Some(name) = package_name {
-                write!(w, "Package ")?;
-                ui::write_colored(w, Color::Cyan, |w| write!(w, "{name}"))?;
-            } else {
-                write!(w, "Project")?;
-            }
-            writeln!(w, " was not initialized")
-        })
     }
 
     pub fn error_test_set_failure(&self, error: TestSetError) -> io::Result<()> {
@@ -199,13 +173,6 @@ impl Context<'_> {
             self.error_no_project()?;
             eyre::bail!(OperationFailure);
         };
-
-        if !project.paths().test_root().try_exists()? {
-            self.error_project_not_initialized(
-                project.manifest().map(|m| m.package.name.as_str()),
-            )?;
-            eyre::bail!(OperationFailure);
-        }
 
         Ok(project)
     }
@@ -330,8 +297,8 @@ pub struct FilterArgs {
     /// A test set expression which selects which tests to operate on
     ///
     /// Note that some commands will wrap the expression in `(...) ~ skip()`
-    /// unless `--no-implicit-skip` is provided, these include `list`, `run` and
-    /// `update`.
+    /// unless `--no-implicit-skip` or explcit tests are, these include `list`,
+    /// `run`, `remove` and `update`.
     ///
     /// See the language reference and guide a
     /// https://tingerrr.github.io/typst-test/index.html
@@ -518,14 +485,6 @@ pub struct Args {
 
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum Command {
-    /// Initialize the current project with a test directory
-    #[command()]
-    Init(init::Args),
-
-    /// Remove the test directory from the current project
-    #[command()]
-    Uninit(uninit::Args),
-
     /// Show information about the current project
     #[command(visible_alias = "st")]
     Status(status::Args),
@@ -561,8 +520,6 @@ pub enum Command {
 impl Command {
     pub fn run(&self, ctx: &mut Context) -> eyre::Result<()> {
         match self {
-            Command::Init(args) => init::run(ctx, args),
-            Command::Uninit(args) => uninit::run(ctx, args),
             Command::Add(args) => add::run(ctx, args),
             Command::Remove(args) => remove::run(ctx, args),
             Command::Status(args) => status::run(ctx, args),
